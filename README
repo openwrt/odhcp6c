@@ -1,0 +1,62 @@
+odhcp6c - Embedded DHCPv6 Client
+
+
+** Abstract **
+
+odhcp6c is a minimalistic DHCPv6 client for use in embedded Linux systems.
+
+
+** Features **
+
+1. Handling of non-temporary addresses
+	a) assignment of addresses to source interface
+	b) handling of valid and preferred lifetimes
+	c) duplicate address detection
+
+2. Handling of IPv6-Prefixes (Prefix Delegation)
+	a) requesting of prefixes
+
+3. Stateless fallback-support
+
+4. State script support
+
+
+** Compiling **
+
+odhcp6c uses cmake:
+* To prepare a Makefile use:  "cmake ." 
+* To build / install use: "make" / "make install" afterwards.
+* To build DEB or RPM packages use: "make package" afterwards.
+
+
+** State Script **
+
+The state script is called whenever the DHCPv6 state changes.
+The script is called with the following parameters: <interface> <state>
+
+
+States:
+* bound			A suitable server was found and addresses or prefixes acquired		
+* informed		A stateless information request returned updated information
+* timeout		The DHCPv6 operation did not succeed within the defined time
+* updated		Updated information was received from the DHCPv6 server
+* rebound		The DHCPv6 client switched to another server
+* unbound		The DHCPv6 client lost all DHCPv6 servers and will restart
+
+
+Environment:
+* RDNSS			A space-separated list of recursive DNS servers
+* DOMAINS		A space-separated list of DNS search domains
+* OPTION_<num>	Custom option received as base-16
+* PREFIXES		A space-separated list of prefixes currently assigned
+				Format: <prefix>/<length>,preferred,valid
+* PREFIXES_LOST	A space-separated list of prefixes lost since last update
+
+
+
+
+** Wishlist **
+
+Features that I would like to see implemented in the near or far future:
+
+* Reconfigure Authentication 
