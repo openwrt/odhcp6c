@@ -476,21 +476,23 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
 			memcpy(cand.duid, odata, olen);
 			cand.duid_len = olen;
-		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 &&
-				!odata[0] && odata[1] == DHCPV6_NoAddrsAvail) {
+		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 && !odata[0]
+				&& odata[1] == DHCPV6_NoAddrsAvail) {
 			if (na_mode == IA_MODE_FORCE) {
 				return -1;
 			} else {
 				cand.has_noaddravail = true;
 				cand.preference -= 1000;
 			}
+		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 && !odata[0]
+				&& odata[1] == DHCPV6_NoPrefixAvail) {
+			cand.preference -= 2000;
 		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
 				cand.preference >= 0) {
 			cand.preference = odata[1];
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
-		}
-		else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
+		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
 			struct dhcpv6_ia_hdr *h = (void*)odata;
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
@@ -499,7 +501,7 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 				else if (otype == DHCPV6_OPT_STATUS &&
 						olen >= 2 && d[0] == 0 &&
 						d[1] == DHCPV6_NoPrefixAvail)
-					return -1;
+					cand.preference -= 2000;
 			}
 		}
 	}
