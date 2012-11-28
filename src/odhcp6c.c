@@ -328,7 +328,6 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 	if (len == 0)
 		return state_data[state] + state_len[state];
 
-	syslog(LOG_WARNING, "state_reisze: %i %i %i", (int)state, (int)state_len[state], (int)len);
 	uint8_t *n = realloc(state_data[state], state_len[state] + len);
 	if (n || state_len[state] + len == 0) {
 		state_data[state] = n;

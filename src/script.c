@@ -16,6 +16,7 @@
 #include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -156,6 +157,7 @@ static void prefix_to_env(const char *name, const uint8_t *fqdn, size_t len)
 
 void script_call(const char *status)
 {
+	syslog(LOG_WARNING, "State for %s changed to %s", argv[1], status);
 	size_t dns_len, search_len, custom_len;
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
