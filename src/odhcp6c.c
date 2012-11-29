@@ -31,8 +31,6 @@
 
 
 static void sighandler(int signal);
-static int sysctl_interface(const char *ifname, const char *option,
-		const char *data);
 static int usage(void);
 
 
@@ -55,14 +53,10 @@ int main(_unused int argc, char* const argv[])
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 
-	bool help = false, daemonize = false, reset = false;
+	bool help = false, daemonize = false;
 	int c, request_pd = 0, timeout = 0;
-	while ((c = getopt(argc, argv, "RN:P:c:r:s:t:hdp:")) != -1) {
+	while ((c = getopt(argc, argv, "N:P:c:r:s:t:hdp:")) != -1) {
 		switch (c) {
-		case 'R':
-			reset = true;
-			break;
-
 		case 'N':
 			if (!strcmp(optarg, "force"))
 				ia_na_mode = IA_MODE_FORCE;
@@ -145,15 +139,6 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGTERM, sighandler);
 	signal(SIGUSR1, sighandler);
 	signal(SIGUSR2, sighandler);
-
-	// Configure interface to accept RA
-	if (reset) {
-		sysctl_interface(ifname, "accept_ra", "2");
-		sysctl_interface(ifname, "disable_ipv6", "1");
-		struct timespec ts = {1, 0};
-		nanosleep(&ts, NULL);
-		sysctl_interface(ifname, "disable_ipv6", "0");
-	}
 
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
@@ -389,21 +374,6 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len)
 {
 	*len = state_len[state];
 	return state_data[state];
-}
-
-
-static int sysctl_interface(const char *ifname, const char *option,
-		const char *data)
-{
-	char pathbuf[64];
-	const char *sysctl_pattern = "/proc/sys/net/ipv6/conf/%s/%s";
-	snprintf(pathbuf, sizeof(pathbuf), sysctl_pattern, ifname, option);
-
-	int fd = open(pathbuf, O_WRONLY);
-	int written = write(fd, data, strlen(data));
-	close(fd);
-
-	return (written > 0) ? 0 : -1;
 }
 
 
