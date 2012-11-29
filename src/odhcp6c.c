@@ -148,8 +148,8 @@ int main(_unused int argc, char* const argv[])
 
 	// Configure interface to accept RA
 	if (reset) {
-		sysctl_interface(ifname, "disable_ipv6", "1");
 		sysctl_interface(ifname, "accept_ra", "2");
+		sysctl_interface(ifname, "disable_ipv6", "1");
 		sysctl_interface(ifname, "disable_ipv6", "0");
 	}
 
