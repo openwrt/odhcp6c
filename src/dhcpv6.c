@@ -629,6 +629,10 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 			if (l_t2 > 0 && t2 > l_t2)
 				t2 = l_t2;
 
+			// Always report update in case we have IA_PDs so that
+			// the state-script is called with updated times
+			if (otype == DHCPV6_OPT_IA_PD && request_prefix)
+				have_update = true;
 
 			time_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
 
