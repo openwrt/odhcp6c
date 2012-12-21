@@ -58,7 +58,8 @@ ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src)
 				|| y < 0 || (y = hexvals[y]) < 0)
 			return -1;
 		dst[c] = x << 4 | y;
-		while (*src < 0 || (*src && hexvals[(uint8_t)*src] < 0))
+		while (((int8_t)*src) < 0 ||
+				(*src && hexvals[(uint8_t)*src] < 0))
 			src++;
 	}
 
