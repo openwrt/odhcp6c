@@ -313,7 +313,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, timeout);
 
-	uint64_t start = adhc6c_get_milli_time(), round_start = start, elapsed;
+	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
 	// Generate transaction ID
 	uint8_t trid[3];
@@ -344,7 +344,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 		// Receive rounds
 		for (; len < 0 && round_start < round_end;
-				round_start = adhc6c_get_milli_time()) {
+				round_start = odhcp6c_get_milli_time()) {
 			// Check for pending signal
 			if (odhcp6c_signal_is_pending())
 				return -1;
@@ -365,7 +365,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				uint8_t *opt = &buf[4];
 				uint8_t *opt_end = opt + len - 4;
 
-				round_start = adhc6c_get_milli_time();
+				round_start = odhcp6c_get_milli_time();
 				elapsed = round_start - start;
 				syslog(LOG_NOTICE, "Got a valid reply after "
 						"%ums", (unsigned)elapsed);

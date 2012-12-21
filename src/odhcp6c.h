@@ -192,7 +192,7 @@ void script_call(const char *status);
 
 // State manipulation
 bool odhcp6c_signal_is_pending(void);
-uint64_t adhc6c_get_milli_time(void);
+uint64_t odhcp6c_get_milli_time(void);
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
