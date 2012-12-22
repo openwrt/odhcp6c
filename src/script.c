@@ -24,7 +24,7 @@
 #include "odhcp6c.h"
 
 static const char hexdigits[] = "0123456789abcdef";
-static const char hexvals[] = {
+static const int8_t hexvals[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -2, -2, -1, -1, -2, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
