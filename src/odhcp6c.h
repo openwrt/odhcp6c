@@ -48,6 +48,13 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_IA_PREFIX = 26,
 	DHCPV6_OPT_INFO_REFRESH = 32,
 	DHCPV6_OPT_FQDN = 39,
+	DHCPV6_OPT_NTP_SERVER = 56,
+};
+
+enum dhcpv6_opt_npt {
+	NTP_SRV_ADDR = 1,
+	NTP_MC_ADDR = 2,
+	NTP_SRV_FQDN = 3
 };
 
 enum dhcpv6_msg {
@@ -150,6 +157,8 @@ enum odhcp6c_state {
 	STATE_IA_PD,
 	STATE_IA_PD_LOST,
 	STATE_CUSTOM_OPTS,
+	STATE_SNTP_IP,
+	STATE_SNTP_FQDN,
 	_STATE_MAX
 };
 
