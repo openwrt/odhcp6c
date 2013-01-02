@@ -173,6 +173,8 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_IA_PD_LOST);
 		odhcp6c_clear_state(STATE_SNTP_IP);
 		odhcp6c_clear_state(STATE_SNTP_FQDN);
+		odhcp6c_clear_state(STATE_SIP_IP);
+		odhcp6c_clear_state(STATE_SIP_FQDN);
 		dhcpv6_set_ia_na_mode(ia_na_mode);
 
 		alarm(timeout);

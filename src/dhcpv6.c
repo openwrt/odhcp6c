@@ -574,12 +574,15 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 	t1 = t2 = t3 = 86400;
 
 	size_t ia_na_len, dns_len, search_len, sntp_ip_len, sntp_dns_len;
+	size_t sip_ip_len, sip_fqdn_len;
 	uint8_t *ia_na = odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
 	uint8_t *ia_end;
 	odhcp6c_get_state(STATE_DNS, &dns_len);
 	odhcp6c_get_state(STATE_SEARCH, &search_len);
 	odhcp6c_get_state(STATE_SNTP_IP, &sntp_ip_len);
 	odhcp6c_get_state(STATE_SNTP_FQDN, &sntp_dns_len);
+	odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
+	odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 
 	// Decrease valid and preferred lifetime of prefixes
 	size_t ia_pd_len;
@@ -648,7 +651,8 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 				t3 = n;
 
 		} else if (otype == DHCPV6_OPT_DNS_SERVERS) {
-			odhcp6c_add_state(STATE_DNS, odata, olen);
+			if (olen == 16)
+				odhcp6c_add_state(STATE_DNS, odata, olen);
 		} else if (otype == DHCPV6_OPT_DNS_DOMAIN) {
 			odhcp6c_add_state(STATE_SEARCH, odata, olen);
 		} else if (otype == DHCPV6_OPT_NTP_SERVER) {
@@ -665,6 +669,11 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 					odhcp6c_add_state(STATE_SNTP_FQDN,
 							sdata, slen);
 			}
+		} else if (otype == DHCPV6_OPT_SIP_SERVER_A) {
+			if (olen == 16)
+				odhcp6c_add_state(STATE_SIP_IP, odata, olen);
+		} else if (otype == DHCPV6_OPT_SIP_SERVER_D) {
+			odhcp6c_add_state(STATE_SIP_FQDN, odata, olen);
 		} else if (otype == DHCPV6_OPT_INFO_REFRESH && olen >= 4) {
 			uint32_t refresh = ntohl(*((uint32_t*)odata));
 			if (refresh < (uint32_t)t1)
@@ -683,6 +692,8 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 				sntp_ip_len);
 		have_update |= odhcp6c_commit_state(STATE_SNTP_FQDN,
 				sntp_dns_len);
+		have_update |= odhcp6c_commit_state(STATE_SIP_IP, sip_ip_len);
+		have_update |= odhcp6c_commit_state(STATE_SIP_FQDN, sip_fqdn_len);
 		size_t new_ia_pd_len, new_ia_na_len;
 		odhcp6c_get_state(STATE_IA_PD, &new_ia_pd_len);
 		odhcp6c_get_state(STATE_IA_NA, &new_ia_na_len);
