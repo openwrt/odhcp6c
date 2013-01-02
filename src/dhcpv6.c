@@ -115,7 +115,10 @@ int init_dhcpv6(const char *ifname, int request_pd)
 
 	// Create ORO
 	uint16_t oro[] = {htons(DHCPV6_OPT_DNS_SERVERS),
-			htons(DHCPV6_OPT_DNS_DOMAIN)};
+			htons(DHCPV6_OPT_DNS_DOMAIN),
+			htons(DHCPV6_OPT_NTP_SERVER),
+			htons(DHCPV6_OPT_SIP_SERVER_A),
+			htons(DHCPV6_OPT_SIP_SERVER_D)};
 	odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 
 
