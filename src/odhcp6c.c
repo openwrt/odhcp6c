@@ -164,6 +164,8 @@ int main(_unused int argc, char* const argv[])
 		}
 	}
 
+	script_call("started");
+
 	while (do_signal != SIGTERM) { // Main logic
 		odhcp6c_clear_state(STATE_SERVER_ID);
 		odhcp6c_clear_state(STATE_SERVER_CAND);
@@ -276,6 +278,7 @@ int main(_unused int argc, char* const argv[])
 			dhcpv6_request(DHCPV6_MSG_RELEASE);
 	}
 
+	script_call("stopped");
 	return 0;
 }
 
