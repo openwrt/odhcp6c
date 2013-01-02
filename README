@@ -51,6 +51,8 @@ Environment:
 * DOMAINS		A space-separated list of DNS search domains
 * SNTP_IP		A space-separated list of SNTP server IP addresses
 * SNTP_FQDN		A space-separated list of SNTP server FQDNs
+* SIP_IP		A space-separated list of SIP servers
+* SIP_DOMAIN		A space-separated list of SIP domains
 * OPTION_<num>	Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
 				Format: <prefix>/<length>,preferred,valid
