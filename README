@@ -36,17 +36,21 @@ The script is called with the following parameters: <interface> <state>
 
 
 States:
+* started		The DHCPv6 client has been started
 * bound			A suitable server was found and addresses or prefixes acquired		
 * informed		A stateless information request returned updated information
 * timeout		The DHCPv6 operation did not succeed within the defined time
 * updated		Updated information was received from the DHCPv6 server
 * rebound		The DHCPv6 client switched to another server
 * unbound		The DHCPv6 client lost all DHCPv6 servers and will restart
+* stopped		The DHCPv6 client has been stopped
 
 
 Environment:
 * RDNSS			A space-separated list of recursive DNS servers
 * DOMAINS		A space-separated list of DNS search domains
+* SNTP_IP		A space-separated list of SNTP server IP addresses
+* SNTP_FQDN		A space-separated list of SNTP server FQDNs
 * OPTION_<num>	Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
 				Format: <prefix>/<length>,preferred,valid
