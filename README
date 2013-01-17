@@ -56,7 +56,6 @@ Environment:
 * OPTION_<num>	Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
 				Format: <prefix>/<length>,preferred,valid
-* PREFIXES_LOST	A space-separated list of prefixes lost since last update
 
 
 

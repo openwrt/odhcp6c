@@ -170,7 +170,6 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_SERVER_ID);
 		odhcp6c_clear_state(STATE_SERVER_CAND);
 		odhcp6c_clear_state(STATE_IA_PD);
-		odhcp6c_clear_state(STATE_IA_PD_LOST);
 		odhcp6c_clear_state(STATE_SNTP_IP);
 		odhcp6c_clear_state(STATE_SNTP_FQDN);
 		odhcp6c_clear_state(STATE_SIP_IP);
@@ -261,12 +260,11 @@ int main(_unused int argc, char* const argv[])
 
 
 		size_t ia_pd_len, ia_na_len, server_id_len;
-		uint8_t *ia_pd = odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
 		odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
 		odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
 		// Add all prefixes to lost prefixes
-		odhcp6c_add_state(STATE_IA_PD_LOST, ia_pd, ia_pd_len);
 		odhcp6c_clear_state(STATE_IA_PD);
 
 		if (do_signal == SIGALRM)

@@ -170,9 +170,8 @@ void script_call(const char *status)
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 
-	size_t prefix_len, lost_pd_len;
+	size_t prefix_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
-	uint8_t *lost_pd = odhcp6c_get_state(STATE_IA_PD_LOST, &lost_pd_len);
 
 	// Don't set environment before forking, because env is leaky.
 	if (fork() == 0) {
@@ -184,7 +183,6 @@ void script_call(const char *status)
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		bin_to_env(custom, custom_len);
 		prefix_to_env("PREFIXES", prefix, prefix_len);
-		prefix_to_env("PREFIXES_LOST", lost_pd, lost_pd_len);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);
@@ -192,6 +190,5 @@ void script_call(const char *status)
 	}
 
 	// Delete lost prefixes and user opts
-	odhcp6c_clear_state(STATE_IA_PD_LOST);
 	odhcp6c_clear_state(STATE_CUSTOM_OPTS);
 }

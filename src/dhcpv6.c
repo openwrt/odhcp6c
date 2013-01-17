@@ -772,10 +772,6 @@ static time_t dhcpv6_parse_ia(void *opt, void *end)
 
 			if (timeout > valid)
 				timeout = valid;
-
-			if (prefix->valid == 0) // We probably lost that prefix
-				odhcp6c_add_state(STATE_IA_PD_LOST,
-						prefix, olen);
 		} else if (otype == DHCPV6_OPT_IA_ADDR) {
 			struct dhcpv6_ia_addr *addr = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*addr))
