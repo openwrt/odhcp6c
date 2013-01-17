@@ -54,8 +54,8 @@ int main(_unused int argc, char* const argv[])
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 
 	bool help = false, daemonize = false;
-	int c, request_pd = 0, timeout = 0;
-	while ((c = getopt(argc, argv, "N:P:c:r:s:t:hdp:")) != -1) {
+	int c, request_pd = 0;
+	while ((c = getopt(argc, argv, "N:P:c:r:s:hdp:")) != -1) {
 		switch (c) {
 		case 'N':
 			if (!strcmp(optarg, "force"))
@@ -103,10 +103,6 @@ int main(_unused int argc, char* const argv[])
 			script = optarg;
 			break;
 
-		case 't':
-			timeout = strtoul(optarg, NULL, 10);
-			break;
-
 		case 'd':
 			daemonize = true;
 			break;
@@ -134,7 +130,6 @@ int main(_unused int argc, char* const argv[])
 
 	signal(SIGHUP, sighandler);
 	signal(SIGINT, sighandler);
-	signal(SIGALRM, sighandler);
 	signal(SIGCHLD, sighandler);
 	signal(SIGTERM, sighandler);
 	signal(SIGUSR1, sighandler);
@@ -176,7 +171,6 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		dhcpv6_set_ia_na_mode(ia_na_mode);
 
-		alarm(timeout);
 		do_signal = 0;
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 
@@ -194,13 +188,9 @@ int main(_unused int argc, char* const argv[])
 				else if (res > 0)
 					script_call("informed");
 
-				alarm(0);
 				if (dhcpv6_poll_reconfigure() > 0)
 					script_call("informed");
 			}
-
-			if (do_signal == SIGALRM)
-				script_call("timeout");
 
 			continue;
 		}
@@ -210,7 +200,6 @@ int main(_unused int argc, char* const argv[])
 			continue;
 
 		script_call("bound");
-		alarm(0);
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
 			// Renew Cycle
@@ -266,11 +255,7 @@ int main(_unused int argc, char* const argv[])
 
 		// Add all prefixes to lost prefixes
 		odhcp6c_clear_state(STATE_IA_PD);
-
-		if (do_signal == SIGALRM)
-			script_call("timeout");
-		else
-			script_call("unbound");
+		script_call("unbound");
 
 		// Remove assigned addresses
 		if (ia_na_len > 0)
@@ -295,7 +280,6 @@ static int usage(void)
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
-	"	-t <timeout>	Request timeout after which the script is called\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/6relayd.pid)\n"
 	"	-d		Daemonize\n"
@@ -390,8 +374,6 @@ static void sighandler(int signal)
 		do_signal = SIGUSR1;
 	else if (signal == SIGUSR2)
 		do_signal = SIGUSR2;
-	else if (signal == SIGALRM)
-		do_signal = SIGALRM;
 	else
 		do_signal = SIGTERM;
 }
