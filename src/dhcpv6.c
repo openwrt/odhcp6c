@@ -110,6 +110,27 @@ int init_dhcpv6(const char *ifname, int request_pd)
 		uint8_t duid[14] = {0, DHCPV6_OPT_CLIENTID, 0, 10, 0,
 				DHCPV6_DUID_LLADDR, 0, 1};
 		memcpy(&duid[8], ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+
+		uint8_t zero[ETHER_ADDR_LEN] = {0, 0, 0, 0, 0, 0};
+		struct ifreq ifs[100], *ifp, *ifend;
+		struct ifconf ifc;
+		ifc.ifc_req = ifs;
+		ifc.ifc_len = sizeof(ifs);
+
+		if (!memcmp(&duid[8], zero, ETHER_ADDR_LEN) &&
+				ioctl(sock, SIOCGIFCONF, &ifc) >= 0) {
+			// If our interface doesn't have an address...
+			ifend = ifs + (ifc.ifc_len / sizeof(struct ifreq));
+			for (ifp = ifc.ifc_req; ifp < ifend &&
+					!memcmp(&duid[8], zero, 6); ifp++) {
+				memcpy(ifr.ifr_name, ifp->ifr_name,
+						sizeof(ifr.ifr_name));
+				ioctl(sock, SIOCGIFHWADDR, &ifr);
+				memcpy(&duid[8], ifr.ifr_hwaddr.sa_data,
+						ETHER_ADDR_LEN);
+			}
+		}
+
 		odhcp6c_add_state(STATE_CLIENT_ID, duid, sizeof(duid));
 	}
 
