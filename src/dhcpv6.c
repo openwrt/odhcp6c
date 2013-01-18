@@ -675,7 +675,7 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 				t3 = n;
 
 		} else if (otype == DHCPV6_OPT_DNS_SERVERS) {
-			if (olen == 16)
+			if (olen % 16 == 0)
 				odhcp6c_add_state(STATE_DNS, odata, olen);
 		} else if (otype == DHCPV6_OPT_DNS_DOMAIN) {
 			odhcp6c_add_state(STATE_SEARCH, odata, olen);
