@@ -43,12 +43,12 @@ int init_rtnetlink(void)
 
 // CRUD addresses to interface
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
-		time_t pref, time_t valid)
+		uint32_t pref, uint32_t valid)
 {
 	int flags = NLM_F_REQUEST | NLM_F_ACK;
 	int cmd = RTM_DELADDR;
 
-	if (valid > 0) {
+	if (valid) {
 		flags |= NLM_F_CREATE | NLM_F_REPLACE;
 		cmd = RTM_NEWADDR;
 	}

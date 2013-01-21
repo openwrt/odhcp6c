@@ -614,20 +614,24 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 	dhcpv6_for_each_option(ia_pd, ia_pd + ia_pd_len, otype, olen, odata) {
 		struct dhcpv6_ia_prefix *p = (void*)&odata[-4];
 		uint32_t valid = ntohl(p->valid);
-		p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
+		if (valid != UINT32_MAX)
+			p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
 
 		uint32_t pref = ntohl(p->preferred);
-		p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
+		if (pref != UINT32_MAX)
+			p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
 	}
 
 	// Decrease valid and preferred lifetime of addresses
 	dhcpv6_for_each_option(ia_na, ia_na + ia_na_len, otype, olen, odata) {
 		struct dhcpv6_ia_addr *p = (void*)&odata[-4];
 		uint32_t valid = ntohl(p->valid);
-		p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
+		if (valid != UINT32_MAX)
+			p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
 
 		uint32_t pref = ntohl(p->preferred);
-		p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
+		if (pref != UINT32_MAX)
+			p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
 	}
 
 	// Parse and find all matching IAs

@@ -195,7 +195,7 @@ void dhcpv6_remove_addrs(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
-		time_t pref, time_t valid);
+		uint32_t pref, uint32_t valid);
 
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
