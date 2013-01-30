@@ -145,7 +145,7 @@ bool ra_rtnl_process(void)
 		if (len < 0)
 			break;
 
-		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, len);
+		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, (size_t)len);
 					nh = NLMSG_NEXT(nh, len)) {
 			struct ifaddrmsg *ifa = NLMSG_DATA(nh);
 			struct in6_addr *addr = NULL;
