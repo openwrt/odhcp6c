@@ -39,8 +39,8 @@ States:
 * started		The DHCPv6 client has been started
 * bound			A suitable server was found and addresses or prefixes acquired		
 * informed		A stateless information request returned updated information
-* timeout		The DHCPv6 operation did not succeed within the defined time
 * updated		Updated information was received from the DHCPv6 server
+* ra-updated	Updated information was received from via Router Advertisement
 * rebound		The DHCPv6 client switched to another server
 * unbound		The DHCPv6 client lost all DHCPv6 servers and will restart
 * stopped		The DHCPv6 client has been stopped
@@ -56,6 +56,13 @@ Environment:
 * OPTION_<num>	Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
 				Format: <prefix>/<length>,preferred,valid
+* ADDRESSES		A space-separated list of addresses currently assigned
+				Format: <address>/<length>,preferred,valid
+* RA_ADDRESSES	A space-separated list of addresses from RA-prefixes
+				Format: <address>/<length>,preferred,valid
+* RA_ROUTES		A space-separated list of routes from the RA
+				Format: <address>/<length>@gateway,preferred,valid,metric
+* RA_DNS		A space-separated list of recursive DNS servers from the RA
 
 
 

@@ -193,13 +193,14 @@ bool ra_process(void)
 		}
 
 		found = true;
+		uint32_t router_valid = ntohs(adv->nd_ra_router_lifetime);
 
 		// Parse default route
 		entry.router = from.sin6_addr;
 		entry.priority = pref_to_priority(adv->nd_ra_flags_reserved);
 		if (entry.priority < 0)
 			entry.priority = pref_to_priority(0);
-		entry.valid = ntohs(adv->nd_ra_router_lifetime);
+		entry.valid = router_valid;
 		entry.preferred = entry.valid;
 		odhcp6c_update_entry(STATE_RA_ROUTE, &entry);
 
@@ -209,6 +210,7 @@ bool ra_process(void)
 
 		if (adv->nd_ra_retransmit)
 			update_proc("neigh", "retrans_time_ms", ntohl(adv->nd_ra_retransmit));
+
 
 		// Evaluate options
 		struct icmpv6_opt *opt;
@@ -256,9 +258,29 @@ bool ra_process(void)
 				entry.target.s6_addr32[3] = lladdr.s6_addr32[3];
 
 				odhcp6c_update_entry_safe(STATE_RA_PREFIX, &entry, 7200);
-			}
+			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
+				entry.router = from.sin6_addr;
+				entry.priority = 0;
+				entry.length = 128;
+				entry.valid = ntohl(*((uint32_t*)&opt->data[2]));
+				entry.preferred = 0;
 
+				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
+					memcpy(&entry.target, &opt->data[6 + i * sizeof(entry.target)],
+							sizeof(entry.target));
+					odhcp6c_update_entry(STATE_RA_DNS, &entry);
+				}
+			}
 		}
+
+		size_t ra_dns_len;
+		struct odhcp6c_entry *entry = odhcp6c_get_state(STATE_RA_DNS, &ra_dns_len);
+		for (size_t i = 0; i < len / sizeof(*entry); ++i)
+			if (IN6_ARE_ADDR_EQUAL(&entry[i].router, &from.sin6_addr) &&
+					entry[i].valid > router_valid)
+				entry[i].valid = router_valid;
 	}
+
+	odhcp6c_expire();
 	return found;
 }

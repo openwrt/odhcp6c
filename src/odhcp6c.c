@@ -41,7 +41,7 @@ static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
 static int urandom_fd = -1;
-static bool bound = false;
+static bool bound = false, allow_slaac_only = false;
 
 
 int main(_unused int argc, char* const argv[])
@@ -59,8 +59,12 @@ int main(_unused int argc, char* const argv[])
 
 	bool help = false, daemonize = false;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "N:P:c:r:s:hdp:")) != -1) {
+	while ((c = getopt(argc, argv, "SN:P:c:r:s:hdp:")) != -1) {
 		switch (c) {
+		case 'S':
+			allow_slaac_only = true;
+			break;
+
 		case 'N':
 			if (!strcmp(optarg, "force"))
 				ia_na_mode = IA_MODE_FORCE;
@@ -284,6 +288,7 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
+	"	-S		Allow SLAAC-only assignment\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
@@ -329,7 +334,7 @@ bool odhcp6c_signal_process(void)
 		do_signal = 0;
 		bool updated = ra_process();
 		updated |= ra_rtnl_process();
-		if (updated && bound) {
+		if (updated && (bound || allow_slaac_only)) {
 			odhcp6c_expire();
 			script_call("ra-updated");
 		}
@@ -386,7 +391,7 @@ struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct 
 }
 
 
-void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_entry *new, uint32_t safe)
+void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe)
 {
 	size_t len;
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
@@ -406,7 +411,7 @@ void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_en
 }
 
 
-void odhcp6c_update_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
+void odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new)
 {
 	odhcp6c_update_entry_safe(state, new, 0);
 }
@@ -443,6 +448,7 @@ void odhcp6c_expire(void)
 
 	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);
 	odhcp6c_expire_list(STATE_RA_ROUTE, elapsed);
+	odhcp6c_expire_list(STATE_RA_DNS, elapsed);
 	odhcp6c_expire_list(STATE_IA_NA, elapsed);
 	odhcp6c_expire_list(STATE_IA_PD, elapsed);
 }

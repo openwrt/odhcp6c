@@ -129,7 +129,7 @@ static void bin_to_env(uint8_t *opts, size_t len)
 }
 
 
-static void entry_to_env(const char *name, const void *data, size_t len)
+static void entry_to_env(const char *name, const void *data, size_t len, bool host)
 {
 	size_t buf_len = strlen(name);
 	const struct odhcp6c_entry *e = data;
@@ -141,15 +141,17 @@ static void entry_to_env(const char *name, const void *data, size_t len)
 	for (size_t i = 0; i < len / sizeof(*e); ++i) {
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
-		buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
-		if (!IN6_ARE_ADDR_EQUAL(&any, &e[i].router)) {
-			buf[buf_len++] = '@';
-			inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
-			buf_len += strlen(&buf[buf_len]);
+		if (!host) {
+			buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
+			if (!IN6_ARE_ADDR_EQUAL(&any, &e[i].router)) {
+				buf[buf_len++] = '@';
+				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+				buf_len += strlen(&buf[buf_len]);
+			}
+			buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
+			if (e[i].priority)
+				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 		}
-		buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
-		if (e[i].priority)
-			buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 		buf[buf_len++] = ' ';
 	}
 
@@ -172,11 +174,12 @@ void script_call(const char *status)
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 
-	size_t prefix_len, address_len, ra_pref_len, ra_route_len;
+	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
 	uint8_t *address = odhcp6c_get_state(STATE_IA_NA, &address_len);
 	uint8_t *ra_pref = odhcp6c_get_state(STATE_RA_PREFIX, &ra_pref_len);
 	uint8_t *ra_route = odhcp6c_get_state(STATE_RA_ROUTE, &ra_route_len);
+	uint8_t *ra_dns = odhcp6c_get_state(STATE_RA_DNS, &ra_dns_len);
 
 	// Don't set environment before forking, because env is leaky.
 	if (fork() == 0) {
@@ -187,10 +190,11 @@ void script_call(const char *status)
 		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		bin_to_env(custom, custom_len);
-		entry_to_env("PREFIXES", prefix, prefix_len);
-		entry_to_env("ADDRESSES", address, address_len);
-		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len);
-		entry_to_env("RA_ROUTES", ra_route, ra_route_len);
+		entry_to_env("PREFIXES", prefix, prefix_len, false);
+		entry_to_env("ADDRESSES", address, address_len, false);
+		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, false);
+		entry_to_env("RA_ROUTES", ra_route, ra_route_len, false);
+		entry_to_env("RA_DNS", ra_dns, ra_dns_len, true);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);

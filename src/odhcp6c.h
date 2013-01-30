@@ -164,6 +164,7 @@ enum odhcp6c_state {
 	STATE_SIP_FQDN,
 	STATE_RA_ROUTE,
 	STATE_RA_PREFIX,
+	STATE_RA_DNS,
 	_STATE_MAX
 };
 
@@ -224,7 +225,7 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 
 // Entry manipulation
 struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new);
-void odhcp6c_update_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new);
-void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_entry *new, uint32_t safe);
+void odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new);
+void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe);
 
 void odhcp6c_expire(void);
