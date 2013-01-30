@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <syslog.h>
 #include <signal.h>
@@ -28,6 +29,7 @@
 #include <sys/syscall.h>
 
 #include "odhcp6c.h"
+#include "ra.h"
 
 
 static void sighandler(int signal);
@@ -38,6 +40,8 @@ static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
+static int urandom_fd = -1;
+static bool bound = false;
 
 
 int main(_unused int argc, char* const argv[])
@@ -122,12 +126,14 @@ int main(_unused int argc, char* const argv[])
 	if (help || !ifname)
 		return usage();
 
-	if (init_dhcpv6(ifname, request_pd) || init_rtnetlink() ||
+	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
+			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
 	}
 
+	signal(SIGIO, sighandler);
 	signal(SIGHUP, sighandler);
 	signal(SIGINT, sighandler);
 	signal(SIGCHLD, sighandler);
@@ -170,6 +176,7 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		dhcpv6_set_ia_na_mode(ia_na_mode);
+		bound = false;
 
 		do_signal = 0;
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
@@ -188,6 +195,8 @@ int main(_unused int argc, char* const argv[])
 				else if (res > 0)
 					script_call("informed");
 
+				bound = true;
+
 				if (dhcpv6_poll_reconfigure() > 0)
 					script_call("informed");
 			}
@@ -200,6 +209,7 @@ int main(_unused int argc, char* const argv[])
 			continue;
 
 		script_call("bound");
+		bound = true;
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
 			// Renew Cycle
@@ -254,15 +264,14 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
 		// Add all prefixes to lost prefixes
-		odhcp6c_clear_state(STATE_IA_PD);
+		bound = false;
 		script_call("unbound");
-
-		// Remove assigned addresses
-		if (ia_na_len > 0)
-			dhcpv6_remove_addrs();
 
 		if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0))
 			dhcpv6_request(DHCPV6_MSG_RELEASE);
+
+		odhcp6c_clear_state(STATE_IA_NA);
+		odhcp6c_clear_state(STATE_IA_PD);
 	}
 
 	script_call("stopped");
@@ -314,8 +323,18 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 }
 
 
-bool odhcp6c_signal_is_pending(void)
+bool odhcp6c_signal_process(void)
 {
+	if (do_signal == SIGIO) {
+		do_signal = 0;
+		bool updated = ra_process();
+		updated |= ra_rtnl_process();
+		if (updated && bound) {
+			odhcp6c_expire();
+			script_call("ra-updated");
+		}
+	}
+
 	return do_signal != 0;
 }
 
@@ -346,23 +365,92 @@ size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
 }
 
 
-bool odhcp6c_commit_state(enum odhcp6c_state state, size_t old_len)
-{
-	size_t new_len = state_len[state] - old_len;
-	uint8_t *old_data = state_data[state], *new_data = old_data + old_len;
-	bool upd = new_len != old_len || memcmp(old_data, new_data, new_len);
-
-	memmove(old_data, new_data, new_len);
-	odhcp6c_resize_state(state, -old_len);
-
-	return upd;
-}
-
-
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len)
 {
 	*len = state_len[state];
 	return state_data[state];
+}
+
+
+struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
+{
+	size_t len, cmplen = offsetof(struct odhcp6c_entry, target) + new->length / 8;
+	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
+	struct odhcp6c_entry *x = NULL;
+
+	for (struct odhcp6c_entry *c = start; !x && c < &start[len/sizeof(*c)]; ++c)
+		if (!memcmp(c, new, cmplen))
+			return c;
+
+	return NULL;
+}
+
+
+void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_entry *new, uint32_t safe)
+{
+	size_t len;
+	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
+	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
+
+	if (x && x->valid > new->valid && new->valid < safe)
+		return;
+
+	if (new->valid > 0) {
+		if (x)
+			*x = *new;
+		else
+			odhcp6c_add_state(state, new, sizeof(*new));
+	} else if (x) {
+		odhcp6c_remove_state(state, (x - start) * sizeof(*x), sizeof(*x));
+	}
+}
+
+
+void odhcp6c_update_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
+{
+	odhcp6c_update_entry_safe(state, new, 0);
+}
+
+
+static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
+{
+	size_t len;
+	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
+	for (struct odhcp6c_entry *c = start; c < &start[len / sizeof(*c)]; ++c) {
+		if (c->preferred < elapsed)
+			c->preferred = 0;
+		else if (c->preferred != UINT32_MAX)
+			c->preferred -= elapsed;
+
+		if (c->valid < elapsed)
+			c->valid = 0;
+		else if (c->valid != UINT32_MAX)
+			c->valid -= elapsed;
+
+		if (!c->valid)
+			odhcp6c_remove_state(state, (c - start) * sizeof(*c), sizeof(*c));
+	}
+}
+
+
+void odhcp6c_expire(void)
+{
+	static time_t last_update = 0;
+	time_t now = odhcp6c_get_milli_time() / 1000;
+
+	uint32_t elapsed = now - last_update;
+	last_update = now;
+
+	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);
+	odhcp6c_expire_list(STATE_RA_ROUTE, elapsed);
+	odhcp6c_expire_list(STATE_IA_NA, elapsed);
+	odhcp6c_expire_list(STATE_IA_PD, elapsed);
+}
+
+
+void odhcp6c_random(void *buf, size_t len)
+{
+	read(urandom_fd, buf, len);
 }
 
 
@@ -374,6 +462,8 @@ static void sighandler(int signal)
 		do_signal = SIGUSR1;
 	else if (signal == SIGUSR2)
 		do_signal = SIGUSR2;
+	else if (signal == SIGIO)
+		do_signal = SIGIO;
 	else
 		do_signal = SIGTERM;
 }

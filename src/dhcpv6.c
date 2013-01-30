@@ -50,7 +50,7 @@ static reply_handler dhcpv6_handle_reply;
 static reply_handler dhcpv6_handle_advert;
 static reply_handler dhcpv6_handle_rebind_reply;
 static reply_handler dhcpv6_handle_reconfigure;
-static int dhcpv6_commit_advert(uint32_t elapsed);
+static int dhcpv6_commit_advert(void);
 
 
 
@@ -75,7 +75,6 @@ static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 
 // Sockets
 static int sock = -1;
-static int urandom_fd = -1;
 static int ifindex = -1;
 static time_t t1 = 0, t2 = 0, t3 = 0;
 
@@ -89,9 +88,6 @@ static bool accept_reconfig = false;
 int init_dhcpv6(const char *ifname, int request_pd)
 {
 	request_prefix = request_pd;
-	urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY);
-	if (urandom_fd < 0)
-		return -1;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 
@@ -164,18 +160,6 @@ void dhcpv6_set_ia_na_mode(enum odhcp6c_ia_mode mode)
 }
 
 
-void dhcpv6_remove_addrs(void)
-{
-	size_t ia_na_len;
-	uint8_t *odata, *ia_na = odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-	uint16_t otype, olen;
-	dhcpv6_for_each_option(ia_na, ia_na + ia_na_len, otype, olen, odata) {
-		struct dhcpv6_ia_addr *addr = (void*)&odata[-4];
-		set_rtnetlink_addr(ifindex, &addr->addr, 0, 0);
-	}
-}
-
-
 static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 {
 	// Build FQDN
@@ -203,8 +187,9 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	void *srv_id = odhcp6c_get_state(STATE_SERVER_ID, &srv_id_len);
 
 	// Build IA_PDs
-	size_t ia_pd_len;
-	void *ia_pd = odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+	size_t ia_pd_entry_len, ia_pd_len = 0;
+	void *ia_pd = NULL;
+	void *ia_pd_entries = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entry_len);
 	struct dhcpv6_ia_hdr hdr_ia_pd = {
 		htons(DHCPV6_OPT_IA_PD),
 		htons(sizeof(hdr_ia_pd) - 4 + ia_pd_len),
@@ -216,7 +201,21 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		.len = htons(25), .prefix = request_prefix
 	};
 
-	if (ia_pd_len == 0 && request_prefix > 0 &&
+	if (ia_pd_entry_len > 0) {
+		struct odhcp6c_entry *e = ia_pd_entries;
+		size_t entries = ia_pd_entry_len / sizeof(*e);
+		struct dhcpv6_ia_prefix p[entries];
+		for (size_t i = 0; i < entries; ++i) {
+			p[i].type = htons(DHCPV6_OPT_IA_PREFIX);
+			p[i].len = htons(sizeof(p[i]) - 4U);
+			p[i].preferred = htonl(e[i].preferred);
+			p[i].valid = htonl(e[i].valid);
+			p[i].prefix = e[i].length;
+			p[i].addr = e[i].target;
+		}
+		ia_pd = p;
+		ia_pd_len = sizeof(p);
+	} else if (request_prefix > 0 &&
 			(type == DHCPV6_MSG_SOLICIT ||
 			type == DHCPV6_MSG_REQUEST)) {
 		ia_pd = &pref;
@@ -224,13 +223,29 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	}
 
 	// Build IA_NAs
-	size_t ia_na_len;
-	void *ia_na = odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+	size_t ia_na_entry_len, ia_na_len = 0;
+	void *ia_na = NULL;
+	void *ia_na_entries = odhcp6c_get_state(STATE_IA_NA, &ia_na_entry_len);
 	struct dhcpv6_ia_hdr hdr_ia_na = {
 		htons(DHCPV6_OPT_IA_NA),
 		htons(sizeof(hdr_ia_na) - 4 + ia_na_len),
 		1, 0, 0
 	};
+
+	if (ia_na_entry_len > 0) {
+		struct odhcp6c_entry *e = ia_na_entries;
+		size_t entries = ia_na_entry_len / sizeof(*e);
+		struct dhcpv6_ia_addr p[entries];
+		for (size_t i = 0; i < entries; ++i) {
+			p[i].type = htons(DHCPV6_OPT_IA_ADDR);
+			p[i].len = htons(sizeof(p[i]) - 4U);
+			p[i].addr = e[i].target;
+			p[i].preferred = htonl(e[i].preferred);
+			p[i].valid = htonl(e[i].valid);
+		}
+		ia_na = p;
+		ia_na_len = sizeof(p);
+	}
 
 	// Reconfigure Accept
 	struct {
@@ -306,7 +321,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 static int64_t dhcpv6_rand_delay(int64_t time)
 {
 	int random;
-	read(urandom_fd, &random, sizeof(random));
+	odhcp6c_random(&random, sizeof(random));
 	return (time * (random % 1000)) / 10000;
 }
 
@@ -341,7 +356,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 	// Generate transaction ID
 	uint8_t trid[3];
-	read(urandom_fd, trid, sizeof(trid));
+	odhcp6c_random(trid, sizeof(trid));
 	ssize_t len = -1;
 	int64_t rto = 0;
 
@@ -370,7 +385,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		for (; len < 0 && round_start < round_end;
 				round_start = odhcp6c_get_milli_time()) {
 			// Check for pending signal
-			if (odhcp6c_signal_is_pending())
+			if (odhcp6c_signal_process())
 				return -1;
 
 			// Set timeout for receiving
@@ -395,14 +410,14 @@ int dhcpv6_request(enum dhcpv6_msg type)
 						"%ums", (unsigned)elapsed);
 
 				if (retx->handler_reply)
-					len = retx->handler_reply(type,
-						opt, opt_end, elapsed / 1000);
+					len = retx->handler_reply(
+							type, opt, opt_end);
 			}
 		}
 
 		// Allow
 		if (retx->handler_finish)
-			len = retx->handler_finish(elapsed / 1000);
+			len = retx->handler_finish();
 	} while (len < 0 && elapsed / 1000 < timeout);
 
 	return len;
@@ -459,7 +474,7 @@ int dhcpv6_poll_reconfigure(void)
 
 
 static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig,
-		const void *opt, const void *end, uint32_t elapsed)
+		const void *opt, const void *end)
 {
 	// TODO: should verify the reconfigure message
 	uint16_t otype, olen;
@@ -470,27 +485,14 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig,
 				odata[0] == DHCPV6_MSG_INFO_REQ))
 			msg = odata[0];
 
-	t1 -= elapsed;
-	t2 -= elapsed;
-	t3 -= elapsed;
-
-	if (t1 < 0)
-		t1 = 0;
-
-	if (t2 < 0)
-		t2 = 0;
-
-	if (t3 < 0)
-		t3 = 0;
-
-	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, NULL, NULL, elapsed);
+	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, NULL, NULL);
 	return msg;
 }
 
 
 // Collect all advertised servers
 static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
-		const void *opt, const void *end, _unused uint32_t elapsed)
+		const void *opt, const void *end)
 {
 	uint16_t olen, otype;
 	uint8_t *odata;
@@ -537,7 +539,7 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 }
 
 
-static int dhcpv6_commit_advert(_unused uint32_t elapsed)
+static int dhcpv6_commit_advert(void)
 {
 	size_t cand_len;
 	struct dhcpv6_server_cand *c = NULL, *cand =
@@ -578,60 +580,54 @@ static int dhcpv6_commit_advert(_unused uint32_t elapsed)
 
 
 static int dhcpv6_handle_rebind_reply(enum dhcpv6_msg orig,
-		const void *opt, const void *end, uint32_t elapsed)
+		const void *opt, const void *end)
 {
-	dhcpv6_handle_advert(orig, opt, end, elapsed);
-	if (dhcpv6_commit_advert(elapsed) < 0)
+	dhcpv6_handle_advert(orig, opt, end);
+	if (dhcpv6_commit_advert() < 0) {
+		dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, NULL, NULL);
 		return -1;
+	}
 
-	return dhcpv6_handle_reply(orig, opt, end, elapsed);
+	return dhcpv6_handle_reply(orig, opt, end);
 }
 
 
-static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
-		const void *opt, const void *end, uint32_t elapsed)
+static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
+		const void *opt, const void *end)
 {
-	uint16_t otype, olen;
 	uint8_t *odata;
-	bool have_update = false;
+	uint16_t otype, olen;
 
-	t1 = t2 = t3 = 86400;
+	static time_t last_update = 0;
+	time_t now = odhcp6c_get_milli_time() / 1000;
 
-	size_t ia_na_len, dns_len, search_len, sntp_ip_len, sntp_dns_len;
-	size_t sip_ip_len, sip_fqdn_len;
-	uint8_t *ia_na = odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-	uint8_t *ia_end;
-	odhcp6c_get_state(STATE_DNS, &dns_len);
-	odhcp6c_get_state(STATE_SEARCH, &search_len);
-	odhcp6c_get_state(STATE_SNTP_IP, &sntp_ip_len);
-	odhcp6c_get_state(STATE_SNTP_FQDN, &sntp_dns_len);
-	odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
-	odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
+	uint32_t elapsed = now - last_update;
+	odhcp6c_expire();
 
-	// Decrease valid and preferred lifetime of prefixes
-	size_t ia_pd_len;
-	uint8_t *ia_pd = odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-	dhcpv6_for_each_option(ia_pd, ia_pd + ia_pd_len, otype, olen, odata) {
-		struct dhcpv6_ia_prefix *p = (void*)&odata[-4];
-		uint32_t valid = ntohl(p->valid);
-		if (valid != UINT32_MAX)
-			p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
+	if (orig == DHCPV6_MSG_UNKNOWN) {
+		t1 -= elapsed;
+		t2 -= elapsed;
+		t3 -= elapsed;
 
-		uint32_t pref = ntohl(p->preferred);
-		if (pref != UINT32_MAX)
-			p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
+		if (t1 < 0)
+			t1 = 0;
+
+		if (t2 < 0)
+			t2 = 0;
+
+		if (t3 < 0)
+			t3 = 0;
+	} else {
+		t1 = t2 = t3 = 86400;
 	}
 
-	// Decrease valid and preferred lifetime of addresses
-	dhcpv6_for_each_option(ia_na, ia_na + ia_na_len, otype, olen, odata) {
-		struct dhcpv6_ia_addr *p = (void*)&odata[-4];
-		uint32_t valid = ntohl(p->valid);
-		if (valid != UINT32_MAX)
-			p->valid = (valid < elapsed) ? 0 : htonl(valid - elapsed);
-
-		uint32_t pref = ntohl(p->preferred);
-		if (pref != UINT32_MAX)
-			p->preferred = (pref < elapsed) ? 0 : htonl(pref - elapsed);
+	if (opt) {
+		odhcp6c_clear_state(STATE_DNS);
+		odhcp6c_clear_state(STATE_SEARCH);
+		odhcp6c_clear_state(STATE_SNTP_IP);
+		odhcp6c_clear_state(STATE_SNTP_FQDN);
+		odhcp6c_clear_state(STATE_SIP_IP);
+		odhcp6c_clear_state(STATE_SIP_FQDN);
 	}
 
 	// Parse and find all matching IAs
@@ -661,11 +657,6 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 
 			if (l_t2 > 0 && t2 > l_t2)
 				t2 = l_t2;
-
-			// Always report update in case we have IA_PDs so that
-			// the state-script is called with updated times
-			if (otype == DHCPV6_OPT_IA_PD && request_prefix)
-				have_update = true;
 
 			time_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
 
@@ -713,56 +704,18 @@ static int dhcpv6_handle_reply(_unused enum dhcpv6_msg orig,
 		}
 	}
 
-	if (opt) {
-		have_update |= odhcp6c_commit_state(STATE_DNS, dns_len);
-		have_update |= odhcp6c_commit_state(STATE_SEARCH, search_len);
-		have_update |= odhcp6c_commit_state(STATE_SNTP_IP,
-				sntp_ip_len);
-		have_update |= odhcp6c_commit_state(STATE_SNTP_FQDN,
-				sntp_dns_len);
-		have_update |= odhcp6c_commit_state(STATE_SIP_IP, sip_ip_len);
-		have_update |= odhcp6c_commit_state(STATE_SIP_FQDN, sip_fqdn_len);
-		size_t new_ia_pd_len, new_ia_na_len;
-		odhcp6c_get_state(STATE_IA_PD, &new_ia_pd_len);
-		odhcp6c_get_state(STATE_IA_NA, &new_ia_na_len);
-		have_update |= (new_ia_pd_len != ia_pd_len) ||
-				(new_ia_na_len != ia_na_len);
-	}
-
-	// Delete prefixes with 0 valid-time
-	ia_pd = odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-	ia_end = ia_pd + ia_pd_len;
-	dhcpv6_for_each_option(ia_pd, ia_end, otype, olen, odata) {
-		struct dhcpv6_ia_prefix *p = (void*)&odata[-4];
-		while (!p->valid) {
-			ia_end = ia_pd + odhcp6c_remove_state(STATE_IA_PD,
-					(uint8_t*)p - ia_pd, olen + 4);
-			have_update = true;
-		}
-	}
-
-
-	// Delete addresses with 0 valid-time
-	ia_na = odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-	ia_end = ia_na + ia_na_len;
-	dhcpv6_for_each_option(ia_na, ia_end, otype, olen, odata) {
-		struct dhcpv6_ia_addr *p = (void*)&odata[-4];
-		while (!p->valid) {
-			ia_end = ia_na + odhcp6c_remove_state(STATE_IA_NA,
-					(uint8_t*)p - ia_na, olen + 4);
-			have_update = true;
-		}
-	}
-
-	return have_update;
+	return true;
 }
 
 
 static time_t dhcpv6_parse_ia(void *opt, void *end)
 {
 	uint32_t timeout = UINT32_MAX; // Minimum timeout
-	uint16_t otype, olen, stype, slen;
-	uint8_t *odata, *sdata;
+	uint16_t otype, olen;
+	uint8_t *odata;
+
+	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT,
+			0, 0, IN6ADDR_ANY_INIT, 0, 0};
 
 	// Update address IA
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
@@ -771,71 +724,35 @@ static time_t dhcpv6_parse_ia(void *opt, void *end)
 			if (olen + 4U < sizeof(*prefix))
 				continue;
 
-			olen = sizeof(*prefix); // Normalize length
-			uint32_t valid = ntohl(prefix->valid);
-			uint32_t pref = ntohl(prefix->preferred);
+			entry.valid = ntohl(prefix->valid);
+			entry.preferred = ntohl(prefix->preferred);
 
-			if (pref > valid)
+			if (entry.preferred > entry.valid)
 				continue;
 
-			// Search matching IA
-			struct dhcpv6_ia_prefix *local = NULL;
-			size_t pd_len;
-			uint8_t *pd = odhcp6c_get_state(STATE_IA_PD, &pd_len);
-			dhcpv6_for_each_option(pd, pd + pd_len,
-					stype, slen, sdata)
-				if (!memcmp(sdata + 8, odata + 8,
-						sizeof(local->addr) + 1))
-					local = (void*)&sdata[-4];
+			entry.length = prefix->prefix;
+			entry.target = prefix->addr;
 
-			if (local) { // Already know that IA
-				local->preferred = prefix->preferred;
-				local->valid = prefix->valid;
-			} else { // New IA
-				odhcp6c_add_state(STATE_IA_PD, prefix, olen);
-			}
-
-			if (timeout > valid)
-				timeout = valid;
+			odhcp6c_update_entry(STATE_IA_PD, &entry);
 		} else if (otype == DHCPV6_OPT_IA_ADDR) {
 			struct dhcpv6_ia_addr *addr = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*addr))
 				continue;
 
-			olen = sizeof(*addr); // Normalize length
-			uint32_t pref = ntohl(addr->preferred);
-			uint32_t valid = ntohl(addr->valid);
+			entry.preferred = ntohl(addr->preferred);
+			entry.valid = ntohl(addr->valid);
 
-			if (pref > valid)
+			if (entry.preferred > entry.valid)
 				continue;
 
-			// Search matching IA
-			struct dhcpv6_ia_addr *local = NULL;
-			size_t na_len;
-			uint8_t *na = odhcp6c_get_state(STATE_IA_NA, &na_len);
-			dhcpv6_for_each_option(na, na + na_len,
-					stype, slen, sdata)
-				if (!memcmp(sdata, odata, sizeof(local->addr)))
-					local = (void*)&sdata[-4];
+			entry.length = 128;
+			entry.target = addr->addr;
 
-
-			if (local) { // Already know that IA
-				local->preferred = addr->preferred;
-				local->valid = addr->valid;
-			} else { // New IA
-				odhcp6c_add_state(STATE_IA_NA, addr, olen);
-			}
-
-
-			if (timeout > valid)
-				timeout = valid;
-
-			if (set_rtnetlink_addr(ifindex, &addr->addr,
-					pref, valid) == -EADDRNOTAVAIL) {
-				dhcpv6_request(DHCPV6_MSG_DECLINE);
-				raise(SIGUSR2);
-			}
+			odhcp6c_update_entry(STATE_IA_NA, &entry);
 		}
+
+		if (entry.valid > 0 && timeout > entry.valid)
+			timeout = entry.valid;
 	}
 
 	return timeout;

@@ -67,7 +67,7 @@ ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src)
 }
 
 
-void script_hexlify(char *dst, const uint8_t *src, size_t len) {
+static void script_hexlify(char *dst, const uint8_t *src, size_t len) {
 	for (size_t i = 0; i < len; ++i) {
 		*dst++ = hexdigits[src[i] >> 4];
 		*dst++ = hexdigits[src[i] & 0x0f];
@@ -129,28 +129,30 @@ static void bin_to_env(uint8_t *opts, size_t len)
 }
 
 
-static void prefix_to_env(const char *name, const uint8_t *fqdn, size_t len)
+static void entry_to_env(const char *name, const void *data, size_t len)
 {
 	size_t buf_len = strlen(name);
-	struct dhcpv6_ia_prefix *p = NULL;
-	char *buf = realloc(NULL, buf_len + 2 +
-			(len / sizeof(*p)) * (INET6_ADDRSTRLEN + 32));
+	const struct odhcp6c_entry *e = data;
+	const struct in6_addr any = IN6ADDR_ANY_INIT;
+	char *buf = realloc(NULL, buf_len + 2 + (len / sizeof(*e)) * 144);
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
 
-	uint16_t otype, olen;
-	uint8_t *odata;
-	dhcpv6_for_each_option(fqdn, &fqdn[len], otype, olen, odata) {
-		if (otype != DHCPV6_OPT_IA_PREFIX || olen + 4U < sizeof(*p))
-			continue;
-
-		p = (struct dhcpv6_ia_prefix*)&odata[-4];
-		inet_ntop(AF_INET6, &p->addr, &buf[buf_len], INET6_ADDRSTRLEN);
+	for (size_t i = 0; i < len / sizeof(*e); ++i) {
+		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
-		buf_len += snprintf(&buf[buf_len], 32, "/%hhu,%u,%u ",
-				p->prefix, ntohl(p->preferred),
-				ntohl(p->valid));
+		buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
+		if (!IN6_ARE_ADDR_EQUAL(&any, &e[i].router)) {
+			buf[buf_len++] = '@';
+			inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+			buf_len += strlen(&buf[buf_len]);
+		}
+		buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
+		if (e[i].priority)
+			buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
+		buf[buf_len++] = ' ';
 	}
+
 	buf[buf_len - 1] = '\0';
 	putenv(buf);
 }
@@ -170,8 +172,11 @@ void script_call(const char *status)
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 
-	size_t prefix_len;
+	size_t prefix_len, address_len, ra_pref_len, ra_route_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
+	uint8_t *address = odhcp6c_get_state(STATE_IA_NA, &address_len);
+	uint8_t *ra_pref = odhcp6c_get_state(STATE_RA_PREFIX, &ra_pref_len);
+	uint8_t *ra_route = odhcp6c_get_state(STATE_RA_ROUTE, &ra_route_len);
 
 	// Don't set environment before forking, because env is leaky.
 	if (fork() == 0) {
@@ -182,7 +187,10 @@ void script_call(const char *status)
 		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		bin_to_env(custom, custom_len);
-		prefix_to_env("PREFIXES", prefix, prefix_len);
+		entry_to_env("PREFIXES", prefix, prefix_len);
+		entry_to_env("ADDRESSES", address, address_len);
+		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len);
+		entry_to_env("RA_ROUTES", ra_route, ra_route_len);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);

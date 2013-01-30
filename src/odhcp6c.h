@@ -80,7 +80,7 @@ enum dhcpv6_status {
 };
 
 typedef int(reply_handler)(enum dhcpv6_msg orig,
-		const void *opt, const void *end, uint32_t elapsed);
+		const void *opt, const void *end);
 
 // retransmission strategy
 struct dhcpv6_retx {
@@ -89,7 +89,7 @@ struct dhcpv6_retx {
 	uint16_t max_timeo;
 	char name[8];
 	reply_handler *handler_reply;
-	int(*handler_finish)(uint32_t elapsed);
+	int(*handler_finish)(void);
 };
 
 
@@ -162,6 +162,8 @@ enum odhcp6c_state {
 	STATE_SNTP_FQDN,
 	STATE_SIP_IP,
 	STATE_SIP_FQDN,
+	STATE_RA_ROUTE,
+	STATE_RA_PREFIX,
 	_STATE_MAX
 };
 
@@ -187,11 +189,20 @@ enum odhcp6c_ia_mode {
 };
 
 
+struct odhcp6c_entry {
+	struct in6_addr router;
+	uint16_t length;
+	int16_t priority;
+	struct in6_addr target;
+	uint32_t valid;
+	uint32_t preferred;
+};
+
+
 int init_dhcpv6(const char *ifname, int request_pd);
 void dhcpv6_set_ia_na_mode(enum odhcp6c_ia_mode mode);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
-void dhcpv6_remove_addrs(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
@@ -201,13 +212,19 @@ int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
 void script_call(const char *status);
 
+bool odhcp6c_signal_process(void);
+uint64_t odhcp6c_get_milli_time(void);
+void odhcp6c_random(void *buf, size_t len);
 
 // State manipulation
-bool odhcp6c_signal_is_pending(void);
-uint64_t odhcp6c_get_milli_time(void);
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
-bool odhcp6c_commit_state(enum odhcp6c_state state, size_t old_len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 
+// Entry manipulation
+struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new);
+void odhcp6c_update_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new);
+void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_entry *new, uint32_t safe);
+
+void odhcp6c_expire(void);
