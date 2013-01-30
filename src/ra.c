@@ -246,7 +246,7 @@ bool ra_process(void)
 					continue;
 
 				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
-					odhcp6c_update_entry_safe(STATE_RA_ROUTE, &entry, 7201);
+					odhcp6c_update_entry_safe(STATE_RA_ROUTE, &entry, 7200);
 
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
 						pinfo->nd_opt_pi_prefix_len != 64)
@@ -255,7 +255,7 @@ bool ra_process(void)
 				entry.target.s6_addr32[2] = lladdr.s6_addr32[2];
 				entry.target.s6_addr32[3] = lladdr.s6_addr32[3];
 
-				odhcp6c_update_entry_safe(STATE_RA_PREFIX, &entry, 7201);
+				odhcp6c_update_entry_safe(STATE_RA_PREFIX, &entry, 7200);
 			}
 
 		}

@@ -393,7 +393,7 @@ void odhcp6c_update_entry_safe(enum odhcp6c_state state, const struct odhcp6c_en
 	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
 
 	if (x && x->valid > new->valid && new->valid < safe)
-		return;
+		new->valid = safe;
 
 	if (new->valid > 0) {
 		if (x)
