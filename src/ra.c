@@ -21,7 +21,7 @@
 static int sock = -1, rtnl_sock = -1;
 static unsigned if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
-static volatile int rs_attempt = 1;
+static volatile int rs_attempt = 0;
 static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
 
 static void ra_send_rs(int signal __attribute__((unused)));
@@ -97,7 +97,7 @@ static void ra_send_rs(int signal __attribute__((unused)))
 	const struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
 	sendto(sock, &rs, sizeof(rs), MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
 
-	if (++rs_attempt < 3)
+	if (++rs_attempt <= 3)
 		alarm(4);
 }
 
