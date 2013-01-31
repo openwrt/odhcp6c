@@ -149,11 +149,10 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 					buf_len += strlen(&buf[buf_len]);
 				}
 				buf_len += snprintf(&buf[buf_len], 24, ",%u", e[i].valid);
+				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 			} else {
 				buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
 			}
-			if (e[i].priority)
-				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 		}
 		buf[buf_len++] = ' ';
 	}
