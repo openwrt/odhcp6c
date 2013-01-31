@@ -61,7 +61,7 @@ Environment:
 * RA_ADDRESSES	A space-separated list of addresses from RA-prefixes
 				Format: <address>/<length>,preferred,valid
 * RA_ROUTES		A space-separated list of routes from the RA
-				Format: <address>/<length>@gateway,preferred,valid,metric
+				Format: <address>/<length>,gateway,valid,metric
 * RA_DNS		A space-separated list of recursive DNS servers from the RA
 
 
