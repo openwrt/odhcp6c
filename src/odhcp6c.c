@@ -184,6 +184,7 @@ int main(_unused int argc, char* const argv[])
 
 		do_signal = 0;
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+		odhcp6c_signal_process();
 
 		if (res < 0) {
 			continue; // Might happen if we got a signal
@@ -192,6 +193,7 @@ int main(_unused int argc, char* const argv[])
 				do_signal = 0;
 
 				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
+				odhcp6c_signal_process();
 				if (do_signal == SIGUSR1)
 					continue;
 				else if (res < 0)
@@ -212,6 +214,7 @@ int main(_unused int argc, char* const argv[])
 		if (dhcpv6_request(DHCPV6_MSG_REQUEST) < 0)
 			continue;
 
+		odhcp6c_signal_process();
 		script_call("bound");
 		bound = true;
 
@@ -219,6 +222,7 @@ int main(_unused int argc, char* const argv[])
 			// Renew Cycle
 			// Wait for T1 to expire or until we get a reconfigure
 			int res = dhcpv6_poll_reconfigure();
+			odhcp6c_signal_process();
 			if (res >= 0) {
 				if (res > 0)
 					script_call("updated");
@@ -242,6 +246,7 @@ int main(_unused int argc, char* const argv[])
 				r = dhcpv6_request(DHCPV6_MSG_REQUEST);
 			else
 				r = dhcpv6_request(DHCPV6_MSG_RENEW);
+			odhcp6c_signal_process();
 			if (r > 0) // Publish updates
 				script_call("updated");
 			if (r >= 0)
@@ -251,6 +256,7 @@ int main(_unused int argc, char* const argv[])
 
 			// If we have IAs, try rebind otherwise restart
 			res = dhcpv6_request(DHCPV6_MSG_REBIND);
+			odhcp6c_signal_process();
 
 			odhcp6c_get_state(STATE_IA_PD, &ia_pd_new);
 			odhcp6c_get_state(STATE_IA_NA, &ia_na_new);
