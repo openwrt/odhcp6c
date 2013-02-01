@@ -125,7 +125,7 @@ static bool ra_deduplicate(const struct in6_addr *any, uint8_t length)
 {
 	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, length, 0, *any, 0, 0};
 	struct odhcp6c_entry *x = odhcp6c_find_entry(STATE_RA_PREFIX, &entry);
-	if (x) {
+	if (x && IN6_ARE_ADDR_EQUAL(&x->target, any)) {
 		odhcp6c_random(&x->target.s6_addr32[2], 2 * sizeof(uint32_t));
 	} else if (odhcp6c_find_entry(STATE_IA_NA, &entry)) {
 		dhcpv6_request(DHCPV6_MSG_DECLINE);
