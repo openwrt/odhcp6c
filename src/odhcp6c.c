@@ -41,7 +41,7 @@ static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
 static int urandom_fd = -1;
-static bool bound = false, allow_slaac_only = false;
+static bool bound = false, allow_slaac_only = true;
 
 
 int main(_unused int argc, char* const argv[])
@@ -62,7 +62,7 @@ int main(_unused int argc, char* const argv[])
 	while ((c = getopt(argc, argv, "SN:P:c:r:s:hdp:")) != -1) {
 		switch (c) {
 		case 'S':
-			allow_slaac_only = true;
+			allow_slaac_only = false;
 			break;
 
 		case 'N':
@@ -77,6 +77,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'P':
+			allow_slaac_only = false;
 			request_pd = strtoul(optarg, NULL, 10);
 			if (request_pd == 0)
 				request_pd = -1;
@@ -294,7 +295,7 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
-	"	-S		Allow SLAAC-only assignment\n"
+	"	-S		Don't allow SLAAC-only (implied by -P)\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
