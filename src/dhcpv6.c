@@ -412,6 +412,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				if (retx->handler_reply)
 					len = retx->handler_reply(
 							type, opt, opt_end);
+
+				if (round_end - round_start > 1000)
+					round_end = 1000 + round_start;
 			}
 		}
 
