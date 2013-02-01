@@ -409,10 +409,12 @@ void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 		new->valid = safe;
 
 	if (new->valid > 0) {
-		if (x)
-			*x = *new;
-		else
+		if (x) {
+			x->valid = new->valid;
+			x->preferred = new->preferred;
+		} else {
 			odhcp6c_add_state(state, new, sizeof(*new));
+		}
 	} else if (x) {
 		odhcp6c_remove_state(state, (x - start) * sizeof(*x), sizeof(*x));
 	}
