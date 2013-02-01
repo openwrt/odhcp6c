@@ -157,7 +157,7 @@ bool ra_rtnl_process(void)
 			ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifa));
 			for (struct rtattr *rta = (struct rtattr*)&ifa[1]; RTA_OK(rta, alen);
 					rta = RTA_NEXT(rta, alen))
-				if (rta->rta_type == IFA_LOCAL && RTA_PAYLOAD(rta) >= sizeof(*addr))
+				if (rta->rta_type == IFA_ADDRESS && RTA_PAYLOAD(rta) >= sizeof(*addr))
 					addr = RTA_DATA(rta);
 
 			if (addr)
