@@ -275,7 +275,7 @@ bool ra_process(void)
 
 		size_t ra_dns_len;
 		struct odhcp6c_entry *entry = odhcp6c_get_state(STATE_RA_DNS, &ra_dns_len);
-		for (size_t i = 0; i < len / sizeof(*entry); ++i)
+		for (size_t i = 0; i < ra_dns_len / sizeof(*entry); ++i)
 			if (IN6_ARE_ADDR_EQUAL(&entry[i].router, &from.sin6_addr) &&
 					entry[i].valid > router_valid)
 				entry[i].valid = router_valid;
