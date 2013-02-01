@@ -149,9 +149,9 @@ bool ra_rtnl_process(void)
 					nh = NLMSG_NEXT(nh, len)) {
 			struct ifaddrmsg *ifa = NLMSG_DATA(nh);
 			struct in6_addr *addr = NULL;
-			if (nh->nlmsg_type != RTM_NEWADDR || NLMSG_PAYLOAD(nh, 0) < sizeof(*ifa) ||
-					!(ifa->ifa_flags & IFA_F_DADFAILED) ||
-					ifa->ifa_index != if_index)
+			if (NLMSG_PAYLOAD(nh, 0) < sizeof(*ifa) || ifa->ifa_index != if_index ||
+					(nh->nlmsg_type == RTM_NEWADDR && !(ifa->ifa_flags & IFA_F_DADFAILED)) ||
+					(nh->nlmsg_type == RTM_DELADDR && !(ifa->ifa_flags & IFA_F_TENTATIVE)))
 				continue;
 
 			ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifa));
