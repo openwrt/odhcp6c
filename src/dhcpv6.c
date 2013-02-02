@@ -192,7 +192,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	void *ia_pd_entries = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entry_len);
 	struct dhcpv6_ia_hdr hdr_ia_pd = {
 		htons(DHCPV6_OPT_IA_PD),
-		htons(sizeof(hdr_ia_pd) - 4 + ia_pd_len),
+		htons(sizeof(hdr_ia_pd) - 4),
 		1, 0, 0
 	};
 
@@ -215,11 +215,13 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		}
 		ia_pd = p;
 		ia_pd_len = sizeof(p);
+		hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
 	} else if (request_prefix > 0 &&
 			(type == DHCPV6_MSG_SOLICIT ||
 			type == DHCPV6_MSG_REQUEST)) {
 		ia_pd = &pref;
 		ia_pd_len = sizeof(pref);
+		hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
 	}
 
 	// Build IA_NAs
@@ -228,7 +230,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	void *ia_na_entries = odhcp6c_get_state(STATE_IA_NA, &ia_na_entry_len);
 	struct dhcpv6_ia_hdr hdr_ia_na = {
 		htons(DHCPV6_OPT_IA_NA),
-		htons(sizeof(hdr_ia_na) - 4 + ia_na_len),
+		htons(sizeof(hdr_ia_na) - 4),
 		1, 0, 0
 	};
 
@@ -245,6 +247,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		}
 		ia_na = p;
 		ia_na_len = sizeof(p);
+		hdr_ia_na.len = htons(ntohs(hdr_ia_na.len) + ia_na_len);
 	}
 
 	// Reconfigure Accept
