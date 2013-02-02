@@ -187,9 +187,10 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	void *srv_id = odhcp6c_get_state(STATE_SERVER_ID, &srv_id_len);
 
 	// Build IA_PDs
-	size_t ia_pd_entry_len, ia_pd_len = 0;
+	size_t ia_pd_entries, ia_pd_len = 0;
 	void *ia_pd = NULL;
-	void *ia_pd_entries = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entry_len);
+	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
+	ia_pd_entries /= sizeof(*e);
 	struct dhcpv6_ia_hdr hdr_ia_pd = {
 		htons(DHCPV6_OPT_IA_PD),
 		htons(sizeof(hdr_ia_pd) - 4),
@@ -201,22 +202,21 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		.len = htons(25), .prefix = request_prefix
 	};
 
-	if (ia_pd_entry_len > 0) {
-		struct odhcp6c_entry *e = ia_pd_entries;
-		size_t entries = ia_pd_entry_len / sizeof(*e);
-		struct dhcpv6_ia_prefix p[entries];
-		for (size_t i = 0; i < entries; ++i) {
-			p[i].type = htons(DHCPV6_OPT_IA_PREFIX);
-			p[i].len = htons(sizeof(p[i]) - 4U);
-			p[i].preferred = htonl(e[i].preferred);
-			p[i].valid = htonl(e[i].valid);
-			p[i].prefix = e[i].length;
-			p[i].addr = e[i].target;
-		}
-		ia_pd = p;
-		ia_pd_len = sizeof(p);
-		hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
-	} else if (request_prefix > 0 &&
+
+	struct dhcpv6_ia_prefix p[ia_pd_entries];
+	for (size_t i = 0; i < ia_pd_entries; ++i) {
+		p[i].type = htons(DHCPV6_OPT_IA_PREFIX);
+		p[i].len = htons(sizeof(p[i]) - 4U);
+		p[i].preferred = htonl(e[i].preferred);
+		p[i].valid = htonl(e[i].valid);
+		p[i].prefix = e[i].length;
+		p[i].addr = e[i].target;
+	}
+	ia_pd = p;
+	ia_pd_len = sizeof(p);
+	hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
+
+	if (request_prefix > 0 &&
 			(type == DHCPV6_MSG_SOLICIT ||
 			type == DHCPV6_MSG_REQUEST)) {
 		ia_pd = &pref;
@@ -225,30 +225,29 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	}
 
 	// Build IA_NAs
-	size_t ia_na_entry_len, ia_na_len = 0;
+	size_t ia_na_entries, ia_na_len = 0;
 	void *ia_na = NULL;
-	void *ia_na_entries = odhcp6c_get_state(STATE_IA_NA, &ia_na_entry_len);
+	e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
+	ia_na_entries /= sizeof(*e);
+
 	struct dhcpv6_ia_hdr hdr_ia_na = {
 		htons(DHCPV6_OPT_IA_NA),
 		htons(sizeof(hdr_ia_na) - 4),
 		1, 0, 0
 	};
 
-	if (ia_na_entry_len > 0) {
-		struct odhcp6c_entry *e = ia_na_entries;
-		size_t entries = ia_na_entry_len / sizeof(*e);
-		struct dhcpv6_ia_addr p[entries];
-		for (size_t i = 0; i < entries; ++i) {
-			p[i].type = htons(DHCPV6_OPT_IA_ADDR);
-			p[i].len = htons(sizeof(p[i]) - 4U);
-			p[i].addr = e[i].target;
-			p[i].preferred = htonl(e[i].preferred);
-			p[i].valid = htonl(e[i].valid);
-		}
-		ia_na = p;
-		ia_na_len = sizeof(p);
-		hdr_ia_na.len = htons(ntohs(hdr_ia_na.len) + ia_na_len);
+	struct dhcpv6_ia_addr pa[ia_na_entries];
+	for (size_t i = 0; i < ia_na_entries; ++i) {
+		pa[i].type = htons(DHCPV6_OPT_IA_ADDR);
+		pa[i].len = htons(sizeof(pa[i]) - 4U);
+		pa[i].addr = e[i].target;
+		pa[i].preferred = htonl(e[i].preferred);
+		pa[i].valid = htonl(e[i].valid);
 	}
+
+	ia_na = pa;
+	ia_na_len = sizeof(pa);
+	hdr_ia_na.len = htons(ntohs(hdr_ia_na.len) + ia_na_len);
 
 	// Reconfigure Accept
 	struct {
