@@ -76,7 +76,7 @@ static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 // Sockets
 static int sock = -1;
 static int ifindex = -1;
-static time_t t1 = 0, t2 = 0, t3 = 0;
+static int64_t t1 = 0, t2 = 0, t3 = 0;
 
 // IA states
 static int request_prefix = -1;
