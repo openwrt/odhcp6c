@@ -44,7 +44,7 @@
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type);
 
-static time_t dhcpv6_parse_ia(void *opt, void *end);
+static uint32_t dhcpv6_parse_ia(void *opt, void *end);
 
 static reply_handler dhcpv6_handle_reply;
 static reply_handler dhcpv6_handle_advert;
@@ -640,8 +640,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 		if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)
 				&& olen > sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
-			time_t l_t1 = ntohl(ia_hdr->t1);
-			time_t l_t2 = ntohl(ia_hdr->t2);
+			uint32_t l_t1 = ntohl(ia_hdr->t1);
+			uint32_t l_t2 = ntohl(ia_hdr->t2);
 
 			// Test ID and T1-T2 validity
 			if (ia_hdr->iaid != 1 || l_t2 < l_t1)
@@ -663,7 +663,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			if (l_t2 > 0 && t2 > l_t2)
 				t2 = l_t2;
 
-			time_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
+			uint32_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
 
 			if (n < t1)
 				t1 = n;
@@ -713,7 +713,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 }
 
 
-static time_t dhcpv6_parse_ia(void *opt, void *end)
+static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 {
 	uint32_t timeout = UINT32_MAX; // Minimum timeout
 	uint16_t otype, olen;
