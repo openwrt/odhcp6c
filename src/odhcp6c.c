@@ -183,6 +183,8 @@ int main(_unused int argc, char* const argv[])
 		dhcpv6_set_ia_na_mode(ia_na_mode);
 		bound = false;
 
+		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
+
 		do_signal = 0;
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
@@ -203,6 +205,7 @@ int main(_unused int argc, char* const argv[])
 					script_call("informed");
 
 				bound = true;
+				syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
 
 				if (dhcpv6_poll_reconfigure() > 0)
 					script_call("informed");
@@ -218,6 +221,7 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_signal_process();
 		script_call("bound");
 		bound = true;
+		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
 			// Renew Cycle

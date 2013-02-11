@@ -164,7 +164,6 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 
 void script_call(const char *status)
 {
-	syslog(LOG_WARNING, "State for %s changed to %s", argv[1], status);
 	size_t dns_len, search_len, custom_len, sntp_ip_len, sntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len;
 
