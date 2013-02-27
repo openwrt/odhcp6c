@@ -132,6 +132,13 @@ struct dhcpv6_duid {
 } _packed;
 
 
+extern bool log_quiet;
+#define dhcpv6_syslog(level, ...) \
+	if (!log_quiet) {                \
+		syslog(level, __VA_ARGS__);   \
+	}
+
+
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\
 		((otype) = _o[0] << 8 | _o[1]) && ((odata) = (void*)&_o[4]) &&\

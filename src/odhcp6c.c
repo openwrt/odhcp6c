@@ -42,6 +42,7 @@ static size_t state_len[_STATE_MAX] = {0};
 static volatile int do_signal = 0;
 static int urandom_fd = -1;
 static bool bound = false, allow_slaac_only = true;
+bool log_quiet = false;
 
 
 int main(_unused int argc, char* const argv[])
@@ -59,7 +60,7 @@ int main(_unused int argc, char* const argv[])
 
 	bool help = false, daemonize = false;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "SN:P:c:r:s:hdp:")) != -1) {
+	while ((c = getopt(argc, argv, "N:P:c:r:s:p:Sqdh")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = false;
@@ -94,6 +95,10 @@ int main(_unused int argc, char* const argv[])
 			} else {
 				help = true;
 			}
+			break;
+
+		case 'q':
+			log_quiet = true;
 			break;
 
 		case 'r':
@@ -134,7 +139,7 @@ int main(_unused int argc, char* const argv[])
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
 			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
 			script_init(script, ifname)) {
-		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+		dhcpv6_syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
 	}
 
@@ -149,7 +154,7 @@ int main(_unused int argc, char* const argv[])
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
 		if (daemon(0, 0)) {
-			syslog(LOG_ERR, "Failed to daemonize: %s",
+			dhcpv6_syslog(LOG_ERR, "Failed to daemonize: %s",
 					strerror(errno));
 			return 4;
 		}
@@ -183,7 +188,7 @@ int main(_unused int argc, char* const argv[])
 		dhcpv6_set_ia_na_mode(ia_na_mode);
 		bound = false;
 
-		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
+		dhcpv6_syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 		do_signal = 0;
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
@@ -205,7 +210,7 @@ int main(_unused int argc, char* const argv[])
 					script_call("informed");
 
 				bound = true;
-				syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
+				dhcpv6_syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
 
 				if (dhcpv6_poll_reconfigure() > 0)
 					script_call("informed");
@@ -221,7 +226,7 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_signal_process();
 		script_call("bound");
 		bound = true;
-		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+		dhcpv6_syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
 			// Renew Cycle
@@ -308,6 +313,7 @@ static int usage(void)
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/6relayd.pid)\n"
 	"	-d		Daemonize\n"
+	"	-q		Quiet (when not-daemonized)\n"
 	//"	-v		Increase logging verbosity\n"
 	"	-h		Show this help\n\n";
 	write(STDERR_FILENO, buf, sizeof(buf));

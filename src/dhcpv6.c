@@ -352,7 +352,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, timeout);
+	dhcpv6_syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, timeout);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
@@ -408,7 +408,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 				round_start = odhcp6c_get_milli_time();
 				elapsed = round_start - start;
-				syslog(LOG_NOTICE, "Got a valid reply after "
+				dhcpv6_syslog(LOG_NOTICE, "Got a valid reply after "
 						"%ums", (unsigned)elapsed);
 
 				if (retx->handler_reply)
