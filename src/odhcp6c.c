@@ -41,7 +41,7 @@ static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
 static int urandom_fd = -1;
-static bool bound = false, allow_slaac_only = true;
+static bool bound = false, allow_slaac_only = true, release = true;
 
 
 int main(_unused int argc, char* const argv[])
@@ -59,7 +59,7 @@ int main(_unused int argc, char* const argv[])
 
 	bool help = false, daemonize = false;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "SN:P:c:r:s:hdp:")) != -1) {
+	while ((c = getopt(argc, argv, "SN:P:c:r:s:khdp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = false;
@@ -110,6 +110,10 @@ int main(_unused int argc, char* const argv[])
 
 		case 's':
 			script = optarg;
+			break;
+
+		case 'k':
+			release = false;
 			break;
 
 		case 'd':
@@ -282,7 +286,7 @@ int main(_unused int argc, char* const argv[])
 		bound = false;
 		script_call("unbound");
 
-		if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0))
+		if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && release)
 			dhcpv6_request(DHCPV6_MSG_RELEASE);
 
 		odhcp6c_clear_state(STATE_IA_NA);
@@ -305,6 +309,7 @@ static int usage(void)
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
+	"	-k		Don't send a RELEASE when stopping\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/6relayd.pid)\n"
 	"	-d		Daemonize\n"
