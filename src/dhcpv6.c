@@ -623,7 +623,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 		if (t3 < 0)
 			t3 = 0;
 	} else {
-		t1 = t2 = t3 = 86400;
+		t1 = t2 = t3 = UINT32_MAX;
 	}
 
 	if (opt) {
@@ -673,6 +673,12 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 
 			if (n < t3)
 				t3 = n;
+
+			if (t2 >= t3)
+				t2 = 8 * t3 / 10;
+
+			if (t1 >= t2)
+				t1 = 5 * t2 / 8;
 
 		} else if (otype == DHCPV6_OPT_DNS_SERVERS) {
 			if (olen % 16 == 0)
