@@ -89,7 +89,7 @@ int main(_unused int argc, char* const argv[])
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_CLIENTID;
 				buf[2] = 0;
-				buf[4] = l;
+				buf[3] = l;
 				odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4);
 			} else {
 				help = true;
