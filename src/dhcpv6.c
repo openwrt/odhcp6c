@@ -520,7 +520,7 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 			cand.preference -= 2000;
 		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
 				cand.preference >= 0) {
-			cand.preference = odata[1];
+			cand.preference = odata[0];
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
