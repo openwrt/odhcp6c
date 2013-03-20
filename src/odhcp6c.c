@@ -46,8 +46,6 @@ static bool bound = false, allow_slaac_only = true, release = true;
 
 int main(_unused int argc, char* const argv[])
 {
-	openlog("odhcp6c", LOG_PERROR | LOG_PID, LOG_DAEMON);
-
 	// Allocate ressources
 	const char *pidfile = NULL;
 	const char *script = "/usr/sbin/odhcp6c-update";
@@ -58,8 +56,9 @@ int main(_unused int argc, char* const argv[])
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 
 	bool help = false, daemonize = false;
+	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "SN:P:c:r:s:khdp:")) != -1) {
+	while ((c = getopt(argc, argv, "SN:P:c:r:s:khedp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = false;
@@ -116,6 +115,10 @@ int main(_unused int argc, char* const argv[])
 			release = false;
 			break;
 
+		case 'e':
+			logopt |= LOG_PERROR;
+			break;
+
 		case 'd':
 			daemonize = true;
 			break;
@@ -130,6 +133,7 @@ int main(_unused int argc, char* const argv[])
 		}
 	}
 
+	openlog("odhcp6c", logopt, LOG_DAEMON);
 	const char *ifname = argv[optind];
 
 	if (help || !ifname)
@@ -313,6 +317,7 @@ static int usage(void)
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/6relayd.pid)\n"
 	"	-d		Daemonize\n"
+	"	-e		Write logmessages to stderr\n"
 	//"	-v		Increase logging verbosity\n"
 	"	-h		Show this help\n\n";
 	write(STDERR_FILENO, buf, sizeof(buf));
