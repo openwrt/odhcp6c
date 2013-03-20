@@ -236,7 +236,7 @@ bool ra_process(void)
 				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info*)opt;
 				entry.router = any;
 				entry.target = pinfo->nd_opt_pi_prefix;
-				entry.priority = 0;
+				entry.priority = 256;
 				entry.length = pinfo->nd_opt_pi_prefix_len;
 				entry.valid = ntohl(pinfo->nd_opt_pi_valid_time);
 				entry.preferred = ntohl(pinfo->nd_opt_pi_preferred_time);
