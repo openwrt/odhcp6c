@@ -647,6 +647,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			if (ia_hdr->iaid != 1 || l_t2 < l_t1)
 				continue;
 
+			bool error = false;
 			uint16_t stype, slen;
 			uint8_t *sdata;
 			// Test status and bail if error
@@ -654,7 +655,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 					stype, slen, sdata)
 				if (stype == DHCPV6_OPT_STATUS && slen >= 2 &&
 						(sdata[0] || sdata[1]))
-					continue;
+					error = true;
+
+			if (error)
+				continue;
 
 			// Update times
 			if (l_t1 > 0 && t1 > l_t1)
