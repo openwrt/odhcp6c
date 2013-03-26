@@ -752,7 +752,7 @@ static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 			uint8_t *sdata;
 
                         // Find prefix class, if any
-			dhcpv6_for_each_option(odata, odata + olen,
+			dhcpv6_for_each_option(&prefix[1], odata + olen,
                                                stype, slen, sdata)
                           if (stype == DHCPV6_OPT_PREFIX_CLASS && slen == 2) 
                             entry.prefix_class = ntohs(*((uint16_t*)sdata));
