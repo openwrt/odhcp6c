@@ -139,13 +139,6 @@ int main(_unused int argc, char* const argv[])
 	if (help || !ifname)
 		return usage();
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
-			script_init(script, ifname)) {
-		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
-		return 3;
-	}
-
 	signal(SIGIO, sighandler);
 	signal(SIGHUP, sighandler);
 	signal(SIGINT, sighandler);
@@ -153,6 +146,13 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGTERM, sighandler);
 	signal(SIGUSR1, sighandler);
 	signal(SIGUSR2, sighandler);
+
+	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
+			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
+			script_init(script, ifname)) {
+		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+		return 3;
+	}
 
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
