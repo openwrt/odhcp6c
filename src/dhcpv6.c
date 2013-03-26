@@ -135,7 +135,8 @@ int init_dhcpv6(const char *ifname, int request_pd)
 			htons(DHCPV6_OPT_DNS_DOMAIN),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_SIP_SERVER_A),
-			htons(DHCPV6_OPT_SIP_SERVER_D)};
+                          htons(DHCPV6_OPT_PREFIX_CLASS)
+                         };
 	odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 
 
@@ -725,11 +726,11 @@ static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 	uint16_t otype, olen;
 	uint8_t *odata;
 
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT,
-			0, 0, IN6ADDR_ANY_INIT, 0, 0};
-
 	// Update address IA
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
+          struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT,
+                                        0, 0, IN6ADDR_ANY_INIT, 0, 0, 0};
+
 		if (otype == DHCPV6_OPT_IA_PREFIX) {
 			struct dhcpv6_ia_prefix *prefix = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*prefix))
@@ -743,6 +744,14 @@ static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 
 			entry.length = prefix->prefix;
 			entry.target = prefix->addr;
+			uint16_t stype, slen;
+			uint8_t *sdata;
+
+                        // Find prefix class, if any
+			dhcpv6_for_each_option(odata, odata + olen,
+                                               stype, slen, sdata)
+                          if (stype == DHCPV6_OPT_PREFIX_CLASS && slen == 2) 
+                            entry.prefix_class = ntohs(*((uint16_t*)sdata));
 
 			odhcp6c_update_entry(STATE_IA_PD, &entry);
 		} else if (otype == DHCPV6_OPT_IA_ADDR) {

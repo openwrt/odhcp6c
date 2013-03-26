@@ -123,7 +123,7 @@ static void update_proc(const char *sect, const char *opt, uint32_t value)
 
 static bool ra_deduplicate(const struct in6_addr *any, uint8_t length)
 {
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, length, 0, *any, 0, 0};
+  struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, length, 0, *any, 0, 0, 0};
 	struct odhcp6c_entry *x = odhcp6c_find_entry(STATE_RA_PREFIX, &entry);
 	if (x && IN6_ARE_ADDR_EQUAL(&x->target, any)) {
 		odhcp6c_random(&x->target.s6_addr32[2], 2 * sizeof(uint32_t));
@@ -173,7 +173,7 @@ bool ra_process(void)
 	bool found = false;
 	uint8_t buf[1500];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0};
+	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 	odhcp6c_expire();
 

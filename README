@@ -55,7 +55,7 @@ Environment:
 * SIP_DOMAIN		A space-separated list of SIP domains
 * OPTION_<num>	Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
-				Format: <prefix>/<length>,preferred,valid
+				Format: <prefix>/<length>,preferred,valid[,cls]
 * ADDRESSES		A space-separated list of addresses currently assigned
 				Format: <address>/<length>,preferred,valid
 * RA_ADDRESSES	A space-separated list of addresses from RA-prefixes
