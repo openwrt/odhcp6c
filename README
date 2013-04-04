@@ -3,7 +3,7 @@ odhcp6c - Embedded DHCPv6 Client
 
 ** Abstract **
 
-odhcp6c is a minimalistic DHCPv6 client for use in embedded Linux systems.
+odhcp6c is a minimal DHCPv6 and RA-client for use in embedded Linux systems.
 
 
 ** Features **
@@ -19,6 +19,9 @@ odhcp6c is a minimalistic DHCPv6 client for use in embedded Linux systems.
 3. Stateless fallback-support
 
 4. State script support
+
+5. Support for requesting and parsing Router Advertisements
+	a) parsing of prefixes, routes, MTU and RDNSS options
 
 
 ** Compiling **
