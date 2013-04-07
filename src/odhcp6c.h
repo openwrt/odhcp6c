@@ -51,6 +51,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_NTP_SERVER = 56,
 	DHCPV6_OPT_SIP_SERVER_D = 21,
 	DHCPV6_OPT_SIP_SERVER_A = 22,
+	DHCPV6_OPT_PD_EXCLUDE = 67,
 };
 
 enum dhcpv6_opt_npt {

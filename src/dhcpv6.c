@@ -15,6 +15,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <limits.h>
 #include <resolv.h>
@@ -135,7 +136,8 @@ int init_dhcpv6(const char *ifname, int request_pd)
 			htons(DHCPV6_OPT_DNS_DOMAIN),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_SIP_SERVER_A),
-			htons(DHCPV6_OPT_SIP_SERVER_D)};
+			htons(DHCPV6_OPT_SIP_SERVER_D),
+			htons(DHCPV6_OPT_PD_EXCLUDE)};
 	odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 
 
@@ -188,7 +190,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	// Build IA_PDs
 	size_t ia_pd_entries, ia_pd_len = 0;
-	void *ia_pd = NULL;
 	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
 	ia_pd_entries /= sizeof(*e);
 	struct dhcpv6_ia_hdr hdr_ia_pd = {
@@ -197,32 +198,51 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		1, 0, 0
 	};
 
+
+	uint8_t *ia_pd = alloca(ia_pd_entries * (sizeof(struct dhcpv6_ia_prefix) + 10));
+	for (size_t i = 0; i < ia_pd_entries; ++i) {
+		uint8_t ex_len = 0;
+		if (e[i].priority > 0)
+			ex_len = ((e[i].priority - e[i].length - 1) / 8) + 6;
+
+		struct dhcpv6_ia_prefix p = {
+			.type = htons(DHCPV6_OPT_IA_PREFIX),
+			.len = htons(sizeof(p) - 4U + ex_len),
+			.prefix = e[i].length,
+			.addr = e[i].target
+		};
+
+		memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
+		ia_pd_len += sizeof(p);
+
+		if (ex_len) {
+			ia_pd[ia_pd_len++] = 0;
+			ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
+			ia_pd[ia_pd_len++] = 0;
+			ia_pd[ia_pd_len++] = ex_len - 4;
+			ia_pd[ia_pd_len++] = e[i].priority;
+
+			uint32_t excl = ntohl(e[i].router.s6_addr32[1]);
+			excl >>= (64 - e[i].priority);
+			excl <<= 8 - ((e[i].priority - e[i].length) % 8);
+
+			for (size_t i = ex_len - 5; i > 0; --i, excl >>= 8)
+				ia_pd[ia_pd_len + i] = excl & 0xff;
+			ia_pd_len += ex_len - 5;
+		}
+	}
+
 	struct dhcpv6_ia_prefix pref = {
 		.type = htons(DHCPV6_OPT_IA_PREFIX),
 		.len = htons(25), .prefix = request_prefix
 	};
-
-
-	struct dhcpv6_ia_prefix p[ia_pd_entries];
-	for (size_t i = 0; i < ia_pd_entries; ++i) {
-		p[i].type = htons(DHCPV6_OPT_IA_PREFIX);
-		p[i].len = htons(sizeof(p[i]) - 4U);
-		p[i].preferred = 0;
-		p[i].valid = 0;
-		p[i].prefix = e[i].length;
-		p[i].addr = e[i].target;
-	}
-	ia_pd = p;
-	ia_pd_len = sizeof(p);
-	hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
-
-	if (request_prefix > 0 &&
+	if (request_prefix > 0 && ia_pd_len == 0 &&
 			(type == DHCPV6_MSG_SOLICIT ||
 			type == DHCPV6_MSG_REQUEST)) {
-		ia_pd = &pref;
+		ia_pd = (uint8_t*)&pref;
 		ia_pd_len = sizeof(pref);
-		hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
 	}
+	hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
 
 	// Build IA_NAs
 	size_t ia_na_entries, ia_na_len = 0;
@@ -748,7 +768,50 @@ static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 			entry.length = prefix->prefix;
 			entry.target = prefix->addr;
 
-			odhcp6c_update_entry(STATE_IA_PD, &entry);
+			// Parse PD-exclude
+			bool ok = true;
+			uint16_t stype, slen;
+			uint8_t *sdata;
+			dhcpv6_for_each_option(odata + sizeof(*prefix) - 4U,
+					odata + olen, stype, slen, sdata) {
+				if (stype != DHCPV6_OPT_PD_EXCLUDE || slen < 2)
+					continue;
+
+				uint8_t elen = sdata[0];
+				if (elen > 64)
+					elen = 64;
+
+				if (elen <= 32 || elen <= entry.length) {
+					ok = false;
+					continue;
+				}
+
+
+				uint8_t bytes = ((elen - entry.length - 1) / 8) + 1;
+				if (slen <= bytes) {
+					ok = false;
+					continue;
+				}
+
+				uint32_t exclude = 0;
+				do {
+					exclude = exclude << 8 | sdata[bytes];
+				} while (--bytes);
+
+				exclude >>= 8 - ((elen - entry.length) % 8);
+				exclude <<= 64 - elen;
+
+				// Abusing router & priority fields for exclusion
+				entry.router = entry.target;
+				entry.router.s6_addr32[1] |= htonl(exclude);
+				entry.priority = elen;
+			}
+
+			if (ok)
+				odhcp6c_update_entry(STATE_IA_PD, &entry);
+
+			entry.priority = 0;
+			memset(&entry.router, 0, sizeof(entry.router));
 		} else if (otype == DHCPV6_OPT_IA_ADDR) {
 			struct dhcpv6_ia_addr *addr = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*addr))

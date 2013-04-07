@@ -128,8 +128,14 @@ static void bin_to_env(uint8_t *opts, size_t len)
 	}
 }
 
+enum entry_type {
+	ENTRY_ADDRESS,
+	ENTRY_HOST,
+	ENTRY_ROUTE,
+	ENTRY_PREFIX
+};
 
-static void entry_to_env(const char *name, const void *data, size_t len, bool host, bool route)
+static void entry_to_env(const char *name, const void *data, size_t len, enum entry_type type)
 {
 	size_t buf_len = strlen(name);
 	const struct odhcp6c_entry *e = data;
@@ -140,9 +146,9 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 	for (size_t i = 0; i < len / sizeof(*e); ++i) {
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
-		if (!host) {
+		if (type != ENTRY_HOST) {
 			buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
-			if (route) {
+			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
 					inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
@@ -152,6 +158,14 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 			} else {
 				buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
+			}
+
+			if (type == ENTRY_PREFIX && e[i].priority) {
+				// priority and router are abused for prefix exclusion
+				buf[buf_len++] = ',';
+				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+				buf_len += strlen(&buf[buf_len]);
+				buf_len += snprintf(&buf[buf_len], 24, "/%u", e[i].priority);
 			}
 		}
 		buf[buf_len++] = ' ';
@@ -191,11 +205,11 @@ void script_call(const char *status)
 		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		bin_to_env(custom, custom_len);
-		entry_to_env("PREFIXES", prefix, prefix_len, false, false);
-		entry_to_env("ADDRESSES", address, address_len, false, false);
-		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, false, false);
-		entry_to_env("RA_ROUTES", ra_route, ra_route_len, false, true);
-		entry_to_env("RA_DNS", ra_dns, ra_dns_len, true, false);
+		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
+		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
+		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
+		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
+		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);
