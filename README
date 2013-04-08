@@ -13,8 +13,13 @@ odhcp6c is a minimal DHCPv6 and RA-client for use in embedded Linux systems.
 	b) handling of valid and preferred lifetimes
 	c) duplicate address detection
 
-2. Handling of IPv6-Prefixes (Prefix Delegation)
-	a) requesting of prefixes
+2. Support for DHCPv6 extension
+	a) Reconfigure-Messages
+	b) Prefix Delegation
+	c) Prefix Exclusion
+	d) DNS Configuration Options
+	e) NTP Options
+	f) SIP Options
 
 3. Stateless fallback-support
 
