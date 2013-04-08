@@ -66,12 +66,3 @@ Environment:
 * RA_ROUTES		A space-separated list of routes from the RA
 				Format: <address>/<length>,gateway,valid,metric
 * RA_DNS		A space-separated list of recursive DNS servers from the RA
-
-
-
-
-** Wishlist **
-
-Features that I would like to see implemented in the near or far future:
-
-* Reconfigure Authentication 

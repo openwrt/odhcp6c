@@ -132,6 +132,18 @@ struct dhcpv6_duid {
 	uint8_t data[128];
 } _packed;
 
+struct dhcpv6_auth_reconfigure {
+	uint16_t type;
+	uint16_t len;
+	uint8_t protocol;
+	uint8_t algorithm;
+	uint8_t rdm;
+	uint64_t replay;
+	uint8_t auth;
+	uint8_t reconf_type;
+	uint8_t key[16];
+} _packed;
+
 
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\

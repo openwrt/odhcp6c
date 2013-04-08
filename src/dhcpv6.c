@@ -32,6 +32,7 @@
 #include <net/ethernet.h>
 
 #include "odhcp6c.h"
+#include "md5.h"
 
 
 #define ALL_DHCPV6_RELAYS {{{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,\
@@ -83,6 +84,9 @@ static int64_t t1 = 0, t2 = 0, t3 = 0;
 static int request_prefix = -1;
 static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE;
 static bool accept_reconfig = false;
+
+// Reconfigure key
+static uint8_t reconf_key[16];
 
 
 
@@ -470,19 +474,55 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 
 	uint8_t *end = ((uint8_t*)buf) + len, *odata;
 	uint16_t otype, olen;
-	bool clientid_ok = false, serverid_ok = false;
+	bool clientid_ok = false, serverid_ok = false, rcauth_ok = false;
 
 	size_t client_id_len, server_id_len;
 	void *client_id = odhcp6c_get_state(STATE_CLIENT_ID, &client_id_len);
 	void *server_id = odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
-	dhcpv6_for_each_option(&rep[1], end, otype, olen, odata)
-		if (otype == DHCPV6_OPT_CLIENTID)
+	dhcpv6_for_each_option(&rep[1], end, otype, olen, odata) {
+		if (otype == DHCPV6_OPT_CLIENTID) {
 			clientid_ok = (olen + 4U == client_id_len) && !memcmp(
 					&odata[-4], client_id, client_id_len);
-		else if (otype == DHCPV6_OPT_SERVERID)
+		} else if (otype == DHCPV6_OPT_SERVERID) {
 			serverid_ok = (olen + 4U == server_id_len) && !memcmp(
 					&odata[-4], server_id, server_id_len);
+		} else if (otype == DHCPV6_OPT_AUTH && olen == -4 +
+				sizeof(struct dhcpv6_auth_reconfigure)) {
+			struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
+			if (r->protocol != 3 || r->algorithm != 1 || r->reconf_type != 2)
+				continue;
+
+			md5_state_t md5;
+			uint8_t serverhash[16], secretbytes[16], hash[16];
+			memcpy(serverhash, r->key, sizeof(serverhash));
+			memset(r->key, 0, sizeof(r->key));
+			memcpy(secretbytes, reconf_key, sizeof(secretbytes));
+
+			for (size_t i = 0; i < sizeof(secretbytes); ++i)
+				secretbytes[i] ^= 0x36;
+
+			md5_init(&md5);
+			md5_append(&md5, secretbytes, sizeof(secretbytes));
+			md5_append(&md5, buf, len);
+			md5_finish(&md5, hash);
+
+			for (size_t i = 0; i < sizeof(secretbytes); ++i) {
+				secretbytes[i] ^= 0x36;
+				secretbytes[i] ^= 0x5c;
+			}
+
+			md5_init(&md5);
+			md5_append(&md5, secretbytes, sizeof(secretbytes));
+			md5_append(&md5, hash, 16);
+			md5_finish(&md5, hash);
+
+			rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
+		}
+	}
+
+	if (rep->msg_type == DHCPV6_MSG_RECONF && !rcauth_ok)
+		return false;
 
 	return clientid_ok && (serverid_ok || server_id_len == 0);
 }
@@ -732,6 +772,12 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			uint32_t refresh = ntohl(*((uint32_t*)odata));
 			if (refresh < (uint32_t)t1)
 				t1 = refresh;
+		} else if (otype == DHCPV6_OPT_AUTH && olen == -4 +
+				sizeof(struct dhcpv6_auth_reconfigure)) {
+			struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
+			if (r->protocol == 3 && r->algorithm == 1 &&
+					r->reconf_type == 1)
+				memcpy(reconf_key, r->key, sizeof(r->key));
 		} else if (otype != DHCPV6_OPT_CLIENTID &&
 				otype != DHCPV6_OPT_SERVERID) {
 			odhcp6c_add_state(STATE_CUSTOM_OPTS,
