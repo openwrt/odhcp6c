@@ -5,7 +5,7 @@ cmake_policy(SET CMP0015 NEW)
 project(odhcp6c C)
 set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
-add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra -pedantic)
+add_definitions(-D_GNU_SOURCE -Os -Wall -Werror -Wextra -pedantic)
 
 add_executable(odhcp6c src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c src/md5.c)
 target_link_libraries(odhcp6c resolv)

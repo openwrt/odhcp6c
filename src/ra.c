@@ -230,13 +230,15 @@ bool ra_process(void)
 		struct icmpv6_opt *opt;
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
-				update_proc("conf", "mtu", ntohl(*((uint32_t*)&opt->data[2])));
+				uint32_t *mtu = (uint32_t*)&opt->data[2];
+				update_proc("conf", "mtu", ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
 				entry.router = from.sin6_addr;
 				entry.target = any;
 				entry.priority = pref_to_priority(opt->data[1]);
 				entry.length = opt->data[0];
-				entry.valid = ntohl(*((uint32_t*)&opt->data[2]));
+				uint32_t *valid = (uint32_t*)&opt->data[2];
+				entry.valid = ntohl(*valid);
 				memcpy(&entry.target, &opt->data[6], (opt->len - 1) * 8);
 
 				if (entry.length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry.target)
@@ -276,7 +278,8 @@ bool ra_process(void)
 				entry.router = from.sin6_addr;
 				entry.priority = 0;
 				entry.length = 128;
-				entry.valid = ntohl(*((uint32_t*)&opt->data[2]));
+				uint32_t *valid = (uint32_t*)&opt->data[2];
+				entry.valid = ntohl(*valid);
 				entry.preferred = 0;
 
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
