@@ -139,7 +139,6 @@ struct dhcpv6_auth_reconfigure {
 	uint8_t algorithm;
 	uint8_t rdm;
 	uint64_t replay;
-	uint8_t auth;
 	uint8_t reconf_type;
 	uint8_t key[16];
 } _packed;
