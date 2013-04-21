@@ -60,7 +60,7 @@ static int dhcpv6_commit_advert(void);
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, "<POLL>",
 			dhcpv6_handle_reconfigure, NULL},
-	[DHCPV6_MSG_SOLICIT] = {true, 1, 120, "SOLICIT",
+	[DHCPV6_MSG_SOLICIT] = {true, 1, 7200, "SOLICIT",
 			dhcpv6_handle_advert, dhcpv6_commit_advert},
 	[DHCPV6_MSG_REQUEST] = {true, 30, 10, "REQUEST",
 			dhcpv6_handle_reply, NULL},
