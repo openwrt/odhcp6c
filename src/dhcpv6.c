@@ -381,8 +381,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
 	// Generate transaction ID
-	uint8_t trid[3];
-	odhcp6c_random(trid, sizeof(trid));
+	uint8_t trid[3] = {0, 0, 0};
+	if (type != DHCPV6_MSG_UNKNOWN)
+		odhcp6c_random(trid, sizeof(trid));
 	ssize_t len = -1;
 	int64_t rto = 0;
 
@@ -584,7 +585,7 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
-			struct dhcpv6_ia_hdr *h = (void*)odata;
+			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
 				if (otype == DHCPV6_OPT_IA_PREFIX)
