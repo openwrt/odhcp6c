@@ -40,7 +40,7 @@ static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
-static int urandom_fd = -1, allow_slaac_only = 15;
+static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
 
 
@@ -76,6 +76,9 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'P':
+			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
+				allow_slaac_only = 10;
+
 			request_pd = strtoul(optarg, NULL, 10);
 			if (request_pd == 0)
 				request_pd = -1;
@@ -306,7 +309,7 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
-	"	-S <time>	Wait at least <time> sec for a DHCP-server (15)\n"
+	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
