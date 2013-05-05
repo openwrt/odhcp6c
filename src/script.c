@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <signal.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -38,6 +39,7 @@ static const int8_t hexvals[] = {
 
 
 static char *argv[4] = {NULL, NULL, NULL, NULL};
+static volatile char *delayed_call = NULL;
 
 
 int script_init(const char *path, const char *ifname)
@@ -176,10 +178,31 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 }
 
 
+static void script_call_delayed(int signal __attribute__((unused)))
+{
+	if (delayed_call)
+		script_call((char*)delayed_call);
+}
+
+
+void script_delay_call(const char *status, int timeout)
+{
+	if (!delayed_call) {
+		delayed_call = strdup(status);
+		signal(SIGALRM, script_call_delayed);
+		alarm(timeout);
+	}
+}
+
+
 void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, sntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len;
+
+	odhcp6c_expire();
+	if (delayed_call)
+		alarm(0);
 
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);

@@ -40,8 +40,8 @@ static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
-static int urandom_fd = -1;
-static bool bound = false, allow_slaac_only = true, release = true;
+static int urandom_fd = -1, allow_slaac_only = 15;
+static bool bound = false, release = true;
 
 
 int main(_unused int argc, char* const argv[])
@@ -58,10 +58,10 @@ int main(_unused int argc, char* const argv[])
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "SN:P:c:r:s:khedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:c:r:s:khedp:")) != -1) {
 		switch (c) {
 		case 'S':
-			allow_slaac_only = false;
+			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
 			break;
 
 		case 'N':
@@ -76,7 +76,6 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'P':
-			allow_slaac_only = false;
 			request_pd = strtoul(optarg, NULL, 10);
 			if (request_pd == 0)
 				request_pd = -1;
@@ -307,7 +306,7 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
-	"	-S		Don't allow SLAAC-only (implied by -P)\n"
+	"	-S <time>	Wait at least <time> sec for a DHCP-server (15)\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
@@ -355,12 +354,12 @@ bool odhcp6c_signal_process(void)
 {
 	if (do_signal == SIGIO) {
 		do_signal = 0;
-		bool updated = ra_process();
-		updated |= ra_rtnl_process();
-		if (updated && (bound || allow_slaac_only)) {
-			odhcp6c_expire();
-			script_call("ra-updated");
-		}
+		bool ra_updated = ra_process();
+
+		if (ra_rtnl_process() || (ra_updated && (bound || allow_slaac_only == 0)))
+			script_call("ra-updated"); // Immediate process urgent events
+		else if (ra_updated && !bound && allow_slaac_only > 0)
+			script_delay_call("ra-updated", allow_slaac_only);
 	}
 
 	return do_signal != 0;
