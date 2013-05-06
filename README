@@ -3,19 +3,25 @@ odhcp6c - Embedded DHCPv6 Client
 
 ** Abstract **
 
-odhcp6c is a minimal DHCPv6 and RA-client for use in embedded Linux systems.
+odhcp6c is a minimal DHCPv6 and RA-client for use in embedded Linux systems
+especially routers. It compiles to only about 30 KB (-Os -s).
 
 
 ** Features **
 
-1. Handling of non-temporary addresses
+1. IPv6 bootstrap from different environments with autodetection
+	a) RA only
+	b) RA + stateless DHCPv6
+	c) RA + stateful DHCPv6 (either IA_NA or IA_PD or both)
+
+2. Handling of non-temporary addresses (IA_NA)
 	a) handling of valid and preferred lifetimes
 	b) duplicate address detection
 	c) automatic fallback to stateless or PD-only mode
 
-2. Support for DHCPv6 extension
+3. Support for DHCPv6 extension
 	a) Reconfigure-Messages
-	b) Prefix Delegation
+	b) Prefix Delegation (including handling of valid and preferred lifetimes)
 	c) Prefix Exclusion
 	d) DNS Configuration Options
 	e) NTP Options
@@ -23,11 +29,7 @@ odhcp6c is a minimal DHCPv6 and RA-client for use in embedded Linux systems.
 	g) Information-Refresh Options
 	h) SOL_MAX_RT default to 3600
 
-3. Stateless fallback-support
-
-4. State script support
-
-5. Support for requesting and parsing Router Advertisements
+4. Support for requesting and parsing Router Advertisements
 	a) parsing of prefixes, routes, MTU and RDNSS options
 
 
@@ -50,7 +52,7 @@ States:
 * bound			A suitable server was found and addresses or prefixes acquired		
 * informed		A stateless information request returned updated information
 * updated		Updated information was received from the DHCPv6 server
-* ra-updated	Updated information was received from via Router Advertisement
+* ra-updated		Updated information was received from via Router Advertisement
 * rebound		The DHCPv6 client switched to another server
 * unbound		The DHCPv6 client lost all DHCPv6 servers and will restart
 * stopped		The DHCPv6 client has been stopped
@@ -63,12 +65,12 @@ Environment:
 * SNTP_FQDN		A space-separated list of SNTP server FQDNs
 * SIP_IP		A space-separated list of SIP servers
 * SIP_DOMAIN		A space-separated list of SIP domains
-* OPTION_<num>	Custom option received as base-16
+* OPTION_<num>		Custom option received as base-16
 * PREFIXES		A space-separated list of prefixes currently assigned
 				Format: <prefix>/<length>,preferred,valid,<excluded-prefix>/<length>
 * ADDRESSES		A space-separated list of addresses currently assigned
 				Format: <address>/<length>,preferred,valid
-* RA_ADDRESSES	A space-separated list of addresses from RA-prefixes
+* RA_ADDRESSES		A space-separated list of addresses from RA-prefixes
 				Format: <address>/<length>,preferred,valid
 * RA_ROUTES		A space-separated list of routes from the RA
 				Format: <address>/<length>,gateway,valid,metric
