@@ -164,7 +164,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 
 			if (type == ENTRY_PREFIX && e[i].priority) {
 				// priority and router are abused for prefix exclusion
-				buf[buf_len++] = ',';
+				buf_len += snprintf(&buf[buf_len], 12, ",excluded=");
 				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
 				buf_len += strlen(&buf[buf_len]);
 				buf_len += snprintf(&buf[buf_len], 24, "/%u", e[i].priority);
