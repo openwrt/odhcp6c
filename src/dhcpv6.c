@@ -136,12 +136,15 @@ int init_dhcpv6(const char *ifname, int request_pd)
 	}
 
 	// Create ORO
-	uint16_t oro[] = {htons(DHCPV6_OPT_DNS_SERVERS),
+	uint16_t oro[] = {
+			htons(DHCPV6_OPT_SIP_SERVER_D),
+			htons(DHCPV6_OPT_SIP_SERVER_A),
+			htons(DHCPV6_OPT_DNS_SERVERS),
 			htons(DHCPV6_OPT_DNS_DOMAIN),
 			htons(DHCPV6_OPT_NTP_SERVER),
-			htons(DHCPV6_OPT_SIP_SERVER_A),
-			htons(DHCPV6_OPT_SIP_SERVER_D),
-			htons(DHCPV6_OPT_PD_EXCLUDE)};
+			htons(DHCPV6_OPT_AFTR_NAME),
+			htons(DHCPV6_OPT_PD_EXCLUDE),
+	};
 	odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 
 
@@ -694,6 +697,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 		odhcp6c_clear_state(STATE_SNTP_FQDN);
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
+		odhcp6c_clear_state(STATE_AFTR_NAME);
 	}
 
 	// Parse and find all matching IAs
@@ -779,6 +783,11 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			if (r->protocol == 3 && r->algorithm == 1 &&
 					r->reconf_type == 1)
 				memcpy(reconf_key, r->key, sizeof(r->key));
+		} else if (otype == DHCPV6_OPT_AFTR_NAME && olen > 3) {
+			size_t cur_len;
+			odhcp6c_get_state(STATE_AFTR_NAME, &cur_len);
+			if (cur_len == 0)
+				odhcp6c_add_state(STATE_AFTR_NAME, odata, olen);
 		} else if (otype != DHCPV6_OPT_CLIENTID &&
 				otype != DHCPV6_OPT_SERVERID) {
 			odhcp6c_add_state(STATE_CUSTOM_OPTS,
