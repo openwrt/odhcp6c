@@ -98,13 +98,14 @@ static void ipv6_to_env(const char *name,
 static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 {
 	size_t buf_len = strlen(name);
+	size_t buf_size = len + buf_len + 2;
 	const uint8_t *fqdn_end = fqdn + len;
 	char *buf = realloc(NULL, len + buf_len + 2);
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
 	int l = 1;
 	while (l > 0 && fqdn < fqdn_end) {
-		l = dn_expand(fqdn, &fqdn[len], fqdn, &buf[buf_len], len);
+		l = dn_expand(fqdn, fqdn_end, fqdn, &buf[buf_len], buf_size - buf_len);
 		fqdn += l;
 		buf_len += strlen(&buf[buf_len]);
 		buf[buf_len++] = ' ';
