@@ -28,6 +28,7 @@ especially routers. It compiles to only about 30 KB (-Os -s).
 	f) SIP Options
 	g) Information-Refresh Options
 	h) SOL_MAX_RT default to 3600
+	i) DS-Lite AFTR-Name Option
 
 4. Support for requesting and parsing Router Advertisements
 	a) parsing of prefixes, routes, MTU and RDNSS options
@@ -75,3 +76,5 @@ Environment:
 * RA_ROUTES		A space-separated list of routes from the RA
 				Format: <address>/<length>,gateway,valid,metric
 * RA_DNS		A space-separated list of recursive DNS servers from the RA
+* AFTR			The DS-Lite AFTR domain name
+* AFTR_IP		The DS-Lite AFTR resolved IPv6 address

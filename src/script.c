@@ -13,6 +13,7 @@
  */
 
 #include <stdio.h>
+#include <netdb.h>
 #include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +112,29 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 		buf[buf_len++] = ' ';
 	}
 	buf[buf_len - 1] = '\0';
+	putenv(buf);
+}
+
+
+static void fqdn_to_ip_env(const char *name, const uint8_t *fqdn, size_t len)
+{
+	size_t buf_len = strlen(name);
+	char *buf = realloc(NULL, INET6_ADDRSTRLEN + buf_len + 3);
+	memcpy(buf, name, buf_len);
+	buf[buf_len++] = '=';
+
+	char namebuf[256];
+	if (dn_expand(fqdn, fqdn + len, fqdn, namebuf, sizeof(namebuf)) <= 0)
+		return;
+
+	struct addrinfo hints = {.ai_family = AF_INET6}, *r;
+	if (getaddrinfo(namebuf, NULL, &hints, &r))
+		return;
+
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6*)r->ai_addr;
+	inet_ntop(AF_INET6, &sin6->sin6_addr, &buf[buf_len], INET6_ADDRSTRLEN);
+
+	freeaddrinfo(r);
 	putenv(buf);
 }
 
@@ -230,6 +254,7 @@ void script_call(const char *status)
 		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		fqdn_to_env("AFTR", aftr_name, aftr_name_len);
+		fqdn_to_ip_env("AFTR_IP", aftr_name, aftr_name_len);
 		bin_to_env(custom, custom_len);
 		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
 		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
