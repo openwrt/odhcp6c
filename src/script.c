@@ -41,6 +41,7 @@ static const int8_t hexvals[] = {
 
 static char *argv[4] = {NULL, NULL, NULL, NULL};
 static volatile char *delayed_call = NULL;
+static bool dont_delay = false;
 
 
 int script_init(const char *path, const char *ifname)
@@ -212,7 +213,9 @@ static void script_call_delayed(int signal __attribute__((unused)))
 
 void script_delay_call(const char *status, int timeout)
 {
-	if (!delayed_call) {
+	if (dont_delay) {
+		script_call(status);
+	} else if (!delayed_call) {
 		delayed_call = strdup(status);
 		signal(SIGALRM, script_call_delayed);
 		alarm(timeout);
@@ -226,8 +229,10 @@ void script_call(const char *status)
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len;
 
 	odhcp6c_expire();
-	if (delayed_call)
+	if (delayed_call) {
 		alarm(0);
+		dont_delay = true;
+	}
 
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
