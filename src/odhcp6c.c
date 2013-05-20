@@ -470,7 +470,7 @@ void odhcp6c_expire(void)
 	static time_t last_update = 0;
 	time_t now = odhcp6c_get_milli_time() / 1000;
 
-	uint32_t elapsed = now - last_update;
+	uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
 	last_update = now;
 
 	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);

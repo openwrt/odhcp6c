@@ -667,13 +667,15 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 	uint8_t *odata;
 	uint16_t otype, olen;
 
-	static time_t last_update = 0;
-	time_t now = odhcp6c_get_milli_time() / 1000;
-
-	uint32_t elapsed = now - last_update;
 	odhcp6c_expire();
 
 	if (orig == DHCPV6_MSG_UNKNOWN) {
+		static time_t last_update = 0;
+		time_t now = odhcp6c_get_milli_time() / 1000;
+
+		uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
+		last_update = now;
+
 		t1 -= elapsed;
 		t2 -= elapsed;
 		t3 -= elapsed;
