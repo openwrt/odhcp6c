@@ -309,7 +309,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		{&oro_refresh, 0},
 		{cl_id, cl_id_len},
 		{srv_id, srv_id_len},
-		{&reconf_accept, 0},
+		{&reconf_accept, sizeof(reconf_accept)},
 		{&fqdn, fqdn_len},
 		{&hdr_ia_na, sizeof(hdr_ia_na)},
 		{ia_na, ia_na_len},
@@ -327,9 +327,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	}
 
 	// Disable IAs if not used
-	if (type == DHCPV6_MSG_SOLICIT) {
-		iov[5].iov_len = sizeof(reconf_accept);
-	} else if (type != DHCPV6_MSG_REQUEST) {
+	if (type != DHCPV6_MSG_REQUEST && type != DHCPV6_MSG_SOLICIT) {
+		iov[5].iov_len = 0;
 		if (ia_na_len == 0)
 			iov[7].iov_len = 0;
 		if (ia_pd_len == 0)
