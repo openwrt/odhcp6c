@@ -371,9 +371,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	else if (type == DHCPV6_MSG_UNKNOWN)
 		timeout = t1;
 	else if (type == DHCPV6_MSG_RENEW)
-		timeout = t2 - t1;
+		timeout = (t2 > t1) ? t2 - t1 : 0;
 	else if (type == DHCPV6_MSG_REBIND)
-		timeout = t3 - t2;
+		timeout = (t3 > t2) ? t3 - t2 : 0;
 
 	if (timeout == 0)
 		return -1;
@@ -726,29 +726,23 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			if (error)
 				continue;
 
+			uint32_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
+
+			if (!l_t1)
+				l_t1 = 300;
+
+			if (!l_t2)
+				l_t2 = 600;
+
+			if (n < t3)
+				t3 = n;
+
 			// Update times
 			if (l_t1 > 0 && t1 > l_t1)
 				t1 = l_t1;
 
 			if (l_t2 > 0 && t2 > l_t2)
 				t2 = l_t2;
-
-			uint32_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
-
-			if (n < t1)
-				t1 = n;
-
-			if (n < t2)
-				t2 = n;
-
-			if (n < t3)
-				t3 = n;
-
-			if (t2 >= t3)
-				t2 = 8 * t3 / 10;
-
-			if (t1 >= t2)
-				t1 = 5 * t2 / 8;
 
 		} else if (otype == DHCPV6_OPT_DNS_SERVERS) {
 			if (olen % 16 == 0)
