@@ -18,9 +18,11 @@
 #include <string.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include <net/if.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
@@ -165,7 +167,8 @@ bool ra_rtnl_process(void)
 			struct in6_addr *addr = NULL;
 			if (NLMSG_PAYLOAD(nh, 0) < sizeof(*ifa) || ifa->ifa_index != if_index ||
 					(nh->nlmsg_type == RTM_NEWADDR && !(ifa->ifa_flags & IFA_F_DADFAILED)) ||
-					(nh->nlmsg_type == RTM_DELADDR && !(ifa->ifa_flags & IFA_F_TENTATIVE)))
+					(nh->nlmsg_type == RTM_DELADDR && !(ifa->ifa_flags & IFA_F_TENTATIVE)) ||
+					(nh->nlmsg_type != RTM_NEWADDR && nh->nlmsg_type != RTM_DELADDR))
 				continue;
 
 			ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifa));
@@ -174,8 +177,13 @@ bool ra_rtnl_process(void)
 				if (rta->rta_type == IFA_ADDRESS && RTA_PAYLOAD(rta) >= sizeof(*addr))
 					addr = RTA_DATA(rta);
 
-			if (addr)
+			if (addr) {
+				char ipbuf[INET6_ADDRSTRLEN];
+				inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+				syslog(LOG_WARNING, "duplicate address detected: %s (code: %u:%x)",
+						ipbuf, (unsigned)nh->nlmsg_type, (unsigned)ifa->ifa_flags);
 				found |= ra_deduplicate(addr, ifa->ifa_prefixlen);
+			}
 		}
 	}
 	return found;
