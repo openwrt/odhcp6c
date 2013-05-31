@@ -155,11 +155,15 @@ static bool ra_deduplicate(const struct in6_addr *any, uint8_t length)
 bool ra_rtnl_process(void)
 {
 	bool found = false;
+	uint32_t elapsed = odhcp6c_elapsed();
 	uint8_t buf[8192];
 	while (true) {
 		ssize_t len = recv(rtnl_sock, buf, sizeof(buf), MSG_DONTWAIT);
 		if (len < 0)
 			break;
+
+		if (elapsed > 10)
+			continue;
 
 		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, (size_t)len);
 					nh = NLMSG_NEXT(nh, len)) {
@@ -197,7 +201,6 @@ bool ra_process(void)
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
-	odhcp6c_expire();
 
 	while (true) {
 		struct sockaddr_in6 from;
@@ -214,7 +217,10 @@ bool ra_process(void)
 			rs_attempt = 0;
 		}
 
-		found = true;
+		if (!found) {
+			odhcp6c_expire();
+			found = true;
+		}
 		uint32_t router_valid = ntohs(adv->nd_ra_router_lifetime);
 
 		// Parse default route
@@ -308,6 +314,8 @@ bool ra_process(void)
 				entry[i].valid = router_valid;
 	}
 
-	odhcp6c_expire();
+	if (found)
+		odhcp6c_expire();
+
 	return found;
 }

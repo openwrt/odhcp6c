@@ -42,6 +42,7 @@ static size_t state_len[_STATE_MAX] = {0};
 static volatile int do_signal = 0;
 static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
+static time_t last_update = 0;
 
 
 int main(_unused int argc, char* const argv[])
@@ -357,9 +358,10 @@ bool odhcp6c_signal_process(void)
 {
 	if (do_signal == SIGIO) {
 		do_signal = 0;
+		bool ra_rtnled = ra_rtnl_process();
 		bool ra_updated = ra_process();
 
-		if (ra_rtnl_process() || (ra_updated && (bound || allow_slaac_only == 0)))
+		if (ra_rtnled || (ra_updated && (bound || allow_slaac_only == 0)))
 			script_call("ra-updated"); // Immediate process urgent events
 		else if (ra_updated && !bound && allow_slaac_only > 0)
 			script_delay_call("ra-updated", allow_slaac_only);
@@ -467,9 +469,7 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 
 void odhcp6c_expire(void)
 {
-	static time_t last_update = 0;
 	time_t now = odhcp6c_get_milli_time() / 1000;
-
 	uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
 	last_update = now;
 
@@ -478,6 +478,12 @@ void odhcp6c_expire(void)
 	odhcp6c_expire_list(STATE_RA_DNS, elapsed);
 	odhcp6c_expire_list(STATE_IA_NA, elapsed);
 	odhcp6c_expire_list(STATE_IA_PD, elapsed);
+}
+
+
+uint32_t odhcp6c_elapsed(void)
+{
+	return odhcp6c_get_milli_time() / 1000 - last_update;
 }
 
 

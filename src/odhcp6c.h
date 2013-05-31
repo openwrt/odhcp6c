@@ -244,3 +244,4 @@ void odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new);
 void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe);
 
 void odhcp6c_expire(void);
+uint32_t odhcp6c_elapsed(void);
