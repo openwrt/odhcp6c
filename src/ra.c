@@ -218,6 +218,8 @@ bool ra_process(void)
 		uint32_t router_valid = ntohs(adv->nd_ra_router_lifetime);
 
 		// Parse default route
+		entry.target = any;
+		entry.length = 0;
 		entry.router = from.sin6_addr;
 		entry.priority = pref_to_priority(adv->nd_ra_flags_reserved);
 		if (entry.priority < 0)
