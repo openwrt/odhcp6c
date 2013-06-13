@@ -235,10 +235,10 @@ bool ra_process(void)
 		odhcp6c_update_entry(STATE_RA_ROUTE, &entry);
 
 		// Parse ND parameters
-		if (adv->nd_ra_reachable)
+		if (ntohl(adv->nd_ra_reachable) <= 3600000)
 			update_proc("neigh", "base_reachable_time_ms", ntohl(adv->nd_ra_reachable));
 
-		if (adv->nd_ra_retransmit)
+		if (ntohl(adv->nd_ra_retransmit) <= 60000)
 			update_proc("neigh", "retrans_time_ms", ntohl(adv->nd_ra_retransmit));
 
 
@@ -247,7 +247,8 @@ bool ra_process(void)
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
-				update_proc("conf", "mtu", ntohl(*mtu));
+				if (ntohl(*mtu) >= 1280 && ntohl(*mtu) <= 65535)
+					update_proc("conf", "mtu", ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
 				entry.router = from.sin6_addr;
 				entry.target = any;
