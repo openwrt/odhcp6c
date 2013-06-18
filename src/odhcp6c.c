@@ -27,6 +27,7 @@
 #include <net/if.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
+#include <arpa/inet.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
@@ -55,11 +56,12 @@ int main(_unused int argc, char* const argv[])
 	char *optpos;
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
+	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "S::N:P:c:r:s:khedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:c:i:r:s:khedp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -96,6 +98,11 @@ int main(_unused int argc, char* const argv[])
 			} else {
 				help = true;
 			}
+			break;
+
+		case 'i':
+			if (inet_pton(AF_INET6, optarg, &ifid) != 1)
+				help = true;
 			break;
 
 		case 'r':
@@ -151,7 +158,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
+			init_dhcpv6(ifname, request_pd) || ra_init(ifname, &ifid) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -314,6 +321,7 @@ static int usage(void)
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
+	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
 	"	-k		Don't send a RELEASE when stopping\n"

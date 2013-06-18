@@ -42,11 +42,12 @@ static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
 
 static void ra_send_rs(int signal __attribute__((unused)));
 
-int ra_init(const char *ifname)
+int ra_init(const char *ifname, const struct in6_addr *ifid)
 {
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if_index = if_nametoindex(ifname);
 	strncpy(if_name, ifname, sizeof(if_name) - 1);
+	lladdr = *ifid;
 
 	// Filter ICMPv6 package types
 	struct icmp6_filter filt;
@@ -74,17 +75,19 @@ int ra_init(const char *ifname)
 	fcntl(sock, F_SETOWN, ourpid);
 	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
 
-	// Get LL-addr
-	FILE *fp = fopen("/proc/net/if_inet6", "r");
-	if (fp) {
-		char addrbuf[33], ifbuf[16];
-		while (fscanf(fp, "%32s %*x %*x %*x %*x %15s", addrbuf, ifbuf) == 2) {
-			if (!strcmp(ifbuf, if_name)) {
-				script_unhexlify((uint8_t*)&lladdr, sizeof(lladdr), addrbuf);
-				break;
+	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
+		// Autodetect interface-id if not specified
+		FILE *fp = fopen("/proc/net/if_inet6", "r");
+		if (fp) {
+			char addrbuf[33], ifbuf[16];
+			while (fscanf(fp, "%32s %*x %*x %*x %*x %15s", addrbuf, ifbuf) == 2) {
+				if (!strcmp(ifbuf, if_name)) {
+					script_unhexlify((uint8_t*)&lladdr, sizeof(lladdr), addrbuf);
+					break;
+				}
 			}
+			fclose(fp);
 		}
-		fclose(fp);
 	}
 
 	// Open rtnetlink socket

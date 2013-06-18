@@ -34,6 +34,6 @@ struct icmpv6_opt {
 	(void*)(opt + opt->len) <= (void*)(end); opt += opt->len)
 
 
-int ra_init(const char *ifname);
+int ra_init(const char *ifname, const struct in6_addr *ifid);
 bool ra_process(void);
 bool ra_rtnl_process(void);
