@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2012-2013 Steven Barth <steven@midlink.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -13,10 +13,12 @@
  */
 
 #include <stdio.h>
+#include <netdb.h>
 #include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <signal.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -38,6 +40,8 @@ static const int8_t hexvals[] = {
 
 
 static char *argv[4] = {NULL, NULL, NULL, NULL};
+static volatile char *delayed_call = NULL;
+static bool dont_delay = false;
 
 
 int script_init(const char *path, const char *ifname)
@@ -96,18 +100,42 @@ static void ipv6_to_env(const char *name,
 static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 {
 	size_t buf_len = strlen(name);
+	size_t buf_size = len + buf_len + 2;
 	const uint8_t *fqdn_end = fqdn + len;
 	char *buf = realloc(NULL, len + buf_len + 2);
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
 	int l = 1;
 	while (l > 0 && fqdn < fqdn_end) {
-		l = dn_expand(fqdn, &fqdn[len], fqdn, &buf[buf_len], len);
+		l = dn_expand(fqdn, fqdn_end, fqdn, &buf[buf_len], buf_size - buf_len);
 		fqdn += l;
 		buf_len += strlen(&buf[buf_len]);
 		buf[buf_len++] = ' ';
 	}
 	buf[buf_len - 1] = '\0';
+	putenv(buf);
+}
+
+
+static void fqdn_to_ip_env(const char *name, const uint8_t *fqdn, size_t len)
+{
+	size_t buf_len = strlen(name);
+	char *buf = realloc(NULL, INET6_ADDRSTRLEN + buf_len + 3);
+	memcpy(buf, name, buf_len);
+	buf[buf_len++] = '=';
+
+	char namebuf[256];
+	if (dn_expand(fqdn, fqdn + len, fqdn, namebuf, sizeof(namebuf)) <= 0)
+		return;
+
+	struct addrinfo hints = {.ai_family = AF_INET6}, *r;
+	if (getaddrinfo(namebuf, NULL, &hints, &r))
+		return;
+
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6*)r->ai_addr;
+	inet_ntop(AF_INET6, &sin6->sin6_addr, &buf[buf_len], INET6_ADDRSTRLEN);
+
+	freeaddrinfo(r);
 	putenv(buf);
 }
 
@@ -128,8 +156,14 @@ static void bin_to_env(uint8_t *opts, size_t len)
 	}
 }
 
+enum entry_type {
+	ENTRY_ADDRESS,
+	ENTRY_HOST,
+	ENTRY_ROUTE,
+	ENTRY_PREFIX
+};
 
-static void entry_to_env(const char *name, const void *data, size_t len, bool host, bool route)
+static void entry_to_env(const char *name, const void *data, size_t len, enum entry_type type)
 {
 	size_t buf_len = strlen(name);
 	const struct odhcp6c_entry *e = data;
@@ -140,9 +174,9 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 	for (size_t i = 0; i < len / sizeof(*e); ++i) {
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
-		if (!host) {
+		if (type != ENTRY_HOST) {
 			buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
-			if (route) {
+			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
 					inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
@@ -152,8 +186,17 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
 			} else {
 				buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
-                                if (e[i].prefix_class)
-                                  buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].prefix_class);
+			}
+                        if (type == ENTRY_PREFIX && e[i].prefix_class) {
+                          buf_len += snprintf(&buf[buf_len], 12, ",class=%u", e[i].prefix_class);
+                        }
+
+			if (type == ENTRY_PREFIX && e[i].priority) {
+				// priority and router are abused for prefix exclusion
+				buf_len += snprintf(&buf[buf_len], 12, ",excluded=");
+				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+				buf_len += strlen(&buf[buf_len]);
+				buf_len += snprintf(&buf[buf_len], 24, "/%u", e[i].priority);
 			}
 		}
 		buf[buf_len++] = ' ';
@@ -164,10 +207,35 @@ static void entry_to_env(const char *name, const void *data, size_t len, bool ho
 }
 
 
+static void script_call_delayed(int signal __attribute__((unused)))
+{
+	if (delayed_call)
+		script_call((char*)delayed_call);
+}
+
+
+void script_delay_call(const char *status, int timeout)
+{
+	if (dont_delay) {
+		script_call(status);
+	} else if (!delayed_call) {
+		delayed_call = strdup(status);
+		signal(SIGALRM, script_call_delayed);
+		alarm(timeout);
+	}
+}
+
+
 void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, sntp_dns_len;
-	size_t sip_ip_len, sip_fqdn_len;
+	size_t sip_ip_len, sip_fqdn_len, aftr_name_len;
+
+	odhcp6c_expire();
+	if (delayed_call) {
+		alarm(0);
+		dont_delay = true;
+	}
 
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
@@ -176,6 +244,7 @@ void script_call(const char *status)
 	uint8_t *sntp_dns = odhcp6c_get_state(STATE_SNTP_FQDN, &sntp_dns_len);
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
+	uint8_t *aftr_name = odhcp6c_get_state(STATE_AFTR_NAME, &aftr_name_len);
 
 	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
@@ -192,12 +261,14 @@ void script_call(const char *status)
 		fqdn_to_env("DOMAINS", search, search_len);
 		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
+		fqdn_to_env("AFTR", aftr_name, aftr_name_len);
+		fqdn_to_ip_env("AFTR_IP", aftr_name, aftr_name_len);
 		bin_to_env(custom, custom_len);
-		entry_to_env("PREFIXES", prefix, prefix_len, false, false);
-		entry_to_env("ADDRESSES", address, address_len, false, false);
-		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, false, false);
-		entry_to_env("RA_ROUTES", ra_route, ra_route_len, false, true);
-		entry_to_env("RA_DNS", ra_dns, ra_dns_len, true, false);
+		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
+		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
+		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
+		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
+		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);

@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2012-2013 Steven Barth <steven@midlink.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -51,7 +51,8 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_NTP_SERVER = 56,
 	DHCPV6_OPT_SIP_SERVER_D = 21,
 	DHCPV6_OPT_SIP_SERVER_A = 22,
-
+	DHCPV6_OPT_AFTR_NAME = 64,
+	DHCPV6_OPT_PD_EXCLUDE = 67,
         /* draft-bhandari-dhc-class-based-prefix */
 	DHCPV6_OPT_PREFIX_CLASS = 200, /* NOT STANDARDIZED! */
 };
@@ -134,6 +135,18 @@ struct dhcpv6_duid {
 	uint8_t data[128];
 } _packed;
 
+struct dhcpv6_auth_reconfigure {
+	uint16_t type;
+	uint16_t len;
+	uint8_t protocol;
+	uint8_t algorithm;
+	uint8_t rdm;
+	uint64_t replay;
+	uint8_t reconf_type;
+	uint8_t key[16];
+} _packed;
+
+
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\
 		((otype) = _o[0] << 8 | _o[1]) && ((odata) = (void*)&_o[4]) &&\
@@ -167,6 +180,7 @@ enum odhcp6c_state {
 	STATE_RA_ROUTE,
 	STATE_RA_PREFIX,
 	STATE_RA_DNS,
+	STATE_AFTR_NAME,
 	_STATE_MAX
 };
 
@@ -215,6 +229,7 @@ int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
 void script_call(const char *status);
+void script_delay_call(const char *status, int timeout);
 
 bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);
@@ -232,3 +247,4 @@ void odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new);
 void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe);
 
 void odhcp6c_expire(void);
+uint32_t odhcp6c_elapsed(void);

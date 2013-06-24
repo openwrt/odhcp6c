@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2012-2013 Steven Barth <steven@midlink.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -27,6 +27,7 @@
 #include <net/if.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
+#include <arpa/inet.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
@@ -40,8 +41,9 @@ static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
 static volatile int do_signal = 0;
-static int urandom_fd = -1;
-static bool bound = false, allow_slaac_only = true, release = true;
+static int urandom_fd = -1, allow_slaac_only = 0;
+static bool bound = false, release = true;
+static time_t last_update = 0;
 
 
 int main(_unused int argc, char* const argv[])
@@ -54,14 +56,15 @@ int main(_unused int argc, char* const argv[])
 	char *optpos;
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
+	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "SN:P:c:r:s:khedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:c:i:r:s:khedp:")) != -1) {
 		switch (c) {
 		case 'S':
-			allow_slaac_only = false;
+			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
 			break;
 
 		case 'N':
@@ -76,7 +79,9 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'P':
-			allow_slaac_only = false;
+			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
+				allow_slaac_only = 10;
+
 			request_pd = strtoul(optarg, NULL, 10);
 			if (request_pd == 0)
 				request_pd = -1;
@@ -93,6 +98,11 @@ int main(_unused int argc, char* const argv[])
 			} else {
 				help = true;
 			}
+			break;
+
+		case 'i':
+			if (inet_pton(AF_INET6, optarg, &ifid) != 1)
+				help = true;
 			break;
 
 		case 'r':
@@ -148,7 +158,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, request_pd) || ra_init(ifname) ||
+			init_dhcpv6(ifname, request_pd) || ra_init(ifname, &ifid) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -307,10 +317,11 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
-	"	-S		Don't allow SLAAC-only (implied by -P)\n"
+	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
+	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
 	"	-k		Don't send a RELEASE when stopping\n"
@@ -355,12 +366,13 @@ bool odhcp6c_signal_process(void)
 {
 	if (do_signal == SIGIO) {
 		do_signal = 0;
-		bool updated = ra_process();
-		updated |= ra_rtnl_process();
-		if (updated && (bound || allow_slaac_only)) {
-			odhcp6c_expire();
-			script_call("ra-updated");
-		}
+		bool ra_rtnled = ra_rtnl_process();
+		bool ra_updated = ra_process();
+
+		if (ra_rtnled || (ra_updated && (bound || allow_slaac_only == 0)))
+			script_call("ra-updated"); // Immediate process urgent events
+		else if (ra_updated && !bound && allow_slaac_only > 0)
+			script_delay_call("ra-updated", allow_slaac_only);
 	}
 
 	return do_signal != 0;
@@ -466,10 +478,8 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 
 void odhcp6c_expire(void)
 {
-	static time_t last_update = 0;
 	time_t now = odhcp6c_get_milli_time() / 1000;
-
-	uint32_t elapsed = now - last_update;
+	uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
 	last_update = now;
 
 	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);
@@ -477,6 +487,12 @@ void odhcp6c_expire(void)
 	odhcp6c_expire_list(STATE_RA_DNS, elapsed);
 	odhcp6c_expire_list(STATE_IA_NA, elapsed);
 	odhcp6c_expire_list(STATE_IA_PD, elapsed);
+}
+
+
+uint32_t odhcp6c_elapsed(void)
+{
+	return odhcp6c_get_milli_time() / 1000 - last_update;
 }
 
 
