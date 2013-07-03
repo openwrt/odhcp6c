@@ -350,14 +350,14 @@ static int64_t dhcpv6_rand_delay(int64_t time)
 {
 	int random;
 	odhcp6c_random(&random, sizeof(random));
-	return (time * (random % 1000)) / 10000;
+	return (time * ((int64_t)random % 1000LL)) / 10000LL;
 }
 
 
 int dhcpv6_request(enum dhcpv6_msg type)
 {
 	uint8_t buf[1536];
-	uint32_t timeout = UINT32_MAX;
+	uint64_t timeout = UINT32_MAX;
 	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
 
 	if (retx->delay) {
@@ -378,7 +378,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, timeout);
+	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, (unsigned)timeout);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
