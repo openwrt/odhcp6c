@@ -885,6 +885,15 @@ static uint32_t dhcpv6_parse_ia(void *opt, void *end)
 			entry.length = 128;
 			entry.target = addr->addr;
 
+			uint16_t stype, slen;
+			uint8_t *sdata;
+			
+			// Find prefix class, if any
+			dhcpv6_for_each_option(&addr[1], odata + olen,
+					       stype, slen, sdata)
+			  if (stype == DHCPV6_OPT_PREFIX_CLASS && slen == 2) 
+                            entry.prefix_class = ntohs(*((uint16_t*)sdata));
+			
 			odhcp6c_update_entry(STATE_IA_NA, &entry);
 		}
 

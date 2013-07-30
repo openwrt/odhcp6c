@@ -187,7 +187,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 			} else {
 				buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
 			}
-                        if (type == ENTRY_PREFIX && e[i].prefix_class) {
+			if ((type == ENTRY_PREFIX || type == ENTRY_ADDRESS) && e[i].prefix_class) {
                           buf_len += snprintf(&buf[buf_len], 12, ",class=%u", e[i].prefix_class);
                         }
 
