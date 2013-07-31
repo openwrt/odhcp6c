@@ -160,6 +160,10 @@ struct dhcpv6_server_cand {
 	int16_t preference;
 	uint8_t duid_len;
 	uint8_t duid[130];
+	void *ia_na;
+	void *ia_pd;
+	size_t ia_na_len;
+	size_t ia_pd_len;
 };
 
 
@@ -239,6 +243,7 @@ void odhcp6c_random(void *buf, size_t len);
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
+void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 
 // Entry manipulation

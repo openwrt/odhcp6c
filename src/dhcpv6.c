@@ -352,14 +352,14 @@ static int64_t dhcpv6_rand_delay(int64_t time)
 {
 	int random;
 	odhcp6c_random(&random, sizeof(random));
-	return (time * (random % 1000)) / 10000;
+	return (time * ((int64_t)random % 1000LL)) / 10000LL;
 }
 
 
 int dhcpv6_request(enum dhcpv6_msg type)
 {
 	uint8_t buf[1536];
-	uint32_t timeout = UINT32_MAX;
+	uint64_t timeout = UINT32_MAX;
 	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
 
 	if (retx->delay) {
@@ -380,7 +380,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, timeout);
+	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, (unsigned)timeout);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
@@ -561,12 +561,12 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig,
 
 
 // Collect all advertised servers
-static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
+static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 		const void *opt, const void *end)
 {
 	uint16_t olen, otype;
 	uint8_t *odata;
-	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}};
+	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
@@ -600,10 +600,25 @@ static int dhcpv6_handle_advert(_unused enum dhcpv6_msg orig,
 					cand.preference -= 2000;
 			}
 		}
+
+		if (orig == DHCPV6_MSG_SOLICIT &&
+				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
+				olen > sizeof(struct dhcpv6_ia_hdr)) {
+			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
+			dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
+		}
 	}
 
-	if (cand.duid_len > 0)
+	if (cand.duid_len > 0) {
+		cand.ia_na = odhcp6c_move_state(STATE_IA_NA, &cand.ia_na_len);
+		cand.ia_pd = odhcp6c_move_state(STATE_IA_PD, &cand.ia_pd_len);
 		odhcp6c_add_state(STATE_SERVER_CAND, &cand, sizeof(cand));
+	}
+
+	if (orig == DHCPV6_MSG_SOLICIT) {
+		odhcp6c_clear_state(STATE_IA_NA);
+		odhcp6c_clear_state(STATE_IA_PD);
+	}
 
 	return -1;
 }
@@ -636,8 +651,14 @@ static int dhcpv6_commit_advert(void)
 		odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
 		odhcp6c_add_state(STATE_SERVER_ID, c->duid, c->duid_len);
 		accept_reconfig = c->wants_reconfigure;
+		odhcp6c_add_state(STATE_IA_NA, c->ia_na, c->ia_na_len);
+		odhcp6c_add_state(STATE_IA_PD, c->ia_pd, c->ia_pd_len);
 	}
 
+	for (size_t i = 0; i < cand_len / sizeof(*c); ++i) {
+		free(cand[i].ia_na);
+		free(cand[i].ia_pd);
+	}
 	odhcp6c_clear_state(STATE_SERVER_CAND);
 
 	if (!c)
@@ -691,6 +712,12 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			t3 = 0;
 	} else {
 		t1 = t2 = t3 = UINT32_MAX;
+	}
+
+	if (orig == DHCPV6_MSG_REQUEST) {
+		// Delete NA and PD we have in the state from the Advert
+		odhcp6c_clear_state(STATE_IA_NA);
+		odhcp6c_clear_state(STATE_IA_PD);
 	}
 
 	if (opt) {

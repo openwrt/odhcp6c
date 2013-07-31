@@ -192,7 +192,7 @@ int main(_unused int argc, char* const argv[])
 
 	while (do_signal != SIGTERM) { // Main logic
 		odhcp6c_clear_state(STATE_SERVER_ID);
-		odhcp6c_clear_state(STATE_SERVER_CAND);
+		odhcp6c_clear_state(STATE_IA_NA);
 		odhcp6c_clear_state(STATE_IA_PD);
 		odhcp6c_clear_state(STATE_SNTP_IP);
 		odhcp6c_clear_state(STATE_SNTP_FQDN);
@@ -200,6 +200,15 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		dhcpv6_set_ia_na_mode(ia_na_mode);
 		bound = false;
+
+		// Server candidates need deep-delete
+		size_t cand_len;
+		struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+		for (size_t i = 0; i < cand_len / sizeof(*cand); ++i) {
+			free(cand[i].ia_na);
+			free(cand[i].ia_pd);
+		}
+		odhcp6c_clear_state(STATE_SERVER_CAND);
 
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
@@ -402,6 +411,18 @@ size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
 
 	memmove(data + offset, data + offset + len, len_after);
 	return state_len[state] -= len;
+}
+
+
+void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len)
+{
+	*len = state_len[state];
+	void *data = state_data[state];
+
+	state_len[state] = 0;
+	state_data[state] = NULL;
+
+	return data;
 }
 
 
