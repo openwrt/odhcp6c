@@ -569,6 +569,13 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
+		if (orig == DHCPV6_MSG_SOLICIT &&
+				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
+				olen > sizeof(struct dhcpv6_ia_hdr)) {
+			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
+			dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
+		}
+
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
 			memcpy(cand.duid, odata, olen);
 			cand.duid_len = olen;
@@ -599,13 +606,6 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 						d[1] == DHCPV6_NoPrefixAvail)
 					cand.preference -= 2000;
 			}
-		}
-
-		if (orig == DHCPV6_MSG_SOLICIT &&
-				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
-				olen > sizeof(struct dhcpv6_ia_hdr)) {
-			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
-			dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
 		}
 	}
 
