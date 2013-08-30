@@ -34,7 +34,7 @@
 #include "ra.h"
 
 
-static int sock = -1, rtnl_sock = -1;
+static int sock = -1;
 static unsigned if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
@@ -90,18 +90,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 		}
 	}
 
-	// Open rtnetlink socket
-	rtnl_sock = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
-	struct sockaddr_nl rtnl_kernel = { .nl_family = AF_NETLINK };
-	if (connect(rtnl_sock, (struct sockaddr*)&rtnl_kernel, sizeof(rtnl_kernel)))
-		return -1;
-	uint32_t group = RTNLGRP_IPV6_IFADDR;
-	setsockopt(rtnl_sock, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &group, sizeof(group));
-
-	// Add async-mode
-	fcntl(rtnl_sock, F_SETOWN, ourpid);
-	fcntl(rtnl_sock, F_SETFL, fcntl(rtnl_sock, F_GETFL) | O_ASYNC);
-
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
 	ra_send_rs(SIGALRM);
@@ -137,63 +125,6 @@ static void update_proc(const char *sect, const char *opt, uint32_t value)
 	int fd = open(buf, O_WRONLY);
 	write(fd, buf, snprintf(buf, sizeof(buf), "%u", value));
 	close(fd);
-}
-
-
-static bool ra_deduplicate(const struct in6_addr *any, uint8_t length)
-{
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, length, 0, *any, 0, 0};
-	struct odhcp6c_entry *x = odhcp6c_find_entry(STATE_RA_PREFIX, &entry);
-	if (x && IN6_ARE_ADDR_EQUAL(&x->target, any)) {
-		odhcp6c_random(&x->target.s6_addr32[2], 2 * sizeof(uint32_t));
-	} else if (odhcp6c_find_entry(STATE_IA_NA, &entry)) {
-		dhcpv6_request(DHCPV6_MSG_DECLINE);
-		raise(SIGUSR2);
-	}
-
-	return !!x;
-}
-
-
-bool ra_rtnl_process(void)
-{
-	bool found = false;
-	uint32_t elapsed = odhcp6c_elapsed();
-	uint8_t buf[8192];
-	while (true) {
-		ssize_t len = recv(rtnl_sock, buf, sizeof(buf), MSG_DONTWAIT);
-		if (len < 0)
-			break;
-
-		if (elapsed > 10)
-			continue;
-
-		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf; NLMSG_OK(nh, (size_t)len);
-					nh = NLMSG_NEXT(nh, len)) {
-			struct ifaddrmsg *ifa = NLMSG_DATA(nh);
-			struct in6_addr *addr = NULL;
-			if (NLMSG_PAYLOAD(nh, 0) < sizeof(*ifa) || ifa->ifa_index != if_index ||
-					(nh->nlmsg_type == RTM_NEWADDR && !(ifa->ifa_flags & IFA_F_DADFAILED)) ||
-					(nh->nlmsg_type == RTM_DELADDR && !(ifa->ifa_flags & IFA_F_TENTATIVE)) ||
-					(nh->nlmsg_type != RTM_NEWADDR && nh->nlmsg_type != RTM_DELADDR))
-				continue;
-
-			ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifa));
-			for (struct rtattr *rta = (struct rtattr*)&ifa[1]; RTA_OK(rta, alen);
-					rta = RTA_NEXT(rta, alen))
-				if (rta->rta_type == IFA_ADDRESS && RTA_PAYLOAD(rta) >= sizeof(*addr))
-					addr = RTA_DATA(rta);
-
-			if (addr) {
-				char ipbuf[INET6_ADDRSTRLEN];
-				inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-				syslog(LOG_WARNING, "duplicate address detected: %s (code: %u:%x)",
-						ipbuf, (unsigned)nh->nlmsg_type, (unsigned)ifa->ifa_flags);
-				found |= ra_deduplicate(addr, ifa->ifa_prefixlen);
-			}
-		}
-	}
-	return found;
 }
 
 

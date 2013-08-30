@@ -375,10 +375,9 @@ bool odhcp6c_signal_process(void)
 {
 	if (do_signal == SIGIO) {
 		do_signal = 0;
-		bool ra_rtnled = ra_rtnl_process();
 		bool ra_updated = ra_process();
 
-		if (ra_rtnled || (ra_updated && (bound || allow_slaac_only == 0)))
+		if (ra_updated && (bound || allow_slaac_only == 0))
 			script_call("ra-updated"); // Immediate process urgent events
 		else if (ra_updated && !bound && allow_slaac_only > 0)
 			script_delay_call("ra-updated", allow_slaac_only);
