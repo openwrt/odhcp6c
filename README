@@ -16,8 +16,7 @@ especially routers. It compiles to only about 30 KB (-Os -s).
 
 2. Handling of non-temporary addresses (IA_NA)
 	a) handling of valid and preferred lifetimes
-	b) duplicate address detection
-	c) automatic fallback to stateless or PD-only mode
+	b) automatic fallback to stateless or PD-only mode
 
 3. Support for DHCPv6 extension
 	a) Reconfigure-Messages
