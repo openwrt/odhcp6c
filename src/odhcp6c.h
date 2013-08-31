@@ -53,8 +53,10 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_SIP_SERVER_A = 22,
 	DHCPV6_OPT_AFTR_NAME = 64,
 	DHCPV6_OPT_PD_EXCLUDE = 67,
-        /* draft-bhandari-dhc-class-based-prefix */
-	DHCPV6_OPT_PREFIX_CLASS = 200, /* NOT STANDARDIZED! */
+#ifdef EXT_PREFIX_CLASS
+        /* draft-bhandari-dhc-class-based-prefix, not yet standardized */
+	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
+#endif
 };
 
 enum dhcpv6_opt_npt {
@@ -217,7 +219,7 @@ struct odhcp6c_entry {
 	struct in6_addr target;
 	uint32_t valid;
 	uint32_t preferred;
-        uint32_t prefix_class;
+	uint16_t class;
 };
 
 
