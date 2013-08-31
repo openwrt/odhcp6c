@@ -459,6 +459,7 @@ void odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 		if (x) {
 			x->valid = new->valid;
 			x->preferred = new->preferred;
+                        x->prefix_class = new->prefix_class;
 		} else {
 			odhcp6c_add_state(state, new, sizeof(*new));
 		}

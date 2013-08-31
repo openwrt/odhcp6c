@@ -133,7 +133,7 @@ bool ra_process(void)
 	bool found = false;
 	uint8_t buf[1500];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0};
+	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 
 	while (true) {
