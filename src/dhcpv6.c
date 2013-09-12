@@ -821,6 +821,15 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 		}
 	}
 
+	if (t1 == UINT32_MAX)
+		t1 = 300;
+
+	if (t2 == UINT32_MAX)
+		t2 = 600;
+
+	if (t3 == UINT32_MAX)
+		t3 = 3600;
+
 	return true;
 }
 
