@@ -744,18 +744,20 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 			if (ia_hdr->iaid != 1 || l_t2 < l_t1)
 				continue;
 
-			bool error = false;
+			int error = 0;
 			uint16_t stype, slen;
 			uint8_t *sdata;
 			// Test status and bail if error
 			dhcpv6_for_each_option(&ia_hdr[1], odata + olen,
 					stype, slen, sdata)
-				if (stype == DHCPV6_OPT_STATUS && slen >= 2 &&
-						(sdata[0] || sdata[1]))
-					error = true;
+				if (stype == DHCPV6_OPT_STATUS && slen >= 2)
+					error = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
-			if (error)
-				continue;
+			if (error) {
+				syslog(LOG_WARNING, "Server returned IAID status %i!", error);
+				raise(SIGUSR2);
+				break;
+			}
 
 			uint32_t n = dhcpv6_parse_ia(&ia_hdr[1], odata + olen);
 
