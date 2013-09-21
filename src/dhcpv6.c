@@ -755,7 +755,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
 
 			if (error) {
 				syslog(LOG_WARNING, "Server returned IAID status %i!", error);
-				raise(SIGUSR2);
+				if (error != 2)
+					raise(SIGUSR2);
 				break;
 			}
 
