@@ -67,6 +67,10 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 	val = 255;
 	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
 
+	// Receive multicast hops
+	val = 1;
+	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val, sizeof(val));
+
 	// Bind to one device
 	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
 
@@ -131,18 +135,31 @@ static void update_proc(const char *sect, const char *opt, uint32_t value)
 bool ra_process(void)
 {
 	bool found = false;
-	uint8_t buf[1500];
+	uint8_t buf[1500], cmsg_buf[128];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 
 	while (true) {
 		struct sockaddr_in6 from;
-		socklen_t from_len = sizeof(from);
-		ssize_t len = recvfrom(sock, buf, sizeof(buf), MSG_DONTWAIT, &from, &from_len);
+		struct iovec iov = {buf, sizeof(buf)};
+		struct msghdr msg = {&from, sizeof(from), &iov, 1,
+				cmsg_buf, sizeof(cmsg_buf), 0};
+
+		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
 		if (len < 0)
 			break;
 		else if (len < (ssize_t)sizeof(*adv))
+			continue;
+
+		int hlim = 0;
+		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
+				ch = CMSG_NXTHDR(&msg, ch))
+			if (ch->cmsg_level == IPPROTO_IPV6 &&
+					ch->cmsg_type == IPV6_HOPLIMIT)
+				memcpy(&hlim, CMSG_DATA(ch), sizeof(hlim));
+
+		if (hlim != 255)
 			continue;
 
 		// Stop sending solicits
