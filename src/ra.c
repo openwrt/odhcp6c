@@ -79,21 +79,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 	fcntl(sock, F_SETOWN, ourpid);
 	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
 
-	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
-		// Autodetect interface-id if not specified
-		FILE *fp = fopen("/proc/net/if_inet6", "r");
-		if (fp) {
-			char addrbuf[33], ifbuf[16];
-			while (fscanf(fp, "%32s %*x %*x %*x %*x %15s", addrbuf, ifbuf) == 2) {
-				if (!strcmp(ifbuf, if_name)) {
-					script_unhexlify((uint8_t*)&lladdr, sizeof(lladdr), addrbuf);
-					break;
-				}
-			}
-			fclose(fp);
-		}
-	}
-
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
 	ra_send_rs(SIGALRM);
@@ -139,6 +124,21 @@ bool ra_process(void)
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
+
+	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
+		// Autodetect interface-id if not specified
+		FILE *fp = fopen("/proc/net/if_inet6", "r");
+		if (fp) {
+			char addrbuf[33], ifbuf[16];
+			while (fscanf(fp, "%32s %*x %*x %*x %*x %15s", addrbuf, ifbuf) == 2) {
+				if (!strcmp(ifbuf, if_name)) {
+					script_unhexlify((uint8_t*)&lladdr, sizeof(lladdr), addrbuf);
+					break;
+				}
+			}
+			fclose(fp);
+		}
+	}
 
 	while (true) {
 		struct sockaddr_in6 from;
