@@ -82,7 +82,7 @@ static int64_t t1 = 0, t2 = 0, t3 = 0;
 
 // IA states
 static int request_prefix = -1;
-static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE;
+static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE, pd_mode = IA_MODE_NONE;
 static bool accept_reconfig = false;
 
 // Reconfigure key
@@ -167,9 +167,10 @@ int init_dhcpv6(const char *ifname, int request_pd)
 }
 
 
-void dhcpv6_set_ia_na_mode(enum odhcp6c_ia_mode mode)
+void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
 {
-	na_mode = mode;
+	na_mode = na;
+	pd_mode = pd;
 }
 
 
@@ -247,9 +248,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		.type = htons(DHCPV6_OPT_IA_PREFIX),
 		.len = htons(25), .prefix = request_prefix
 	};
-	if (request_prefix > 0 && ia_pd_len == 0 &&
-			(type == DHCPV6_MSG_SOLICIT ||
-			type == DHCPV6_MSG_REQUEST)) {
+	if (request_prefix > 0 && ia_pd_len == 0 && type == DHCPV6_MSG_SOLICIT) {
 		ia_pd = (uint8_t*)&pref;
 		ia_pd_len = sizeof(pref);
 	}
@@ -331,7 +330,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	}
 
 	// Disable IAs if not used
-	if (type != DHCPV6_MSG_REQUEST && type != DHCPV6_MSG_SOLICIT) {
+	if (type != DHCPV6_MSG_SOLICIT) {
 		iov[5].iov_len = 0;
 		if (ia_na_len == 0)
 			iov[7].iov_len = 0;
@@ -446,7 +445,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 					len = retx->handler_reply(
 							type, opt, opt_end);
 
-				if (round_end - round_start > 1000)
+				if (len > 0 && round_end - round_start > 1000)
 					round_end = 1000 + round_start;
 			}
 		}
@@ -569,6 +568,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 	uint16_t olen, otype;
 	uint8_t *odata;
 	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
+	bool have_na = false, have_pd = false;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (orig == DHCPV6_MSG_SOLICIT &&
@@ -582,14 +582,6 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 			memcpy(cand.duid, odata, olen);
 			cand.duid_len = olen;
 		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 && !odata[0]
-				&& odata[1] == DHCPV6_NoAddrsAvail) {
-			if (na_mode == IA_MODE_FORCE) {
-				return -1;
-			} else {
-				cand.has_noaddravail = true;
-				cand.preference -= 1000;
-			}
-		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 && !odata[0]
 				&& odata[1] == DHCPV6_NoPrefixAvail) {
 			cand.preference -= 2000;
 		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
@@ -600,15 +592,32 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
-			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
+			dhcpv6_for_each_option(&h[1], oend, otype, olen, d)
 				if (otype == DHCPV6_OPT_IA_PREFIX)
-					cand.preference += 2000;
-				else if (otype == DHCPV6_OPT_STATUS &&
-						olen >= 2 && d[0] == 0 &&
-						d[1] == DHCPV6_NoPrefixAvail)
-					cand.preference -= 2000;
-			}
+					have_pd = true;
+		} else if (otype == DHCPV6_OPT_IA_NA) {
+			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
+			uint8_t *oend = odata + olen, *d;
+			dhcpv6_for_each_option(&h[1], oend, otype, olen, d)
+				if (otype == DHCPV6_OPT_IA_ADDR)
+					have_na = true;
 		}
+	}
+
+	if ((!have_na && na_mode == IA_MODE_FORCE) ||
+			(!have_pd && pd_mode == IA_MODE_FORCE))
+		return -1;
+
+	if (na_mode != IA_MODE_NONE && !have_na) {
+		cand.has_noaddravail = true;
+		cand.preference -= 1000;
+	}
+
+	if (pd_mode != IA_MODE_NONE) {
+		if (have_pd)
+			cand.preference += 2000;
+		else
+			cand.preference -= 2000;
 	}
 
 	if (cand.duid_len > 0) {

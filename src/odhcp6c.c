@@ -56,26 +56,29 @@ int main(_unused int argc, char* const argv[])
 	char *optpos;
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
+	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_TRY;
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "S::N:P:c:i:r:s:khedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:Fc:i:r:s:khedp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
 			break;
 
 		case 'N':
-			if (!strcmp(optarg, "force"))
+			if (!strcmp(optarg, "force")) {
 				ia_na_mode = IA_MODE_FORCE;
-			else if (!strcmp(optarg, "none"))
+				allow_slaac_only = -1;
+			} else if (!strcmp(optarg, "none")) {
 				ia_na_mode = IA_MODE_NONE;
-			else if (!strcmp(optarg, "try"))
+			} else if (!strcmp(optarg, "try")) {
 				ia_na_mode = IA_MODE_TRY;
-			else
+			} else{
 				help = true;
+			}
 			break;
 
 		case 'P':
@@ -85,6 +88,13 @@ int main(_unused int argc, char* const argv[])
 			request_pd = strtoul(optarg, NULL, 10);
 			if (request_pd == 0)
 				request_pd = -1;
+
+			ia_pd_mode = IA_MODE_TRY;
+			break;
+
+		case 'F':
+			allow_slaac_only = -1;
+			ia_pd_mode = IA_MODE_FORCE;
 			break;
 
 		case 'c':
@@ -198,7 +208,7 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_SNTP_FQDN);
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
-		dhcpv6_set_ia_na_mode(ia_na_mode);
+		dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
 		bound = false;
 
 		// Server candidates need deep-delete
@@ -329,6 +339,7 @@ static int usage(void)
 	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
+	"	-F		Force IPv6-Prefix\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
