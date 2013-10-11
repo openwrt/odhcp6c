@@ -62,7 +62,7 @@ static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 			dhcpv6_handle_reconfigure, NULL},
 	[DHCPV6_MSG_SOLICIT] = {true, 1, 3600, "SOLICIT",
 			dhcpv6_handle_advert, dhcpv6_commit_advert},
-	[DHCPV6_MSG_REQUEST] = {true, 30, 10, "REQUEST",
+	[DHCPV6_MSG_REQUEST] = {true, 1, 30, "REQUEST",
 			dhcpv6_handle_reply, NULL},
 	[DHCPV6_MSG_RENEW] = {false, 10, 600, "RENEW",
 			dhcpv6_handle_reply, NULL},
@@ -369,7 +369,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		nanosleep(&ts, NULL);
 	}
 
-	if (type == DHCPV6_MSG_RELEASE || type == DHCPV6_MSG_DECLINE)
+	if (type == DHCPV6_MSG_REQUEST)
+		timeout = 60;
+	else if (type == DHCPV6_MSG_RELEASE || type == DHCPV6_MSG_DECLINE)
 		timeout = 3;
 	else if (type == DHCPV6_MSG_UNKNOWN)
 		timeout = t1;
