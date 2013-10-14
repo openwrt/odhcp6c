@@ -60,7 +60,7 @@ static int dhcpv6_commit_advert(void);
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, "<POLL>",
 			dhcpv6_handle_reconfigure, NULL},
-	[DHCPV6_MSG_SOLICIT] = {true, 1, 3600, "SOLICIT",
+	[DHCPV6_MSG_SOLICIT] = {true, 1, 120, "SOLICIT",
 			dhcpv6_handle_advert, dhcpv6_commit_advert},
 	[DHCPV6_MSG_REQUEST] = {true, 1, 30, "REQUEST",
 			dhcpv6_handle_reply, NULL},
@@ -90,9 +90,10 @@ static uint8_t reconf_key[16];
 
 
 
-int init_dhcpv6(const char *ifname, int request_pd)
+int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 {
 	request_prefix = request_pd;
+	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 

@@ -223,7 +223,7 @@ struct odhcp6c_entry {
 };
 
 
-int init_dhcpv6(const char *ifname, int request_pd);
+int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout);
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
