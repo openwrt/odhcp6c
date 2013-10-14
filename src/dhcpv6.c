@@ -570,7 +570,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 	uint16_t olen, otype;
 	uint8_t *odata;
 	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
-	bool have_na = false, have_pd = false;
+	bool have_na = false;
+	int have_pd = 0;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (orig == DHCPV6_MSG_SOLICIT &&
@@ -594,9 +595,13 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
-			dhcpv6_for_each_option(&h[1], oend, otype, olen, d)
-				if (otype == DHCPV6_OPT_IA_PREFIX)
-					have_pd = true;
+			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
+				if (otype == DHCPV6_OPT_IA_PREFIX && (olen + 4) >=
+						(uint16_t)sizeof(struct dhcpv6_ia_prefix)) {
+					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&odata[-4];
+					have_pd = p->prefix;
+				}
+			}
 		} else if (otype == DHCPV6_OPT_IA_NA) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
@@ -617,7 +622,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 
 	if (pd_mode != IA_MODE_NONE) {
 		if (have_pd)
-			cand.preference += 2000;
+			cand.preference += 2000 + (128 - have_pd);
 		else
 			cand.preference -= 2000;
 	}
