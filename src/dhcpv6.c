@@ -599,7 +599,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
 				if (otype == DHCPV6_OPT_IA_PREFIX && (olen + 4) >=
 						(uint16_t)sizeof(struct dhcpv6_ia_prefix)) {
-					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&odata[-4];
+					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&d[-4];
 					have_pd = p->prefix;
 				}
 			}
