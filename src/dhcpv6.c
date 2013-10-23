@@ -574,11 +574,11 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
 
 
 // Collect all advertised servers
-static int dhcpv6_handle_advert(enum dhcpv6_msg orig, _unused const int rc,
+static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end)
 {
 	uint16_t olen, otype;
-	uint8_t *odata;
+	uint8_t *odata, pref = 0;
 	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
 	bool have_na = false;
 	int have_pd = 0;
@@ -594,12 +594,29 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, _unused const int rc,
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
 			memcpy(cand.duid, odata, olen);
 			cand.duid_len = olen;
-		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2 && !odata[0]
-				&& odata[1] == DHCPV6_NoPrefixAvail) {
-			cand.preference -= 2000;
+		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
+			int error = ((int)odata[0] << 8 | (int)odata[1]);
+
+			switch (error) {
+			case DHCPV6_NoPrefixAvail:
+				// Status code on global level
+				if (pd_mode == IA_MODE_FORCE)
+					return -1;
+				cand.preference -= 2000;
+				break;
+
+			case DHCPV6_NoAddrsAvail:
+				// Status code on global level
+				if (na_mode == IA_MODE_FORCE)
+					return -1;
+				break;
+
+			default :
+				break;
+			}
 		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
 				cand.preference >= 0) {
-			cand.preference = odata[0];
+			cand.preference = pref = odata[0];
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
@@ -648,7 +665,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_IA_PD);
 	}
 
-	return -1;
+	return (rc > 1 || (pref == 255 && cand.preference > 0)) ? 1 : -1;
 }
 
 
@@ -679,8 +696,10 @@ static int dhcpv6_commit_advert(void)
 		odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
 		odhcp6c_add_state(STATE_SERVER_ID, c->duid, c->duid_len);
 		accept_reconfig = c->wants_reconfigure;
-		odhcp6c_add_state(STATE_IA_NA, c->ia_na, c->ia_na_len);
-		odhcp6c_add_state(STATE_IA_PD, c->ia_pd, c->ia_pd_len);
+		if (c->ia_na_len)
+			odhcp6c_add_state(STATE_IA_NA, c->ia_na, c->ia_na_len);
+		if (c->ia_pd_len)
+			odhcp6c_add_state(STATE_IA_PD, c->ia_pd, c->ia_pd_len);
 	}
 
 	for (size_t i = 0; i < cand_len / sizeof(*c); ++i) {
@@ -691,7 +710,7 @@ static int dhcpv6_commit_advert(void)
 
 	if (!c)
 		return -1;
-	else if (request_prefix || na_mode != IA_MODE_NONE)
+	else if ((request_prefix && c->ia_pd_len) || (na_mode != IA_MODE_NONE && c->ia_na_len))
 		return DHCPV6_STATEFUL;
 	else
 		return DHCPV6_STATELESS;
