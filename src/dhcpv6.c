@@ -392,7 +392,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Starting %s transaction (timeout %llus, max rc %d)", retx->name, timeout, retx->max_rc);
+	syslog(LOG_NOTICE, "Starting %s transaction (timeout %llus, max rc %d)",
+			retx->name, (unsigned long long)timeout, retx->max_rc);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
@@ -430,7 +431,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 		// Built and send package
 		if (type != DHCPV6_MSG_UNKNOWN) {
-			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)", retx->name, elapsed, rc);
+			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
+					retx->name, (unsigned long long)elapsed, rc);
 			dhcpv6_send(type, trid, elapsed / 10);
 			rc++;
 		}
@@ -461,7 +463,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				round_start = odhcp6c_get_milli_time();
 				elapsed = round_start - start;
 				syslog(LOG_NOTICE, "Got a valid reply after "
-						"%llums", elapsed);
+						"%llums", (unsigned long long)elapsed);
 
 				if (retx->handler_reply)
 					len = retx->handler_reply(
