@@ -58,20 +58,20 @@ static int dhcpv6_commit_advert(void);
 
 // RFC 3315 - 5.5 Timeout and Delay values
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
-	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, "<POLL>",
-			dhcpv6_handle_reconfigure, NULL},
-	[DHCPV6_MSG_SOLICIT] = {true, 1, 120, "SOLICIT",
-			dhcpv6_handle_advert, dhcpv6_commit_advert},
-	[DHCPV6_MSG_REQUEST] = {true, 1, 30, "REQUEST",
-			dhcpv6_handle_reply, NULL},
-	[DHCPV6_MSG_RENEW] = {false, 10, 600, "RENEW",
-			dhcpv6_handle_reply, NULL},
-	[DHCPV6_MSG_REBIND] = {false, 10, 600, "REBIND",
-			dhcpv6_handle_rebind_reply, NULL},
-	[DHCPV6_MSG_RELEASE] = {false, 1, 600, "RELEASE", NULL, NULL},
-	[DHCPV6_MSG_DECLINE] = {false, 1, 3, "DECLINE", NULL, NULL},
-	[DHCPV6_MSG_INFO_REQ] = {true, 1, 120, "INFOREQ",
-			dhcpv6_handle_reply, NULL},
+	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, 0, "<POLL>",
+ 			dhcpv6_handle_reconfigure, NULL},
+	[DHCPV6_MSG_SOLICIT] = {true, 1, 3600, 0, "SOLICIT",
+ 			dhcpv6_handle_advert, dhcpv6_commit_advert},
+	[DHCPV6_MSG_REQUEST] = {true, 1, 30, 10, "REQUEST",
+ 			dhcpv6_handle_reply, NULL},
+	[DHCPV6_MSG_RENEW] = {false, 10, 600, 0, "RENEW",
+ 			dhcpv6_handle_reply, NULL},
+	[DHCPV6_MSG_REBIND] = {false, 10, 600, 0, "REBIND",
+ 			dhcpv6_handle_rebind_reply, NULL},
+	[DHCPV6_MSG_RELEASE] = {false, 1, 0, 5, "RELEASE", NULL, NULL},
+	[DHCPV6_MSG_DECLINE] = {false, 1, 0, 5, "DECLINE", NULL, NULL},
+	[DHCPV6_MSG_INFO_REQ] = {true, 1, 120, 0, "INFOREQ",
+ 			dhcpv6_handle_reply, NULL},
 };
 
 
@@ -157,6 +157,8 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 	int val = 1;
 	setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
 	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+	val = 0;
+	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
 	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
 
 	struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
@@ -360,7 +362,7 @@ static int64_t dhcpv6_rand_delay(int64_t time)
 
 int dhcpv6_request(enum dhcpv6_msg type)
 {
-	uint8_t buf[1536];
+	uint8_t buf[1536], rc = 0;
 	uint64_t timeout = UINT32_MAX;
 	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
 
@@ -370,11 +372,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		nanosleep(&ts, NULL);
 	}
 
-	if (type == DHCPV6_MSG_REQUEST)
-		timeout = 60;
-	else if (type == DHCPV6_MSG_RELEASE || type == DHCPV6_MSG_DECLINE)
-		timeout = 3;
-	else if (type == DHCPV6_MSG_UNKNOWN)
+	if (type == DHCPV6_MSG_UNKNOWN)
 		timeout = t1;
 	else if (type == DHCPV6_MSG_RENEW)
 		timeout = (t2 > t1) ? t2 - t1 : 0;
@@ -384,7 +382,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Sending %s (timeout %us)", retx->name, (unsigned)timeout);
+	syslog(LOG_NOTICE, "Starting %s transaction (timeout %llus, max rc %d)", retx->name, timeout, retx->max_rc);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
@@ -396,11 +394,19 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	int64_t rto = 0;
 
 	do {
-		rto = (rto == 0) ? (retx->init_timeo * 1000 +
-				dhcpv6_rand_delay(retx->init_timeo * 1000)) :
-				(2 * rto + dhcpv6_rand_delay(rto));
+		if (rto == 0) {
+			int64_t delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
 
-		if (rto >= retx->max_timeo * 1000)
+			// First RT MUST be strictly greater than IRT for solicit messages (RFC3313 17.1.2)
+			while (type == DHCPV6_MSG_SOLICIT && delay <= 0)
+				delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
+
+			rto = (retx->init_timeo * 1000 + delay);
+		}
+		else
+			rto = (2 * rto + dhcpv6_rand_delay(rto));
+
+		if (retx->max_timeo && (rto >= retx->max_timeo * 1000))
 			rto = retx->max_timeo * 1000 +
 				dhcpv6_rand_delay(retx->max_timeo * 1000);
 
@@ -413,8 +419,11 @@ int dhcpv6_request(enum dhcpv6_msg type)
 			round_end = timeout * 1000 + start;
 
 		// Built and send package
-		if (type != DHCPV6_MSG_UNKNOWN)
+		if (type != DHCPV6_MSG_UNKNOWN) {
+			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)", retx->name, elapsed, rc);
 			dhcpv6_send(type, trid, elapsed / 10);
+			rc++;
+		}
 
 		// Receive rounds
 		for (; len < 0 && round_start < round_end;
@@ -442,11 +451,11 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				round_start = odhcp6c_get_milli_time();
 				elapsed = round_start - start;
 				syslog(LOG_NOTICE, "Got a valid reply after "
-						"%ums", (unsigned)elapsed);
+						"%llums", elapsed);
 
 				if (retx->handler_reply)
 					len = retx->handler_reply(
-							type, opt, opt_end);
+							type, rc, opt, opt_end);
 
 				if (len > 0 && round_end - round_start > 1000)
 					round_end = 1000 + round_start;
@@ -456,7 +465,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Allow
 		if (retx->handler_finish)
 			len = retx->handler_finish();
-	} while (len < 0 && elapsed / 1000 < timeout);
+	} while (len < 0 && ((elapsed / 1000 < timeout) && (!retx->max_rc || rc < retx->max_rc)));
 
 	return len;
 }
@@ -547,7 +556,7 @@ int dhcpv6_poll_reconfigure(void)
 }
 
 
-static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig,
+static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end)
 {
 	// TODO: should verify the reconfigure message
@@ -559,13 +568,13 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig,
 				odata[0] == DHCPV6_MSG_INFO_REQ))
 			msg = odata[0];
 
-	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, NULL, NULL);
+	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, rc, NULL, NULL);
 	return msg;
 }
 
 
 // Collect all advertised servers
-static int dhcpv6_handle_advert(enum dhcpv6_msg orig,
+static int dhcpv6_handle_advert(enum dhcpv6_msg orig, _unused const int rc,
 		const void *opt, const void *end)
 {
 	uint16_t olen, otype;
@@ -689,20 +698,20 @@ static int dhcpv6_commit_advert(void)
 }
 
 
-static int dhcpv6_handle_rebind_reply(enum dhcpv6_msg orig,
+static int dhcpv6_handle_rebind_reply(enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end)
 {
-	dhcpv6_handle_advert(orig, opt, end);
+	dhcpv6_handle_advert(orig, rc, opt, end);
 	if (dhcpv6_commit_advert() < 0) {
-		dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, NULL, NULL);
+		dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, rc, NULL, NULL);
 		return -1;
 	}
 
-	return dhcpv6_handle_reply(orig, opt, end);
+	return dhcpv6_handle_reply(orig, rc, opt, end);
 }
 
 
-static int dhcpv6_handle_reply(enum dhcpv6_msg orig,
+static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		const void *opt, const void *end)
 {
 	uint8_t *odata;

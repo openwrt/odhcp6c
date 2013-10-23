@@ -85,7 +85,7 @@ enum dhcpv6_status {
 	DHCPV6_NoPrefixAvail = 6,
 };
 
-typedef int(reply_handler)(enum dhcpv6_msg orig,
+typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end);
 
 // retransmission strategy
@@ -93,11 +93,11 @@ struct dhcpv6_retx {
 	bool delay;
 	uint8_t init_timeo;
 	uint16_t max_timeo;
+	uint8_t max_rc;
 	char name[8];
 	reply_handler *handler_reply;
 	int(*handler_finish)(void);
 };
-
 
 // DHCPv6 Protocol Headers
 struct dhcpv6_header {
