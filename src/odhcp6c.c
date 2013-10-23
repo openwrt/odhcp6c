@@ -36,7 +36,6 @@
 static void sighandler(int signal);
 static int usage(void);
 
-
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
@@ -231,7 +230,7 @@ int main(_unused int argc, char* const argv[])
 		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
 
-		if (res < 0) {
+		if (res <= 0) {
 			continue; // Might happen if we got a signal
 		} else if (res == DHCPV6_STATELESS) { // Stateless mode
 			while (do_signal == 0 || do_signal == SIGUSR1) {
@@ -257,7 +256,7 @@ int main(_unused int argc, char* const argv[])
 		}
 
 		// Stateful mode
-		if (dhcpv6_request(DHCPV6_MSG_REQUEST) < 0)
+		if (dhcpv6_request(DHCPV6_MSG_REQUEST) <= 0)
 			continue;
 
 		odhcp6c_signal_process();
@@ -270,10 +269,8 @@ int main(_unused int argc, char* const argv[])
 			// Wait for T1 to expire or until we get a reconfigure
 			int res = dhcpv6_poll_reconfigure();
 			odhcp6c_signal_process();
-			if (res >= 0) {
-				if (res > 0)
-					script_call("updated");
-
+			if (res > 0) {
+				script_call("updated");
 				continue;
 			}
 
@@ -294,10 +291,11 @@ int main(_unused int argc, char* const argv[])
 			else
 				r = dhcpv6_request(DHCPV6_MSG_RENEW);
 			odhcp6c_signal_process();
-			if (r > 0) // Publish updates
+			if (r > 0) { // Renew was succesfull
+				// Publish updates
 				script_call("updated");
-			if (r >= 0)
 				continue; // Renew was successful
+			}
 
 			odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 
@@ -307,7 +305,7 @@ int main(_unused int argc, char* const argv[])
 
 			odhcp6c_get_state(STATE_IA_PD, &ia_pd_new);
 			odhcp6c_get_state(STATE_IA_NA, &ia_na_new);
-			if (res < 0 || (ia_pd_new == 0 && ia_pd_len) ||
+			if (res <= 0 || (ia_pd_new == 0 && ia_pd_len) ||
 					(ia_na_new == 0 && ia_na_len))
 				break; // We lost all our IAs, restart
 			else if (res > 0)
@@ -482,6 +480,8 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 				changed = false;
 			x->valid = new->valid;
 			x->preferred = new->preferred;
+			x->t1 = new->t1;
+			x->t2 = new->t2;
 			x->class = new->class;
 		} else {
 			odhcp6c_add_state(state, new, sizeof(*new));
@@ -504,6 +504,16 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 	size_t len;
 	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
 	for (struct odhcp6c_entry *c = start; c < &start[len / sizeof(*c)]; ++c) {
+		if (c->t1 < elapsed)
+			c->t1 = 0;
+		else if (c->t1 != UINT32_MAX)
+			c->t1 -= elapsed;
+
+		if (c->t2 < elapsed)
+			c->t2 = 0;
+		else if (c->t2 != UINT32_MAX)
+			c->t2 -= elapsed;
+
 		if (c->preferred < elapsed)
 			c->preferred = 0;
 		else if (c->preferred != UINT32_MAX)
@@ -545,6 +555,10 @@ void odhcp6c_random(void *buf, size_t len)
 	read(urandom_fd, buf, len);
 }
 
+bool odhcp6c_is_bound(void)
+{
+	return bound;
+}
 
 static void sighandler(int signal)
 {

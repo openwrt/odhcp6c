@@ -81,8 +81,14 @@ enum dhcpv6_msg {
 };
 
 enum dhcpv6_status {
+	DHCPV6_Success = 0,
+	DHCPV6_UnspecFail = 1,
 	DHCPV6_NoAddrsAvail = 2,
+	DHCPV6_NoBinding = 3,
+	DHCPV6_NotOnLink = 4,
+	DHCPV6_UseMulticast = 5,
 	DHCPV6_NoPrefixAvail = 6,
+	_DHCPV6_Status_Max
 };
 
 typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
@@ -219,6 +225,8 @@ struct odhcp6c_entry {
 	struct in6_addr target;
 	uint32_t valid;
 	uint32_t preferred;
+	uint32_t t1;
+	uint32_t t2;
 	uint16_t class;
 };
 
@@ -240,6 +248,7 @@ void script_delay_call(const char *status, int timeout);
 bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);
 void odhcp6c_random(void *buf, size_t len);
+bool odhcp6c_is_bound(void);
 
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
