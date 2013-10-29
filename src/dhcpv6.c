@@ -431,8 +431,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 		// Built and send package
 		if (type != DHCPV6_MSG_UNKNOWN) {
-			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
-					retx->name, (unsigned long long)elapsed, rc);
+			if (type != DHCPV6_MSG_SOLICIT)
+				syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
+						retx->name, (unsigned long long)elapsed, rc);
 			dhcpv6_send(type, trid, elapsed / 10);
 			rc++;
 		}
