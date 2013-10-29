@@ -89,7 +89,6 @@ int main(_unused int argc, char* const argv[])
 			if (request_pd == 0)
 				request_pd = -1;
 
-			ia_pd_mode = IA_MODE_TRY;
 			break;
 
 		case 'F':
