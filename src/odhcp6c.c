@@ -466,7 +466,6 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 	size_t len;
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
 	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
-	bool changed = true;
 
 	if (x && x->valid > new->valid && new->valid < safe)
 		new->valid = safe;
@@ -477,7 +476,7 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 					new->preferred >= x->preferred &&
 					new->preferred - x->preferred < 60 &&
 					x->class == new->class)
-				changed = false;
+				return false;
 			x->valid = new->valid;
 			x->preferred = new->preferred;
 			x->t1 = new->t1;
@@ -489,7 +488,7 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 	} else if (x) {
 		odhcp6c_remove_state(state, (x - start) * sizeof(*x), sizeof(*x));
 	}
-	return changed;
+	return true;
 }
 
 
