@@ -35,4 +35,5 @@ struct icmpv6_opt {
 
 
 int ra_init(const char *ifname, const struct in6_addr *ifid);
+bool ra_link_up(void);
 bool ra_process(void);

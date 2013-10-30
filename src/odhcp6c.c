@@ -391,6 +391,9 @@ bool odhcp6c_signal_process(void)
 		do_signal = 0;
 		bool ra_updated = ra_process();
 
+		if (ra_link_up())
+			do_signal = SIGUSR2;
+
 		if (ra_updated && (bound || allow_slaac_only == 0))
 			script_call("ra-updated"); // Immediate process urgent events
 		else if (ra_updated && !bound && allow_slaac_only > 0)

@@ -29,13 +29,26 @@
 
 #include <linux/rtnetlink.h>
 
+#ifndef SOL_NETLINK
+#define SOL_NETLINK 270
+#endif
+
+#ifndef NETLINK_ADD_MEMBERSHIP
+#define NETLINK_ADD_MEMBERSHIP 1
+#endif
+
+#ifndef IFF_LOWER_UP
+#define IFF_LOWER_UP 0x10000
+#endif
 
 #include "odhcp6c.h"
 #include "ra.h"
 
 
-static int sock = -1;
-static unsigned if_index = 0;
+static bool nocarrier = false;
+
+static int sock = -1, rtnl = -1;
+static int if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
 static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
@@ -44,10 +57,29 @@ static void ra_send_rs(int signal __attribute__((unused)));
 
 int ra_init(const char *ifname, const struct in6_addr *ifid)
 {
+	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if_index = if_nametoindex(ifname);
 	strncpy(if_name, ifname, sizeof(if_name) - 1);
 	lladdr = *ifid;
+
+	rtnl = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_ROUTE);
+	struct sockaddr_nl rtnl_kernel = { .nl_family = AF_NETLINK };
+	connect(rtnl, (const struct sockaddr*)&rtnl_kernel, sizeof(rtnl_kernel));
+
+	int val = RTNLGRP_LINK;
+	setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val));
+	fcntl(rtnl, F_SETOWN, ourpid);
+	fcntl(rtnl, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
+
+	struct {
+		struct nlmsghdr hdr;
+		struct ifinfomsg ifi;
+	} req = {
+		.hdr = {sizeof(req), RTM_GETLINK, NLM_F_REQUEST, 1, 0},
+		.ifi = {.ifi_index = if_index}
+	};
+	send(rtnl, &req, sizeof(req), 0);
 
 	// Filter ICMPv6 package types
 	struct icmp6_filter filt;
@@ -60,7 +92,7 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 	setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &an, sizeof(an));
 
 	// Let the kernel compute our checksums
-	int val = 2;
+	val = 2;
 	setsockopt(sock, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
 
 	// This is required by RFC 4861
@@ -75,7 +107,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
 
 	// Add async-mode
-	const pid_t ourpid = getpid();
 	fcntl(sock, F_SETOWN, ourpid);
 	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
 
@@ -116,6 +147,39 @@ static void update_proc(const char *sect, const char *opt, uint32_t value)
 	close(fd);
 }
 
+
+bool ra_link_up(void)
+{
+	struct {
+		struct nlmsghdr hdr;
+		struct ifinfomsg msg;
+		uint8_t pad[4000];
+	} resp;
+
+	bool ret = false;
+	ssize_t read;
+
+	do {
+		read = recv(rtnl, &resp, sizeof(resp), MSG_DONTWAIT);
+		if (!NLMSG_OK(&resp.hdr, read) || resp.hdr.nlmsg_type != RTM_NEWLINK ||
+				resp.msg.ifi_index != if_index)
+			continue;
+
+		bool hascarrier = resp.msg.ifi_flags & IFF_LOWER_UP;
+		if (nocarrier && hascarrier)
+			ret = true;
+
+		nocarrier = !hascarrier;
+	} while (read > 0);
+
+	if (ret) {
+		syslog(LOG_NOTICE, "carrier up event on %s", if_name);
+		rs_attempt = 0;
+		ra_send_rs(SIGALRM);
+	}
+
+	return ret;
+}
 
 bool ra_process(void)
 {
