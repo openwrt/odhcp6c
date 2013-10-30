@@ -161,7 +161,8 @@ bool ra_link_up(void)
 
 	do {
 		read = recv(rtnl, &resp, sizeof(resp), MSG_DONTWAIT);
-		if (!NLMSG_OK(&resp.hdr, read) || resp.hdr.nlmsg_type != RTM_NEWLINK ||
+		if (read < 0 || !NLMSG_OK(&resp.hdr, (size_t)read) ||
+				resp.hdr.nlmsg_type != RTM_NEWLINK ||
 				resp.msg.ifi_index != if_index)
 			continue;
 
