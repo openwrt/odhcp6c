@@ -150,6 +150,7 @@ static void update_proc(const char *sect, const char *opt, uint32_t value)
 
 bool ra_link_up(void)
 {
+	static bool firstcall = true;
 	struct {
 		struct nlmsghdr hdr;
 		struct ifinfomsg msg;
@@ -167,14 +168,16 @@ bool ra_link_up(void)
 			continue;
 
 		bool hascarrier = resp.msg.ifi_flags & IFF_LOWER_UP;
-		if (nocarrier && hascarrier)
+		if (!firstcall && nocarrier != !hascarrier)
 			ret = true;
 
 		nocarrier = !hascarrier;
+		firstcall = false;
 	} while (read > 0);
 
 	if (ret) {
-		syslog(LOG_NOTICE, "carrier up event on %s", if_name);
+		syslog(LOG_NOTICE, "carrier => %i event on %s", (int)!nocarrier, if_name);
+
 		rs_attempt = 0;
 		ra_send_rs(SIGALRM);
 	}
