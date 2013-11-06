@@ -11,7 +11,12 @@ if(${EXT_PREFIX_CLASS})
 	add_definitions(-DEXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
 endif(${EXT_PREFIX_CLASS})
 
-add_executable(odhcp6c src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c src/md5.c)
+if(${EXT_BFD_PING})
+	add_definitions(-DEXT_BFD_PING)
+	set(BFD_SOURCE src/bfd.c)
+endif(${EXT_BFD_PING})
+
+add_executable(odhcp6c src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c src/md5.c ${BFD_SOURCE})
 target_link_libraries(odhcp6c resolv)
 
 # Installation

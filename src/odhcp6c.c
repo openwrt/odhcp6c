@@ -32,6 +32,10 @@
 #include "odhcp6c.h"
 #include "ra.h"
 
+#ifdef EXT_BFD_PING
+#include "bfd.h"
+#endif
+
 
 static void sighandler(int signal);
 static int usage(void);
@@ -262,6 +266,9 @@ int main(_unused int argc, char* const argv[])
 		script_call("bound");
 		bound = true;
 		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+#ifdef EXT_BFD_PING
+		bfd_start(ifname, 3, 10);
+#endif
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
 			// Renew Cycle
@@ -310,6 +317,10 @@ int main(_unused int argc, char* const argv[])
 			else if (res > 0)
 				script_call("rebound");
 		}
+
+#ifdef EXT_BFD_PING
+		bfd_stop();
+#endif
 
 
 		size_t ia_pd_len, ia_na_len, server_id_len;
@@ -398,6 +409,10 @@ bool odhcp6c_signal_process(void)
 			script_call("ra-updated"); // Immediate process urgent events
 		else if (ra_updated && !bound && allow_slaac_only > 0)
 			script_delay_call("ra-updated", allow_slaac_only);
+
+#ifdef EXT_BFD_PING
+		bfd_receive();
+#endif
 	}
 
 	return do_signal != 0;
