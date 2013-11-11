@@ -63,10 +63,14 @@ int main(_unused int argc, char* const argv[])
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	int sol_timeout = 120;
 
+#ifdef EXT_BFD_PING
+	int bfd_interval = 0, bfd_loss = 3;
+#endif
+
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "S::N:P:Fc:i:r:s:kt:hedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:s:kt:hedp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -99,6 +103,12 @@ int main(_unused int argc, char* const argv[])
 			allow_slaac_only = -1;
 			ia_pd_mode = IA_MODE_FORCE;
 			break;
+
+#ifdef EXT_BFD_PING
+		case 'B':
+			bfd_interval = atoi(optarg);
+			break;
+#endif
 
 		case 'c':
 			l = script_unhexlify(&buf[4], sizeof(buf) - 4, optarg);
@@ -267,7 +277,8 @@ int main(_unused int argc, char* const argv[])
 		bound = true;
 		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 #ifdef EXT_BFD_PING
-		bfd_start(ifname, 3, 10);
+		if (bfd_interval > 0)
+			bfd_start(ifname, bfd_loss, bfd_interval);
 #endif
 
 		while (do_signal == 0 || do_signal == SIGUSR1) {
@@ -353,6 +364,9 @@ static int usage(void)
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
+#ifdef EXT_BFD_PING
+	"	-B <interval>	Enable BFD ping check\n"
+#endif
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"

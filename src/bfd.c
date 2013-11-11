@@ -12,6 +12,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/filter.h>
 
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -86,8 +87,10 @@ static void bfd_send(int signal __attribute__((unused)))
 		do {
 			ssize_t read = recv(rtnl, buf, sizeof(buf), 0);
 			nhm = (struct nlmsghdr*)buf;
-			if (read < 0 || !NLMSG_OK(nhm, (size_t)read))
+			if ((read < 0 && errno == EINTR) || !NLMSG_OK(nhm, (size_t)read))
 				continue;
+			else if (read < 0)
+				break;
 
 			for (; read > 0 && NLMSG_OK(nhm, (size_t)read); nhm = NLMSG_NEXT(nhm, read)) {
 				ssize_t attrlen = NLMSG_PAYLOAD(nhm, sizeof(struct ndmsg));
@@ -119,17 +122,6 @@ static void bfd_send(int signal __attribute__((unused)))
 
 	ping.ip6.ip6_src = cpd->target;
 	ping.ip6.ip6_dst = cpd->target;
-
-/*
-	uint16_t sum = cksum(&ping.ip6.ip6_src, sizeof(ping.ip6.ip6_src), 0);
-	sum = cksum(&ping.ip6.ip6_dst, sizeof(ping.ip6.ip6_dst), ~sum);
-	sum = cksum(&ping.ip6.ip6_plen, sizeof(ping.ip6.ip6_plen), ~sum);
-
-	uint8_t next[4] = {0, 0, 0, ping.ip6.ip6_nxt};
-	sum = cksum(next, sizeof(next), ~sum);
-
-	ping.icmp6.icmp6_cksum = cksum(&ping.icmp6, sizeof(ping.icmp6), ~sum);
-*/
 
 	struct sock_filter bpf[] = {
 		BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct ip6_hdr, ip6_plen)),
@@ -217,22 +209,3 @@ void bfd_stop(void)
 	sock = -1;
 	rtnl = -1;
 }
-
-/*
-
-uint16_t cksum(const uint16_t *addr, size_t count, uint16_t start)
-{
-	uint32_t sum = start;
-
-	while (count > 1) {
-		sum += *addr++;
-		count -= 2;
-	}
-
-	while (sum >> 16)
-		sum = (sum & 0xffff) + (sum >> 16);
-
-	return ~sum;
-}
-
-*/
