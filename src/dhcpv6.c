@@ -26,6 +26,7 @@
 #include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 
 #include <net/if.h>
@@ -95,6 +96,8 @@ static int64_t t1 = 0, t2 = 0, t3 = 0;
 static int request_prefix = -1;
 static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE, pd_mode = IA_MODE_NONE;
 static bool accept_reconfig = false;
+// Server unicast address
+static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
 
 // Reconfigure key
 static uint8_t reconf_key[16];
@@ -156,6 +159,7 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 			htons(DHCPV6_OPT_SIP_SERVER_A),
 			htons(DHCPV6_OPT_DNS_SERVERS),
 			htons(DHCPV6_OPT_DNS_DOMAIN),
+			htons(DHCPV6_OPT_UNICAST),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_AFTR_NAME),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
@@ -371,7 +375,29 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		0, ALL_DHCPV6_RELAYS, ifindex};
 	struct msghdr msg = {&srv, sizeof(srv), iov, cnt, NULL, 0, 0};
 
-	sendmsg(sock, &msg, 0);
+	switch (type) {
+	case DHCPV6_MSG_REQUEST:
+	case DHCPV6_MSG_RENEW:
+	case DHCPV6_MSG_RELEASE:
+	case DHCPV6_MSG_DECLINE:
+		if (!IN6_IS_ADDR_UNSPECIFIED(&server_addr) &&
+			odhcp6c_addr_in_scope(&server_addr)) {
+			srv.sin6_addr = server_addr;
+			if (!IN6_IS_ADDR_LINKLOCAL(&server_addr))
+				srv.sin6_scope_id = 0;
+		}
+		break;
+	default:
+		break;
+	}
+
+	if (sendmsg(sock, &msg, 0) < 0) {
+		char in6_str[INET6_ADDRSTRLEN];
+
+		syslog(LOG_ERR, "Failed to send DHCPV6 message to %s (%s)",
+			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
+				in6_str, sizeof(in6_str)), strerror(errno));
+	}
 }
 
 
@@ -653,7 +679,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 {
 	uint16_t olen, otype;
 	uint8_t *odata, pref = 0;
-	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0}, NULL, NULL, 0, 0};
+	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0},
+					IN6ADDR_ANY_INIT, NULL, NULL, 0, 0};
 	bool have_na = false;
 	int have_pd = 0;
 
@@ -691,6 +718,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
 				cand.preference >= 0) {
 			cand.preference = pref = odata[0];
+		} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(cand.server_addr)) {
+			cand.server_addr = *(struct in6_addr *)odata;
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
@@ -765,6 +794,7 @@ static int dhcpv6_commit_advert(void)
 		odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
 		odhcp6c_add_state(STATE_SERVER_ID, c->duid, c->duid_len);
 		accept_reconfig = c->wants_reconfigure;
+		server_addr = c->server_addr;
 		if (c->ia_na_len)
 			odhcp6c_add_state(STATE_IA_NA, c->ia_na, c->ia_na_len);
 		if (c->ia_pd_len)
@@ -884,6 +914,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				continue;
 
 			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
+		} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr)) {
+			server_addr = *(struct in6_addr *)odata;
 		} else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
 			uint8_t *mdata = (olen > 2) ? &odata[2] : NULL;
 			uint16_t mlen = (olen > 2) ? olen - 2 : 0;
@@ -1163,7 +1195,18 @@ static void dhcpv6_handle_status_code(const enum dhcpv6_msg orig,
 		break;
 
 	case DHCPV6_UseMulticast:
-		// TODO handle multicast status code
+		switch(orig) {
+		case DHCPV6_MSG_REQUEST:
+		case DHCPV6_MSG_RENEW:
+		case DHCPV6_MSG_RELEASE:
+		case DHCPV6_MSG_DECLINE:
+			// Message needs to be retransmitted according to RFC3315 chapter 18.1.8
+			server_addr = in6addr_any;
+			*ret = 0;
+			break;
+		default:
+			break;
+		}
 		break;
 
 	case DHCPV6_NoAddrsAvail:

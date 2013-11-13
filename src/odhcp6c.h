@@ -34,6 +34,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_ELAPSED = 8,
 	DHCPV6_OPT_RELAY_MSG = 9,
 	DHCPV6_OPT_AUTH = 11,
+	DHCPV6_OPT_UNICAST = 12,
 	DHCPV6_OPT_STATUS = 13,
 	DHCPV6_OPT_RAPID_COMMIT = 14,
 	DHCPV6_OPT_RECONF_MESSAGE = 19,
@@ -164,6 +165,7 @@ struct dhcpv6_server_cand {
 	int16_t preference;
 	uint8_t duid_len;
 	uint8_t duid[130];
+	struct in6_addr server_addr;
 	void *ia_na;
 	void *ia_pd;
 	size_t ia_na_len;
@@ -245,6 +247,7 @@ bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);
 void odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr);
 
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);

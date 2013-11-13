@@ -14,6 +14,7 @@
 
 #include <time.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,12 +23,14 @@
 #include <syslog.h>
 #include <signal.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 
 #include <net/if.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <arpa/inet.h>
+#include <linux/if_addr.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
@@ -36,6 +39,11 @@
 #include "bfd.h"
 #endif
 
+#ifndef IN6_IS_ADDR_UNIQUELOCAL
+#define IN6_IS_ADDR_UNIQUELOCAL(a) \
+	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
+	 == htonl (0xfc000000))
+#endif
 
 static void sighandler(int signal);
 static int usage(void);
@@ -47,7 +55,7 @@ static volatile int do_signal = 0;
 static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
 static time_t last_update = 0;
-
+static char *ifname = NULL;
 
 int main(_unused int argc, char* const argv[])
 {
@@ -171,7 +179,7 @@ int main(_unused int argc, char* const argv[])
 	}
 
 	openlog("odhcp6c", logopt, LOG_DAEMON);
-	const char *ifname = argv[optind];
+	ifname = argv[optind];
 
 	if (help || !ifname)
 		return usage();
@@ -585,9 +593,62 @@ void odhcp6c_random(void *buf, size_t len)
 	read(urandom_fd, buf, len);
 }
 
+
 bool odhcp6c_is_bound(void)
 {
 	return bound;
+}
+
+
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
+{
+	FILE *fd = fopen("/proc/net/if_inet6", "r");
+	int len;
+	char buf[256];
+
+	if (fd == NULL)
+		return false;
+
+	while (fgets(buf, sizeof(buf), fd)) {
+		struct in6_addr inet6_addr;
+		uint32_t flags, dummy;
+		unsigned int i;
+		char name[8], addr_buf[32];
+
+		len = strlen(buf);
+
+		if ((len <= 0) || buf[len - 1] != '\n')
+			return false;
+
+		buf[--len] = '\0';
+
+		if (sscanf(buf, "%s %x %x %x %x %s",
+				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
+			return false;
+
+		if (strcmp(name, ifname) ||
+			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
+			continue;
+
+		for (i = 0; i < sizeof(addr_buf); i++) {
+			if (!isxdigit(addr_buf[i]) || isupper(addr_buf[i]))
+				return false;
+		}
+
+		memset(&inet6_addr, 0, sizeof(inet6_addr));
+		for (i = 0; i < (sizeof(addr_buf) / 2); i++) {
+			unsigned char byte;
+			static const char hex[] = "0123456789abcdef";
+			byte = ((index(hex, addr_buf[i * 2]) - hex) << 4) |
+				(index(hex, addr_buf[i * 2 + 1]) - hex);
+			inet6_addr.s6_addr[i] = byte;
+		}
+
+		if ((IN6_IS_ADDR_LINKLOCAL(&inet6_addr) == IN6_IS_ADDR_LINKLOCAL(addr)) &&
+			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr)))
+			return true;
+	}
+	return false;
 }
 
 static void sighandler(int signal)
