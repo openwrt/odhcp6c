@@ -21,10 +21,6 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#ifndef SOL_NETLINK
-#define SOL_NETLINK 270
-#endif
-
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNSSL 31
 
