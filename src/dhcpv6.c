@@ -145,6 +145,7 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 						sizeof(ifr.ifr_name));
 				if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0)
 					continue;
+
 				memcpy(&duid[8], ifr.ifr_hwaddr.sa_data,
 						ETHER_ADDR_LEN);
 			}
@@ -169,31 +170,21 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 	};
 	odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 
-	do {
-		// Configure IPv6-options
-		int val = 1;
-		if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val)) < 0)
-			break;
-		if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0)
-			break;
-		if (setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val)) < 0)
-			break;
+	// Configure IPv6-options
+	int val = 1;
+	setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
+	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
+	val = 0;
+	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
+	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
 
-		val = 0;
-		if (setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val)) < 0)
-			break;
-		if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname)) < 0)
-			break;
+	struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
+		.sin6_port = htons(DHCPV6_CLIENT_PORT), .sin6_flowinfo = 0 };
+	if (bind(sock, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0)
+		return -1;
 
-		struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
-			.sin6_port = htons(DHCPV6_CLIENT_PORT), .sin6_flowinfo = 0 };
-		if (bind(sock, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0)
-			break;
-
-		return 0;
-	} while (0);
-
-	return -1;
+	return 0;
 }
 
 
