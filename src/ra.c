@@ -59,13 +59,23 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 {
 	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
+	if (sock < 0)
+		return -1;
+
 	if_index = if_nametoindex(ifname);
+	if (!if_index)
+		return -1;
+
 	strncpy(if_name, ifname, sizeof(if_name) - 1);
 	lladdr = *ifid;
 
 	rtnl = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_ROUTE);
+	if (rtnl < 0)
+		return -1;
+
 	struct sockaddr_nl rtnl_kernel = { .nl_family = AF_NETLINK };
-	connect(rtnl, (const struct sockaddr*)&rtnl_kernel, sizeof(rtnl_kernel));
+	if (connect(rtnl, (const struct sockaddr*)&rtnl_kernel, sizeof(rtnl_kernel)) < 0)
+		return -1;
 
 	int val = RTNLGRP_LINK;
 	setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val));
