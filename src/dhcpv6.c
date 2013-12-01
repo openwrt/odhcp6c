@@ -469,7 +469,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		}
 
 		// Receive rounds
-		for (; len < 0 && round_start < round_end;
+		for (; len < 0 && (round_start < round_end);
 				round_start = odhcp6c_get_milli_time()) {
 			uint8_t buf[1536], cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
 			struct iovec iov = {buf, sizeof(buf)};
