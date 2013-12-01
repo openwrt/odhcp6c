@@ -59,6 +59,7 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		const void *status_msg, const int len,
 		bool handled_status_codes[_DHCPV6_Status_Max],
 		int *ret);
+static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand);
 
 static reply_handler dhcpv6_handle_reply;
 static reply_handler dhcpv6_handle_advert;
@@ -751,7 +752,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	if (cand.duid_len > 0) {
 		cand.ia_na = odhcp6c_move_state(STATE_IA_NA, &cand.ia_na_len);
 		cand.ia_pd = odhcp6c_move_state(STATE_IA_PD, &cand.ia_pd_len);
-		odhcp6c_add_state(STATE_SERVER_CAND, &cand, sizeof(cand));
+		dhcpv6_add_server_cand(&cand);
 	}
 
 	return (rc > 1 || (pref == 255 && cand.preference > 0)) ? 1 : -1;
@@ -760,50 +761,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 
 static int dhcpv6_commit_advert(void)
 {
-	size_t cand_len;
-	struct dhcpv6_server_cand *c = NULL, *cand =
-			odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
-
-	bool retry = false;
-	for (size_t i = 0; i < cand_len / sizeof(*c); ++i) {
-		if (cand[i].has_noaddravail)
-			retry = true; // We want to try again
-
-		if (!c || c->preference < cand[i].preference)
-			c = &cand[i];
-	}
-
-	if (retry && na_mode == IA_MODE_TRY) {
-		// We give it a second try without the IA_NA
-		na_mode = IA_MODE_NONE;
-		return dhcpv6_request(DHCPV6_MSG_SOLICIT);
-	}
-
-	if (c) {
-		uint16_t hdr[2] = {htons(DHCPV6_OPT_SERVERID),
-				htons(c->duid_len)};
-		odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
-		odhcp6c_add_state(STATE_SERVER_ID, c->duid, c->duid_len);
-		accept_reconfig = c->wants_reconfigure;
-		server_addr = c->server_addr;
-		if (c->ia_na_len)
-			odhcp6c_add_state(STATE_IA_NA, c->ia_na, c->ia_na_len);
-		if (c->ia_pd_len)
-			odhcp6c_add_state(STATE_IA_PD, c->ia_pd, c->ia_pd_len);
-	}
-
-	for (size_t i = 0; i < cand_len / sizeof(*c); ++i) {
-		free(cand[i].ia_na);
-		free(cand[i].ia_pd);
-	}
-	odhcp6c_clear_state(STATE_SERVER_CAND);
-
-	if (!c)
-		return -1;
-	else if ((request_prefix && c->ia_pd_len) || (na_mode != IA_MODE_NONE && c->ia_na_len))
-		return DHCPV6_STATEFUL;
-	else
-		return DHCPV6_STATELESS;
+	return dhcpv6_promote_server_cand();
 }
 
 
@@ -972,6 +930,11 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				if (!t1 && !t2)
 					ret = -1;
 				break;
+
+			case DHCPV6_MSG_REQUEST:
+				// All server candidates can be cleared if not yet bound
+				if (!odhcp6c_is_bound())
+					dhcpv6_clear_all_server_cand();
 
 			default :
 				break;
@@ -1253,4 +1216,87 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 	default:
 		break;
 	}
+}
+
+static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
+{
+	size_t cand_len, i;
+	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+
+	// Remove identical duid server candidate
+	for (i = 0; i < cand_len / sizeof(*c); ++i) {
+		if (cand->duid_len == c[i].duid_len &&
+			!memcmp(cand->duid, c[i].duid, cand->duid_len)) {
+			free(c[i].ia_na);
+			free(c[i].ia_pd);
+			odhcp6c_remove_state(STATE_SERVER_CAND, i * sizeof(*c), sizeof(*c));
+			break;
+		}
+	}
+
+	for (i = 0, c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+		i < cand_len / sizeof(*c); ++i) {
+		if (c[i].preference < cand->preference)
+			break;
+	}
+
+	odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*c), cand, sizeof(*cand));
+}
+
+int dhcpv6_promote_server_cand(void)
+{
+	size_t cand_len;
+	struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+	uint16_t hdr[2];
+	int ret = DHCPV6_STATELESS;
+
+	// Clear lingering candidate state info
+	odhcp6c_clear_state(STATE_SERVER_ID);
+	odhcp6c_clear_state(STATE_IA_NA);
+	odhcp6c_clear_state(STATE_IA_PD);
+
+	if (!cand)
+		return -1;
+
+	if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
+		na_mode = IA_MODE_NONE;
+		return dhcpv6_request(DHCPV6_MSG_SOLICIT);
+	}
+
+	hdr[0] = htons(DHCPV6_OPT_SERVERID);
+	hdr[1] = htons(cand->duid_len);
+	odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
+	odhcp6c_add_state(STATE_SERVER_ID, cand->duid, cand->duid_len);
+	accept_reconfig = cand->wants_reconfigure;
+	if (cand->ia_na_len) {
+		odhcp6c_add_state(STATE_IA_NA, cand->ia_na, cand->ia_na_len);
+		free(cand->ia_na);
+		if (na_mode != IA_MODE_NONE)
+			ret = DHCPV6_STATEFUL;
+	}
+	if (cand->ia_pd_len) {
+		odhcp6c_add_state(STATE_IA_PD, cand->ia_pd, cand->ia_pd_len);
+		free(cand->ia_pd);
+		if (request_prefix)
+			ret = DHCPV6_STATEFUL;
+	}
+
+	odhcp6c_remove_state(STATE_SERVER_CAND, 0, sizeof(*cand));
+
+	return ret;
+}
+
+void dhcpv6_clear_all_server_cand(void)
+{
+	size_t cand_len, i;
+	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+
+	// Server candidates need deep delete for IA_NA/IA_PD
+	for (i = 0; i < cand_len / sizeof(*c); ++i) {
+		if (c[i].ia_na)
+			free(c[i].ia_na);
+		if (c[i].ia_pd)
+			free(c[i].ia_pd);
+	}
+	odhcp6c_clear_state(STATE_SERVER_CAND);
 }

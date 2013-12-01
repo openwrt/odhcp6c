@@ -236,26 +236,53 @@ int main(_unused int argc, char* const argv[])
 		dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
 		bound = false;
 
-		// Server candidates need deep-delete
-		size_t cand_len;
-		struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
-		for (size_t i = 0; i < cand_len / sizeof(*cand); ++i) {
-			free(cand[i].ia_na);
-			free(cand[i].ia_pd);
-		}
-		odhcp6c_clear_state(STATE_SERVER_CAND);
-
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 		do_signal = 0;
-		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+		int mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
 
-		if (res <= 0) {
-			continue; // Might happen if we got a signal
-		} else if (res == DHCPV6_STATELESS) { // Stateless mode
+		if (mode < 0)
+			continue;
+
+		do {
+			int res = dhcpv6_request(mode == DHCPV6_STATELESS ?
+					DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST);
+
+			odhcp6c_signal_process();
+			if (res > 0)
+				break;
+			else if (do_signal > 0) {
+				mode = -1;
+				break;
+			}
+
+			mode = dhcpv6_promote_server_cand();
+		} while (mode > DHCPV6_UNKNOWN);
+
+		if (mode < 0)
+			continue;
+
+		switch (mode) {
+		case DHCPV6_STATELESS:
+			bound = true;
+			syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
+
 			while (do_signal == 0 || do_signal == SIGUSR1) {
 				do_signal = 0;
+				script_call("informed");					
+
+				int res = dhcpv6_poll_reconfigure();
+				odhcp6c_signal_process();
+
+				if (res > 0)
+					continue;
+
+				if (do_signal == SIGUSR1) {
+					do_signal = 0; // Acknowledged
+					continue;
+				} else if (do_signal > 0)
+					break;
 
 				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
 				odhcp6c_signal_process();
@@ -263,84 +290,63 @@ int main(_unused int argc, char* const argv[])
 					continue;
 				else if (res < 0)
 					break;
-				else if (res > 0)
-					script_call("informed");
-
-				bound = true;
-				syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
-
-				if (dhcpv6_poll_reconfigure() > 0)
-					script_call("informed");
 			}
+			break;
 
-			continue;
-		}
-
-		// Stateful mode
-		if (dhcpv6_request(DHCPV6_MSG_REQUEST) <= 0)
-			continue;
-
-		odhcp6c_signal_process();
-		script_call("bound");
-		bound = true;
-		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+		case DHCPV6_STATEFUL:
+			script_call("bound");
+			bound = true;
+			syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 #ifdef EXT_BFD_PING
-		if (bfd_interval > 0)
-			bfd_start(ifname, bfd_loss, bfd_interval);
+			if (bfd_interval > 0)
+				bfd_start(ifname, bfd_loss, bfd_interval);
 #endif
 
-		while (do_signal == 0 || do_signal == SIGUSR1) {
-			// Renew Cycle
-			// Wait for T1 to expire or until we get a reconfigure
-			int res = dhcpv6_poll_reconfigure();
-			odhcp6c_signal_process();
-			if (res > 0) {
-				script_call("updated");
-				continue;
-			}
+			while (do_signal == 0 || do_signal == SIGUSR1) {
+				// Renew Cycle
+				// Wait for T1 to expire or until we get a reconfigure
+				int res = dhcpv6_poll_reconfigure();
+				odhcp6c_signal_process();
+				if (res > 0) {
+					script_call("updated");
+					continue;
+				}
 
-			// Handle signal, if necessary
-			if (do_signal == SIGUSR1)
-				do_signal = 0; // Acknowledged
-			else if (do_signal > 0)
-				break; // Other signal type
+				// Handle signal, if necessary
+				if (do_signal == SIGUSR1)
+					do_signal = 0; // Acknowledged
+				else if (do_signal > 0)
+					break; // Other signal type
 
-			size_t ia_pd_len, ia_na_len, ia_pd_new, ia_na_new;
-			odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-			odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+				// If we have any IAs, send renew, otherwise request
+				res = dhcpv6_request(DHCPV6_MSG_RENEW);
+				odhcp6c_signal_process();
+				if (res > 0) { // Renew was succesfull
+					// Publish updates
+					script_call("updated");
+					continue; // Renew was successful
+				}
+				
+				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 
-			// If we have any IAs, send renew, otherwise request
-			int r;
-			if (ia_pd_len == 0 && ia_na_len == 0)
-				r = dhcpv6_request(DHCPV6_MSG_REQUEST);
-			else
-				r = dhcpv6_request(DHCPV6_MSG_RENEW);
-			odhcp6c_signal_process();
-			if (r > 0) { // Renew was succesfull
-				// Publish updates
-				script_call("updated");
-				continue; // Renew was successful
-			}
+				// If we have IAs, try rebind otherwise restart
+				res = dhcpv6_request(DHCPV6_MSG_REBIND);
+				odhcp6c_signal_process();
 
-			odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
-
-			// If we have IAs, try rebind otherwise restart
-			res = dhcpv6_request(DHCPV6_MSG_REBIND);
-			odhcp6c_signal_process();
-
-			odhcp6c_get_state(STATE_IA_PD, &ia_pd_new);
-			odhcp6c_get_state(STATE_IA_NA, &ia_na_new);
-			if (res <= 0 || (ia_pd_new == 0 && ia_pd_len) ||
-					(ia_na_new == 0 && ia_na_len))
-				break; // We lost all our IAs, restart
-			else if (res > 0)
-				script_call("rebound");
-		}
-
+				if (res > 0)
+					script_call("rebound");
+				else {
 #ifdef EXT_BFD_PING
-		bfd_stop();
+					bfd_stop();
 #endif
+					break;
+				}
+			}
+			break;
 
+		default:
+			break;
+		}
 
 		size_t ia_pd_len, ia_na_len, server_id_len;
 		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
@@ -454,6 +460,20 @@ void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 		memcpy(n, data, len);
 }
 
+void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
+{
+	ssize_t len_after = state_len[state] - offset;
+	if (len_after < 0)
+		return;
+
+	uint8_t *n = odhcp6c_resize_state(state, len);
+	if (n) {
+		uint8_t *sdata = state_data[state];
+		
+		memmove(sdata + offset + len, sdata + offset, len_after);
+		memcpy(sdata + offset, data, len);
+	}
+}
 
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
 {

@@ -203,11 +203,10 @@ struct icmp6_opt {
 
 
 enum dhcpv6_mode {
-	DHCPV6_UNKNOWN,
+	DHCPV6_UNKNOWN = -1,
 	DHCPV6_STATELESS,
 	DHCPV6_STATEFUL
 };
-
 
 enum odhcp6c_ia_mode {
 	IA_MODE_NONE,
@@ -233,6 +232,8 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout);
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
+int dhcpv6_promote_server_cand(void);
+void dhcpv6_clear_all_server_cand(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
@@ -252,6 +253,7 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr);
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
+void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
 void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
