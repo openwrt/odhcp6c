@@ -233,7 +233,6 @@ void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
 int dhcpv6_promote_server_cand(void);
-void dhcpv6_clear_all_server_cand(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,

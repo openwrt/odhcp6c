@@ -60,6 +60,7 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		bool handled_status_codes[_DHCPV6_Status_Max],
 		int *ret);
 static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand);
+static void dhcpv6_clear_all_server_cand(void);
 
 static reply_handler dhcpv6_handle_reply;
 static reply_handler dhcpv6_handle_advert;
@@ -941,8 +942,13 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			}
 		}
 	}
-	else if (ret > 0)
+	else if (ret > 0) {
+		// All server candidates can be cleared if not yet bound
+		if (!odhcp6c_is_bound())
+			dhcpv6_clear_all_server_cand();
+
 		t1 = refresh;
+	}
 
 	return ret;
 }
@@ -1243,6 +1249,21 @@ static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 	odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*c), cand, sizeof(*cand));
 }
 
+static void dhcpv6_clear_all_server_cand(void)
+{
+	size_t cand_len, i;
+	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+
+	// Server candidates need deep delete for IA_NA/IA_PD
+	for (i = 0; i < cand_len / sizeof(*c); ++i) {
+		if (c[i].ia_na)
+			free(c[i].ia_na);
+		if (c[i].ia_pd)
+			free(c[i].ia_pd);
+	}
+	odhcp6c_clear_state(STATE_SERVER_CAND);
+}
+
 int dhcpv6_promote_server_cand(void)
 {
 	size_t cand_len;
@@ -1255,7 +1276,7 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_clear_state(STATE_IA_NA);
 	odhcp6c_clear_state(STATE_IA_PD);
 
-	if (!cand)
+	if (!cand_len)
 		return -1;
 
 	if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
@@ -1284,19 +1305,4 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_remove_state(STATE_SERVER_CAND, 0, sizeof(*cand));
 
 	return ret;
-}
-
-void dhcpv6_clear_all_server_cand(void)
-{
-	size_t cand_len, i;
-	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
-
-	// Server candidates need deep delete for IA_NA/IA_PD
-	for (i = 0; i < cand_len / sizeof(*c); ++i) {
-		if (c[i].ia_na)
-			free(c[i].ia_na);
-		if (c[i].ia_pd)
-			free(c[i].ia_pd);
-	}
-	odhcp6c_clear_state(STATE_SERVER_CAND);
 }
