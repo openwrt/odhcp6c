@@ -307,6 +307,10 @@ bool ra_process(void)
 		entry.preferred = entry.valid;
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry);
 
+		// Parse hoplimit
+		if (adv->nd_ra_curhoplimit)
+			update_proc("conf", "hop_limit", adv->nd_ra_curhoplimit);
+
 		// Parse ND parameters
 		if (ntohl(adv->nd_ra_reachable) <= 3600000)
 			update_proc("neigh", "base_reachable_time_ms", ntohl(adv->nd_ra_reachable));
