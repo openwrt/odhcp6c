@@ -195,51 +195,6 @@ bool ra_link_up(void)
 	return ret;
 }
 
-static int ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data, size_t len)
-{
-	struct icmp6_hdr *hdr = (struct icmp6_hdr *)data;
-	struct icmpv6_opt *opt;
-	size_t optlen;
-
-	if (hlim != 255)
-		return 0;
-
-	if (len < sizeof(*hdr))
-		return 0;
-
-	if (hdr->icmp6_code)
-		return 0;
-
-	switch (hdr->icmp6_type) {
-	case ND_ROUTER_ADVERT:
-		if (!IN6_IS_ADDR_LINKLOCAL(&source->sin6_addr))
-			return 0;
-
-		opt = (struct icmpv6_opt *)((struct nd_router_advert *)data + 1);
-		optlen = len - sizeof(struct nd_router_advert);
-		break;
-
-	default:
-		return 0;
-	}
-
-	while (optlen > 0) {
-		size_t l = opt->len << 3;
-
-		if (optlen < sizeof(*opt))
-			return 0;
-
-		if (l > optlen || l == 0)
-			return 0;
-
-		opt = (struct icmpv6_opt *)(((uint8_t *)opt) + l);
-
-		optlen -= l;
-	}
-
-	return 1;
-}
-
 bool ra_process(void)
 {
 	bool found = false;
@@ -271,8 +226,10 @@ bool ra_process(void)
 				cmsg_buf, sizeof(cmsg_buf), 0};
 
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
-		if (len <= 0)
+		if (len < 0)
 			break;
+		else if (len < (ssize_t)sizeof(*adv))
+			continue;
 
 		int hlim = 0;
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
@@ -281,7 +238,7 @@ bool ra_process(void)
 					ch->cmsg_type == IPV6_HOPLIMIT)
 				memcpy(&hlim, CMSG_DATA(ch), sizeof(hlim));
 
-		if (!ra_icmpv6_valid(&from, hlim, buf, len))
+		if (hlim != 255)
 			continue;
 
 		// Stop sending solicits
@@ -323,17 +280,17 @@ bool ra_process(void)
 		struct icmpv6_opt *opt;
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
-				struct nd_opt_mtu *mtu = (struct nd_opt_mtu *)opt;
-				if (ntohl(mtu->nd_opt_mtu_mtu) >= 1280 && ntohl(mtu->nd_opt_mtu_mtu) <= 65535)
-					update_proc("conf", "mtu", ntohl(mtu->nd_opt_mtu_mtu));
+				uint32_t *mtu = (uint32_t*)&opt->data[2];
+				if (ntohl(*mtu) >= 1280 && ntohl(*mtu) <= 65535)
+					update_proc("conf", "mtu", ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
-				struct nd_opt_route_info *rinfo = (struct nd_opt_route_info *)opt;
 				entry.router = from.sin6_addr;
 				entry.target = any;
-				entry.priority = pref_to_priority(rinfo->nd_opt_ri_prf);
-				entry.length = rinfo->nd_opt_ri_prefix_len;
-				entry.valid = ntohl(rinfo->nd_opt_ri_route_lifetime);
-				memcpy(&entry.target, &rinfo->nd_opt_ri_prefix[0], (rinfo->nd_opt_ri_len - 1) * 8);
+				entry.priority = pref_to_priority(opt->data[1]);
+				entry.length = opt->data[0];
+				uint32_t *valid = (uint32_t*)&opt->data[2];
+				entry.valid = ntohl(*valid);
+				memcpy(&entry.target, &opt->data[6], (opt->len - 1) * 8);
 
 				if (entry.length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry.target)
 						|| IN6_IS_ADDR_LOOPBACK(&entry.target)
@@ -343,7 +300,7 @@ bool ra_process(void)
 				if (entry.priority > 0)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry);
 			} else if (opt->type == ND_OPT_PREFIX_INFORMATION && opt->len == 4) {
-				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info *)opt;
+				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info*)opt;
 				entry.router = any;
 				entry.target = pinfo->nd_opt_pi_prefix;
 				entry.priority = 256;
@@ -369,15 +326,15 @@ bool ra_process(void)
 
 				changed |= odhcp6c_update_entry_safe(STATE_RA_PREFIX, &entry, 7200);
 			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
-				struct nd_opt_recursive_dns *rdns = (struct nd_opt_recursive_dns *)opt;
 				entry.router = from.sin6_addr;
 				entry.priority = 0;
 				entry.length = 128;
-				entry.valid = ntohl(rdns->lifetime);
+				uint32_t *valid = (uint32_t*)&opt->data[2];
+				entry.valid = ntohl(*valid);
 				entry.preferred = 0;
 
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
-					memcpy(&entry.target, &rdns->servers[i],
+					memcpy(&entry.target, &opt->data[6 + i * sizeof(entry.target)],
 							sizeof(entry.target));
 					changed |= odhcp6c_update_entry(STATE_RA_DNS, &entry);
 				}

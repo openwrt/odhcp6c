@@ -22,32 +22,16 @@
 struct icmpv6_opt {
 	uint8_t type;
 	uint8_t len;
-};
-
-struct nd_opt_recursive_dns {
-	uint8_t type;
-	uint8_t len;
-	uint8_t pad;
-	uint8_t pad2;
-	uint32_t lifetime;
-	struct in6_addr servers[1];
+	uint8_t data[6];
 };
 
 #define ND_OPT_ROUTE_INFORMATION 24
-struct nd_opt_route_info {
-	uint8_t nd_opt_ri_type;
-	uint8_t nd_opt_ri_len;
-	uint8_t nd_opt_ri_prefix_len;
-	uint8_t nd_opt_ri_prf;
-	uint32_t nd_opt_ri_route_lifetime;
-	uint8_t nd_opt_ri_prefix[1];
-};
+
 
 #define icmpv6_for_each_option(opt, start, end)\
 	for (opt = (struct icmpv6_opt*)(start);\
-	((void *)opt < (void *)end) && \
-	(void *)((uint8_t *)opt + (opt->len << 3)) <= (void *)(end); \
-	opt = (struct icmpv6_opt *)((uint8_t *)opt + (opt->len << 3)))
+	(void*)(opt + 1) <= (void*)(end) && opt->len > 0 &&\
+	(void*)(opt + opt->len) <= (void*)(end); opt += opt->len)
 
 
 int ra_init(const char *ifname, const struct in6_addr *ifid);
