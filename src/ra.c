@@ -195,6 +195,32 @@ bool ra_link_up(void)
 	return ret;
 }
 
+static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data, size_t len)
+{
+	struct icmp6_hdr *hdr = (struct icmp6_hdr*)data;
+	struct icmpv6_opt *opt, *end = (struct icmpv6_opt*)&data[len];
+
+	if (hlim != 255 || len < sizeof(*hdr) || hdr->icmp6_code)
+		return false;
+
+	switch (hdr->icmp6_type) {
+	case ND_ROUTER_ADVERT:
+		if (!IN6_IS_ADDR_LINKLOCAL(&source->sin6_addr))
+			return false;
+
+		opt = (struct icmpv6_opt*)((struct nd_router_advert*)data + 1);
+		break;
+
+	default:
+		return false;
+	}
+	
+	icmpv6_for_each_option(opt, opt, end)
+		;
+
+	return opt == end;
+}
+
 bool ra_process(void)
 {
 	bool found = false;
@@ -226,10 +252,8 @@ bool ra_process(void)
 				cmsg_buf, sizeof(cmsg_buf), 0};
 
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
-		if (len < 0)
+		if (len <= 0)
 			break;
-		else if (len < (ssize_t)sizeof(*adv))
-			continue;
 
 		int hlim = 0;
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
@@ -238,7 +262,7 @@ bool ra_process(void)
 					ch->cmsg_type == IPV6_HOPLIMIT)
 				memcpy(&hlim, CMSG_DATA(ch), sizeof(hlim));
 
-		if (hlim != 255)
+		if (!ra_icmpv6_valid(&from, hlim, buf, len))
 			continue;
 
 		// Stop sending solicits
