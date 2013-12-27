@@ -569,11 +569,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	void *server_id = odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
 	dhcpv6_for_each_option(&rep[1], end, otype, olen, odata) {
-		if ((odata + olen) > end) {
-			options_valid = false;
-			break;
-		}
-		else if (otype == DHCPV6_OPT_CLIENTID) {
+		if (otype == DHCPV6_OPT_CLIENTID) {
 			clientid_ok = (olen + 4U == client_id_len) && !memcmp(
 					&odata[-4], client_id, client_id_len);
 		} else if (otype == DHCPV6_OPT_SERVERID) {
