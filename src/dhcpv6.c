@@ -623,7 +623,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		}
 	}
 
-	if (!options_valid)
+	if (!options_valid || ((odata + olen) > end))
 		return false;
 
 	if (type == DHCPV6_MSG_INFO_REQ && ia_present)
