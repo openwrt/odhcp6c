@@ -69,7 +69,7 @@ int main(_unused int argc, char* const argv[])
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_TRY;
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
-	int sol_timeout = 120;
+	int sol_timeout = DHCPV6_SOL_MAX_RT;
 
 #ifdef EXT_BFD_PING
 	int bfd_interval = 0, bfd_loss = 3;
@@ -318,7 +318,7 @@ int main(_unused int argc, char* const argv[])
 				else if (do_signal > 0)
 					break; // Other signal type
 
-				// If we have any IAs, send renew, otherwise request
+				// Send renew as T1 expired
 				res = dhcpv6_request(DHCPV6_MSG_RENEW);
 				odhcp6c_signal_process();
 				if (res > 0) { // Renew was succesfull

@@ -24,6 +24,13 @@
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNSSL 31
 
+#define DHCPV6_SOL_MAX_RT 3600
+#define DHCPV6_REQ_MAX_RT 30
+#define DHCPV6_CNF_MAX_RT 4
+#define DHCPV6_REN_MAX_RT 600
+#define DHCPV6_REB_MAX_RT 600
+#define DHCPV6_INF_MAX_RT 3600
+
 enum dhcvp6_opt {
 	DHCPV6_OPT_CLIENTID = 1,
 	DHCPV6_OPT_SERVERID = 2,
@@ -50,6 +57,8 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_SIP_SERVER_A = 22,
 	DHCPV6_OPT_AFTR_NAME = 64,
 	DHCPV6_OPT_PD_EXCLUDE = 67,
+	DHCPV6_OPT_SOL_MAX_RT = 82,
+	DHCPV6_OPT_INF_MAX_RT = 83,
 #ifdef EXT_PREFIX_CLASS
         /* draft-bhandari-dhc-class-based-prefix, not yet standardized */
 	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
@@ -166,6 +175,8 @@ struct dhcpv6_server_cand {
 	uint8_t duid_len;
 	uint8_t duid[130];
 	struct in6_addr server_addr;
+	uint32_t sol_max_rt;
+	uint32_t inf_max_rt;
 	void *ia_na;
 	void *ia_pd;
 	size_t ia_na_len;

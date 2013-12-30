@@ -43,6 +43,10 @@
 #define DHCPV6_DUID_LLADDR 3
 #define DHCPV6_REQ_DELAY 1
 
+#define DHCPV6_SOL_MAX_RT_MIN 60
+#define DHCPV6_SOL_MAX_RT_MAX 86400
+#define DHCPV6_INF_MAX_RT_MIN 60
+#define DHCPV6_INF_MAX_RT_MAX 86400
 
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
@@ -74,17 +78,17 @@ static int dhcpv6_commit_advert(void);
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, 0, "<POLL>",
  			dhcpv6_handle_reconfigure, NULL},
-	[DHCPV6_MSG_SOLICIT] = {true, 1, 3600, 0, "SOLICIT",
+	[DHCPV6_MSG_SOLICIT] = {true, 1, DHCPV6_SOL_MAX_RT, 0, "SOLICIT",
  			dhcpv6_handle_advert, dhcpv6_commit_advert},
-	[DHCPV6_MSG_REQUEST] = {true, 1, 30, 10, "REQUEST",
+	[DHCPV6_MSG_REQUEST] = {true, 1, DHCPV6_REQ_MAX_RT, 10, "REQUEST",
  			dhcpv6_handle_reply, NULL},
-	[DHCPV6_MSG_RENEW] = {false, 10, 600, 0, "RENEW",
+	[DHCPV6_MSG_RENEW] = {false, 10, DHCPV6_REN_MAX_RT, 0, "RENEW",
  			dhcpv6_handle_reply, NULL},
-	[DHCPV6_MSG_REBIND] = {false, 10, 600, 0, "REBIND",
+	[DHCPV6_MSG_REBIND] = {false, 10, DHCPV6_REB_MAX_RT, 0, "REBIND",
  			dhcpv6_handle_rebind_reply, NULL},
 	[DHCPV6_MSG_RELEASE] = {false, 1, 0, 5, "RELEASE", NULL, NULL},
 	[DHCPV6_MSG_DECLINE] = {false, 1, 0, 5, "DECLINE", NULL, NULL},
-	[DHCPV6_MSG_INFO_REQ] = {true, 1, 120, 0, "INFOREQ",
+	[DHCPV6_MSG_INFO_REQ] = {true, 1, DHCPV6_INF_MAX_RT, 0, "INFOREQ",
  			dhcpv6_handle_reply, NULL},
 };
 
@@ -166,6 +170,8 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_AFTR_NAME),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
+			htons(DHCPV6_OPT_SOL_MAX_RT),
+			htons(DHCPV6_OPT_INF_MAX_RT),
 #ifdef EXT_PREFIX_CLASS
 			htons(DHCPV6_OPT_PREFIX_CLASS),
 #endif
@@ -673,7 +679,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	uint16_t olen, otype;
 	uint8_t *odata, pref = 0;
 	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0},
-					IN6ADDR_ANY_INIT, NULL, NULL, 0, 0};
+					IN6ADDR_ANY_INIT, DHCPV6_SOL_MAX_RT, 
+					DHCPV6_INF_MAX_RT, NULL, NULL, 0, 0};
 	bool have_na = false;
 	int have_pd = 0;
 
@@ -694,15 +701,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			switch (error) {
 			case DHCPV6_NoPrefixAvail:
 				// Status code on global level
-				if (pd_mode == IA_MODE_FORCE)
-					return -1;
 				cand.preference -= 2000;
-				break;
-
-			case DHCPV6_NoAddrsAvail:
-				// Status code on global level
-				if (na_mode == IA_MODE_FORCE)
-					return -1;
 				break;
 
 			default :
@@ -715,6 +714,16 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			cand.server_addr = *(struct in6_addr *)odata;
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
+		} else if (otype == DHCPV6_OPT_SOL_MAX_RT && olen == 4) {
+			uint32_t sol_max_rt = ntohl(*((uint32_t *)odata));
+			if (sol_max_rt >= DHCPV6_SOL_MAX_RT_MIN && 
+					sol_max_rt <= DHCPV6_SOL_MAX_RT_MAX)
+				cand.sol_max_rt = sol_max_rt;
+		} else if (otype == DHCPV6_OPT_INF_MAX_RT && olen == 4) {
+			uint32_t inf_max_rt = ntohl(*((uint32_t *)odata));
+			if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN && 
+					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
+				cand.inf_max_rt = inf_max_rt;
 		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
@@ -735,8 +744,16 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	}
 
 	if ((!have_na && na_mode == IA_MODE_FORCE) ||
-			(!have_pd && pd_mode == IA_MODE_FORCE))
+			(!have_pd && pd_mode == IA_MODE_FORCE)) {
+		/* 
+		 * RFC7083 states to process the SOL_MAX_RT and 
+		 * INF_MAX_RT options even if the DHCPv6 server
+		 * did not propose any IA_NA and/or IA_PD
+		 */
+		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand.sol_max_rt;
+		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand.inf_max_rt;
 		return -1;
+	}
 
 	if (na_mode != IA_MODE_NONE && !have_na) {
 		cand.has_noaddravail = true;
@@ -910,7 +927,17 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			odhcp6c_get_state(STATE_AFTR_NAME, &cur_len);
 			if (cur_len == 0)
 				odhcp6c_add_state(STATE_AFTR_NAME, odata, olen);
-		} else if (otype != DHCPV6_OPT_CLIENTID &&
+		} else if (otype == DHCPV6_OPT_SOL_MAX_RT && olen == 4) {
+			uint32_t sol_max_rt = ntohl(*((uint32_t *)odata));
+			if (sol_max_rt >= DHCPV6_SOL_MAX_RT_MIN && 
+					sol_max_rt <= DHCPV6_SOL_MAX_RT_MAX)
+				dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_max_rt;
+		} else if (otype == DHCPV6_OPT_INF_MAX_RT && olen == 4) {
+			uint32_t inf_max_rt = ntohl(*((uint32_t *)odata));
+			if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN && 
+					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
+				dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = inf_max_rt;
+		}else if (otype != DHCPV6_OPT_CLIENTID &&
 				otype != DHCPV6_OPT_SERVERID) {
 			odhcp6c_add_state(STATE_CUSTOM_OPTS,
 					&odata[-4], olen + 4);
@@ -1281,6 +1308,10 @@ int dhcpv6_promote_server_cand(void)
 
 	if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
 		na_mode = IA_MODE_NONE;
+
+		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
+		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
+
 		return dhcpv6_request(DHCPV6_MSG_SOLICIT);
 	}
 
@@ -1302,6 +1333,9 @@ int dhcpv6_promote_server_cand(void)
 			ret = DHCPV6_STATEFUL;
 	}
 
+	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
+	dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
+	
 	odhcp6c_remove_state(STATE_SERVER_CAND, 0, sizeof(*cand));
 
 	return ret;
