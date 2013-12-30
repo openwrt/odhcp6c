@@ -14,6 +14,7 @@
 
 #include <time.h>
 #include <errno.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,12 +23,14 @@
 #include <syslog.h>
 #include <signal.h>
 #include <string.h>
+#include <strings.h>
 #include <stdbool.h>
 
 #include <net/if.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <arpa/inet.h>
+#include <linux/if_addr.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
@@ -36,6 +39,11 @@
 #include "bfd.h"
 #endif
 
+#ifndef IN6_IS_ADDR_UNIQUELOCAL
+#define IN6_IS_ADDR_UNIQUELOCAL(a) \
+	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
+	 == htonl (0xfc000000))
+#endif
 
 static void sighandler(int signal);
 static int usage(void);
@@ -47,7 +55,7 @@ static volatile int do_signal = 0;
 static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
 static time_t last_update = 0;
-
+static char *ifname = NULL;
 
 int main(_unused int argc, char* const argv[])
 {
@@ -61,7 +69,7 @@ int main(_unused int argc, char* const argv[])
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_TRY;
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
-	int sol_timeout = 120;
+	int sol_timeout = DHCPV6_SOL_MAX_RT;
 
 #ifdef EXT_BFD_PING
 	int bfd_interval = 0, bfd_loss = 3;
@@ -171,7 +179,7 @@ int main(_unused int argc, char* const argv[])
 	}
 
 	openlog("odhcp6c", logopt, LOG_DAEMON);
-	const char *ifname = argv[optind];
+	ifname = argv[optind];
 
 	if (help || !ifname)
 		return usage();
@@ -228,26 +236,53 @@ int main(_unused int argc, char* const argv[])
 		dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
 		bound = false;
 
-		// Server candidates need deep-delete
-		size_t cand_len;
-		struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
-		for (size_t i = 0; i < cand_len / sizeof(*cand); ++i) {
-			free(cand[i].ia_na);
-			free(cand[i].ia_pd);
-		}
-		odhcp6c_clear_state(STATE_SERVER_CAND);
-
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 		do_signal = 0;
-		int res = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+		int mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
 
-		if (res <= 0) {
-			continue; // Might happen if we got a signal
-		} else if (res == DHCPV6_STATELESS) { // Stateless mode
+		if (mode < 0)
+			continue;
+
+		do {
+			int res = dhcpv6_request(mode == DHCPV6_STATELESS ?
+					DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST);
+
+			odhcp6c_signal_process();
+			if (res > 0)
+				break;
+			else if (do_signal > 0) {
+				mode = -1;
+				break;
+			}
+
+			mode = dhcpv6_promote_server_cand();
+		} while (mode > DHCPV6_UNKNOWN);
+
+		if (mode < 0)
+			continue;
+
+		switch (mode) {
+		case DHCPV6_STATELESS:
+			bound = true;
+			syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
+
 			while (do_signal == 0 || do_signal == SIGUSR1) {
 				do_signal = 0;
+				script_call("informed");					
+
+				int res = dhcpv6_poll_reconfigure();
+				odhcp6c_signal_process();
+
+				if (res > 0)
+					continue;
+
+				if (do_signal == SIGUSR1) {
+					do_signal = 0; // Acknowledged
+					continue;
+				} else if (do_signal > 0)
+					break;
 
 				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
 				odhcp6c_signal_process();
@@ -255,84 +290,63 @@ int main(_unused int argc, char* const argv[])
 					continue;
 				else if (res < 0)
 					break;
-				else if (res > 0)
-					script_call("informed");
-
-				bound = true;
-				syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
-
-				if (dhcpv6_poll_reconfigure() > 0)
-					script_call("informed");
 			}
+			break;
 
-			continue;
-		}
-
-		// Stateful mode
-		if (dhcpv6_request(DHCPV6_MSG_REQUEST) <= 0)
-			continue;
-
-		odhcp6c_signal_process();
-		script_call("bound");
-		bound = true;
-		syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+		case DHCPV6_STATEFUL:
+			script_call("bound");
+			bound = true;
+			syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 #ifdef EXT_BFD_PING
-		if (bfd_interval > 0)
-			bfd_start(ifname, bfd_loss, bfd_interval);
+			if (bfd_interval > 0)
+				bfd_start(ifname, bfd_loss, bfd_interval);
 #endif
 
-		while (do_signal == 0 || do_signal == SIGUSR1) {
-			// Renew Cycle
-			// Wait for T1 to expire or until we get a reconfigure
-			int res = dhcpv6_poll_reconfigure();
-			odhcp6c_signal_process();
-			if (res > 0) {
-				script_call("updated");
-				continue;
-			}
+			while (do_signal == 0 || do_signal == SIGUSR1) {
+				// Renew Cycle
+				// Wait for T1 to expire or until we get a reconfigure
+				int res = dhcpv6_poll_reconfigure();
+				odhcp6c_signal_process();
+				if (res > 0) {
+					script_call("updated");
+					continue;
+				}
 
-			// Handle signal, if necessary
-			if (do_signal == SIGUSR1)
-				do_signal = 0; // Acknowledged
-			else if (do_signal > 0)
-				break; // Other signal type
+				// Handle signal, if necessary
+				if (do_signal == SIGUSR1)
+					do_signal = 0; // Acknowledged
+				else if (do_signal > 0)
+					break; // Other signal type
 
-			size_t ia_pd_len, ia_na_len, ia_pd_new, ia_na_new;
-			odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-			odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+				// Send renew as T1 expired
+				res = dhcpv6_request(DHCPV6_MSG_RENEW);
+				odhcp6c_signal_process();
+				if (res > 0) { // Renew was succesfull
+					// Publish updates
+					script_call("updated");
+					continue; // Renew was successful
+				}
+				
+				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 
-			// If we have any IAs, send renew, otherwise request
-			int r;
-			if (ia_pd_len == 0 && ia_na_len == 0)
-				r = dhcpv6_request(DHCPV6_MSG_REQUEST);
-			else
-				r = dhcpv6_request(DHCPV6_MSG_RENEW);
-			odhcp6c_signal_process();
-			if (r > 0) { // Renew was succesfull
-				// Publish updates
-				script_call("updated");
-				continue; // Renew was successful
-			}
+				// If we have IAs, try rebind otherwise restart
+				res = dhcpv6_request(DHCPV6_MSG_REBIND);
+				odhcp6c_signal_process();
 
-			odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
-
-			// If we have IAs, try rebind otherwise restart
-			res = dhcpv6_request(DHCPV6_MSG_REBIND);
-			odhcp6c_signal_process();
-
-			odhcp6c_get_state(STATE_IA_PD, &ia_pd_new);
-			odhcp6c_get_state(STATE_IA_NA, &ia_na_new);
-			if (res <= 0 || (ia_pd_new == 0 && ia_pd_len) ||
-					(ia_na_new == 0 && ia_na_len))
-				break; // We lost all our IAs, restart
-			else if (res > 0)
-				script_call("rebound");
-		}
-
+				if (res > 0)
+					script_call("rebound");
+				else {
 #ifdef EXT_BFD_PING
-		bfd_stop();
+					bfd_stop();
 #endif
+					break;
+				}
+			}
+			break;
 
+		default:
+			break;
+		}
 
 		size_t ia_pd_len, ia_na_len, server_id_len;
 		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
@@ -446,6 +460,20 @@ void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 		memcpy(n, data, len);
 }
 
+void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
+{
+	ssize_t len_after = state_len[state] - offset;
+	if (len_after < 0)
+		return;
+
+	uint8_t *n = odhcp6c_resize_state(state, len);
+	if (n) {
+		uint8_t *sdata = state_data[state];
+		
+		memmove(sdata + offset + len, sdata + offset, len_after);
+		memcpy(sdata + offset, data, len);
+	}
+}
 
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
 {
@@ -585,9 +613,62 @@ void odhcp6c_random(void *buf, size_t len)
 	read(urandom_fd, buf, len);
 }
 
+
 bool odhcp6c_is_bound(void)
 {
 	return bound;
+}
+
+
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
+{
+	FILE *fd = fopen("/proc/net/if_inet6", "r");
+	int len;
+	char buf[256];
+
+	if (fd == NULL)
+		return false;
+
+	while (fgets(buf, sizeof(buf), fd)) {
+		struct in6_addr inet6_addr;
+		uint32_t flags, dummy;
+		unsigned int i;
+		char name[8], addr_buf[32];
+
+		len = strlen(buf);
+
+		if ((len <= 0) || buf[len - 1] != '\n')
+			return false;
+
+		buf[--len] = '\0';
+
+		if (sscanf(buf, "%s %x %x %x %x %s",
+				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
+			return false;
+
+		if (strcmp(name, ifname) ||
+			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
+			continue;
+
+		for (i = 0; i < sizeof(addr_buf); i++) {
+			if (!isxdigit(addr_buf[i]) || isupper(addr_buf[i]))
+				return false;
+		}
+
+		memset(&inet6_addr, 0, sizeof(inet6_addr));
+		for (i = 0; i < (sizeof(addr_buf) / 2); i++) {
+			unsigned char byte;
+			static const char hex[] = "0123456789abcdef";
+			byte = ((index(hex, addr_buf[i * 2]) - hex) << 4) |
+				(index(hex, addr_buf[i * 2 + 1]) - hex);
+			inet6_addr.s6_addr[i] = byte;
+		}
+
+		if ((IN6_IS_ADDR_LINKLOCAL(&inet6_addr) == IN6_IS_ADDR_LINKLOCAL(addr)) &&
+			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr)))
+			return true;
+	}
+	return false;
 }
 
 static void sighandler(int signal)

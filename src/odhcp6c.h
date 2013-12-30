@@ -21,12 +21,15 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#ifndef SOL_NETLINK
-#define SOL_NETLINK 270
-#endif
-
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNSSL 31
+
+#define DHCPV6_SOL_MAX_RT 3600
+#define DHCPV6_REQ_MAX_RT 30
+#define DHCPV6_CNF_MAX_RT 4
+#define DHCPV6_REN_MAX_RT 600
+#define DHCPV6_REB_MAX_RT 600
+#define DHCPV6_INF_MAX_RT 3600
 
 enum dhcvp6_opt {
 	DHCPV6_OPT_CLIENTID = 1,
@@ -38,6 +41,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_ELAPSED = 8,
 	DHCPV6_OPT_RELAY_MSG = 9,
 	DHCPV6_OPT_AUTH = 11,
+	DHCPV6_OPT_UNICAST = 12,
 	DHCPV6_OPT_STATUS = 13,
 	DHCPV6_OPT_RAPID_COMMIT = 14,
 	DHCPV6_OPT_RECONF_MESSAGE = 19,
@@ -53,6 +57,8 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_SIP_SERVER_A = 22,
 	DHCPV6_OPT_AFTR_NAME = 64,
 	DHCPV6_OPT_PD_EXCLUDE = 67,
+	DHCPV6_OPT_SOL_MAX_RT = 82,
+	DHCPV6_OPT_INF_MAX_RT = 83,
 #ifdef EXT_PREFIX_CLASS
         /* draft-bhandari-dhc-class-based-prefix, not yet standardized */
 	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
@@ -168,6 +174,9 @@ struct dhcpv6_server_cand {
 	int16_t preference;
 	uint8_t duid_len;
 	uint8_t duid[130];
+	struct in6_addr server_addr;
+	uint32_t sol_max_rt;
+	uint32_t inf_max_rt;
 	void *ia_na;
 	void *ia_pd;
 	size_t ia_na_len;
@@ -205,11 +214,10 @@ struct icmp6_opt {
 
 
 enum dhcpv6_mode {
-	DHCPV6_UNKNOWN,
+	DHCPV6_UNKNOWN = -1,
 	DHCPV6_STATELESS,
 	DHCPV6_STATEFUL
 };
-
 
 enum odhcp6c_ia_mode {
 	IA_MODE_NONE,
@@ -235,6 +243,7 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout);
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
+int dhcpv6_promote_server_cand(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
@@ -249,10 +258,12 @@ bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);
 void odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr);
 
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
+void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
 void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
