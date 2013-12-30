@@ -564,9 +564,9 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		return false;
 	}
 
-	uint8_t *end = ((uint8_t*)buf) + len, *odata,
+	uint8_t *end = ((uint8_t*)buf) + len, *odata = NULL,
 		rcmsg = DHCPV6_MSG_UNKNOWN;
-	uint16_t otype, olen;
+	uint16_t otype, olen = UINT16_MAX;
 	bool clientid_ok = false, serverid_ok = false, rcauth_ok = false,
 		ia_present = false, options_valid = true;
 
@@ -1259,7 +1259,7 @@ static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 	// Remove identical duid server candidate
 	for (i = 0; i < cand_len / sizeof(*c); ++i) {
 		if (cand->duid_len == c[i].duid_len &&
-			!memcmp(cand->duid, c[i].duid, cand->duid_len)) {
+				!memcmp(cand->duid, c[i].duid, cand->duid_len)) {
 			free(c[i].ia_na);
 			free(c[i].ia_pd);
 			odhcp6c_remove_state(STATE_SERVER_CAND, i * sizeof(*c), sizeof(*c));
@@ -1283,10 +1283,8 @@ static void dhcpv6_clear_all_server_cand(void)
 
 	// Server candidates need deep delete for IA_NA/IA_PD
 	for (i = 0; i < cand_len / sizeof(*c); ++i) {
-		if (c[i].ia_na)
-			free(c[i].ia_na);
-		if (c[i].ia_pd)
-			free(c[i].ia_pd);
+		free(c[i].ia_na);
+		free(c[i].ia_pd);
 	}
 	odhcp6c_clear_state(STATE_SERVER_CAND);
 }
