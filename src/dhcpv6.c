@@ -564,7 +564,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			if (r->protocol != 3 || r->algorithm != 1 || r->reconf_type != 2)
 				continue;
 
-			md5_state_t md5;
+			md5_ctx_t md5;
 			uint8_t serverhash[16], secretbytes[16], hash[16];
 			memcpy(serverhash, r->key, sizeof(serverhash));
 			memset(r->key, 0, sizeof(r->key));
@@ -573,20 +573,20 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			for (size_t i = 0; i < sizeof(secretbytes); ++i)
 				secretbytes[i] ^= 0x36;
 
-			md5_init(&md5);
-			md5_append(&md5, secretbytes, sizeof(secretbytes));
-			md5_append(&md5, buf, len);
-			md5_finish(&md5, hash);
+			md5_begin(&md5);
+			md5_hash(secretbytes, sizeof(secretbytes), &md5);
+			md5_hash(buf, len, &md5);
+			md5_end(hash, &md5);
 
 			for (size_t i = 0; i < sizeof(secretbytes); ++i) {
 				secretbytes[i] ^= 0x36;
 				secretbytes[i] ^= 0x5c;
 			}
 
-			md5_init(&md5);
-			md5_append(&md5, secretbytes, sizeof(secretbytes));
-			md5_append(&md5, hash, 16);
-			md5_finish(&md5, hash);
+			md5_begin(&md5);
+			md5_hash(secretbytes, sizeof(secretbytes), &md5);
+			md5_hash(hash, 16, &md5);
+			md5_end(hash, &md5);
 
 			rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
 		} else if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
