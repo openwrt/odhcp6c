@@ -228,7 +228,7 @@ void script_delay_call(const char *status, int timeout)
 
 void script_call(const char *status)
 {
-	size_t dns_len, search_len, custom_len, sntp_ip_len, sntp_dns_len;
+	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len;
 
 	odhcp6c_expire();
@@ -241,7 +241,8 @@ void script_call(const char *status)
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
 	uint8_t *custom = odhcp6c_get_state(STATE_CUSTOM_OPTS, &custom_len);
 	struct in6_addr *sntp = odhcp6c_get_state(STATE_SNTP_IP, &sntp_ip_len);
-	uint8_t *sntp_dns = odhcp6c_get_state(STATE_SNTP_FQDN, &sntp_dns_len);
+	struct in6_addr *ntp = odhcp6c_get_state(STATE_NTP_IP, &ntp_ip_len);
+	uint8_t *ntp_dns = odhcp6c_get_state(STATE_NTP_FQDN, &ntp_dns_len);
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 	uint8_t *aftr_name = odhcp6c_get_state(STATE_AFTR_NAME, &aftr_name_len);
@@ -257,9 +258,10 @@ void script_call(const char *status)
 	if (fork() == 0) {
 		ipv6_to_env("RDNSS", dns, dns_len / sizeof(*dns));
 		ipv6_to_env("SNTP_IP", sntp, sntp_ip_len / sizeof(*sntp));
+		ipv6_to_env("NTP_IP", ntp, ntp_ip_len / sizeof(*ntp));
+		fqdn_to_env("NTP_FQDN", ntp_dns, ntp_dns_len);
 		ipv6_to_env("SIP_IP", sip, sip_ip_len / sizeof(*sip));
 		fqdn_to_env("DOMAINS", search, search_len);
-		fqdn_to_env("SNTP_FQDN", sntp_dns, sntp_dns_len);
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		fqdn_to_env("AFTR", aftr_name, aftr_name_len);
 		fqdn_to_ip_env("AFTR_IP", aftr_name, aftr_name_len);

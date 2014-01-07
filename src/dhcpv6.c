@@ -163,6 +163,7 @@ int init_dhcpv6(const char *ifname, int request_pd, int sol_timeout)
 			htons(DHCPV6_OPT_SIP_SERVER_A),
 			htons(DHCPV6_OPT_DNS_SERVERS),
 			htons(DHCPV6_OPT_DNS_DOMAIN),
+			htons(DHCPV6_OPT_SNTP_SERVERS),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_AFTR_NAME),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
@@ -808,7 +809,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_DNS);
 		odhcp6c_clear_state(STATE_SEARCH);
 		odhcp6c_clear_state(STATE_SNTP_IP);
-		odhcp6c_clear_state(STATE_SNTP_FQDN);
+		odhcp6c_clear_state(STATE_NTP_IP);
+		odhcp6c_clear_state(STATE_NTP_FQDN);
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		odhcp6c_clear_state(STATE_AFTR_NAME);
@@ -865,6 +867,9 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_add_state(STATE_DNS, odata, olen);
 		} else if (otype == DHCPV6_OPT_DNS_DOMAIN) {
 			odhcp6c_add_state(STATE_SEARCH, odata, olen);
+		} else if (otype == DHCPV6_OPT_SNTP_SERVERS) {
+			if (olen % 16 == 0)
+				odhcp6c_add_state(STATE_SNTP_IP, odata, olen);
 		} else if (otype == DHCPV6_OPT_NTP_SERVER) {
 			uint16_t stype, slen;
 			uint8_t *sdata;
@@ -873,10 +878,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 					stype, slen, sdata) {
 				if (slen == 16 && (stype == NTP_MC_ADDR ||
 						stype == NTP_SRV_ADDR))
-					odhcp6c_add_state(STATE_SNTP_IP,
+					odhcp6c_add_state(STATE_NTP_IP,
 							sdata, slen);
 				else if (slen > 0 && stype == NTP_SRV_FQDN)
-					odhcp6c_add_state(STATE_SNTP_FQDN,
+					odhcp6c_add_state(STATE_NTP_FQDN,
 							sdata, slen);
 			}
 		} else if (otype == DHCPV6_OPT_SIP_SERVER_A) {
