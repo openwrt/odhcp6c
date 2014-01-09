@@ -71,10 +71,10 @@ int main(_unused int argc, char* const argv[])
 	int bfd_interval = 0, bfd_loss = 3;
 #endif
 
-	bool help = false, daemonize = false;
+	bool help = false, daemonize = false, strict_options = false;
 	int logopt = LOG_PID;
 	int c, request_pd = 0;
-	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:s:kt:hedp:")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:Rs:kt:hedp:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -144,6 +144,10 @@ int main(_unused int argc, char* const argv[])
 			}
 			break;
 
+		case 'R':
+			strict_options = true;
+			break;
+
 		case 's':
 			script = optarg;
 			break;
@@ -189,7 +193,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, request_pd, sol_timeout) ||
+			init_dhcpv6(ifname, request_pd, strict_options, sol_timeout) ||
 			ra_init(ifname, &ifid) || script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -391,6 +395,7 @@ static int usage(void)
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
+	"	-R		Do not request any options except those specified with -r\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
