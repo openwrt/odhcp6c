@@ -43,7 +43,11 @@ static int usage(void);
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
-static volatile int do_signal = 0;
+static volatile bool signal_io = false;
+static volatile bool signal_usr1 = false;
+static volatile bool signal_usr2 = false;
+static volatile bool signal_term = false;
+
 static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
 static time_t last_update = 0;
@@ -217,7 +221,7 @@ int main(_unused int argc, char* const argv[])
 
 	script_call("started");
 
-	while (do_signal != SIGTERM) { // Main logic
+	while (!signal_term) { // Main logic
 		odhcp6c_clear_state(STATE_SERVER_ID);
 		odhcp6c_clear_state(STATE_IA_NA);
 		odhcp6c_clear_state(STATE_IA_PD);
@@ -230,7 +234,7 @@ int main(_unused int argc, char* const argv[])
 
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
-		do_signal = 0;
+		signal_usr1 = signal_usr2 = false;
 		int mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
 
@@ -240,11 +244,11 @@ int main(_unused int argc, char* const argv[])
 		do {
 			int res = dhcpv6_request(mode == DHCPV6_STATELESS ?
 					DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST);
+			bool signalled = odhcp6c_signal_process();
 
-			odhcp6c_signal_process();
 			if (res > 0)
 				break;
-			else if (do_signal > 0) {
+			else if (signalled) {
 				mode = -1;
 				break;
 			}
@@ -260,8 +264,8 @@ int main(_unused int argc, char* const argv[])
 			bound = true;
 			syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
 
-			while (do_signal == 0 || do_signal == SIGUSR1) {
-				do_signal = 0;
+			while (!signal_usr2 && !signal_term) {
+				signal_usr1 = false;
 				script_call("informed");
 
 				int res = dhcpv6_poll_reconfigure();
@@ -270,15 +274,16 @@ int main(_unused int argc, char* const argv[])
 				if (res > 0)
 					continue;
 
-				if (do_signal == SIGUSR1) {
-					do_signal = 0; // Acknowledged
+				if (signal_usr1) {
+					signal_usr1 = false; // Acknowledged
 					continue;
-				} else if (do_signal > 0)
+				}
+				if (signal_usr2 || signal_term)
 					break;
 
 				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
 				odhcp6c_signal_process();
-				if (do_signal == SIGUSR1)
+				if (signal_usr1)
 					continue;
 				else if (res < 0)
 					break;
@@ -294,7 +299,7 @@ int main(_unused int argc, char* const argv[])
 				bfd_start(ifname, bfd_loss, bfd_interval);
 #endif
 
-			while (do_signal == 0 || do_signal == SIGUSR1) {
+			while (!signal_usr2 && !signal_term) {
 				// Renew Cycle
 				// Wait for T1 to expire or until we get a reconfigure
 				int res = dhcpv6_poll_reconfigure();
@@ -305,9 +310,9 @@ int main(_unused int argc, char* const argv[])
 				}
 
 				// Handle signal, if necessary
-				if (do_signal == SIGUSR1)
-					do_signal = 0; // Acknowledged
-				else if (do_signal > 0)
+				if (signal_usr1)
+					signal_usr1 = false; // Acknowledged
+				if (signal_usr2 || signal_term)
 					break; // Other signal type
 
 				// Send renew as T1 expired
@@ -427,12 +432,13 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 
 bool odhcp6c_signal_process(void)
 {
-	if (do_signal == SIGIO) {
-		do_signal = 0;
+	while (signal_io) {
+		signal_io = false;
+
 		bool ra_updated = ra_process();
 
 		if (ra_link_up())
-			do_signal = SIGUSR2;
+			signal_usr2 = true;
 
 		if (ra_updated && (bound || allow_slaac_only == 0))
 			script_call("ra-updated"); // Immediate process urgent events
@@ -444,7 +450,7 @@ bool odhcp6c_signal_process(void)
 #endif
 	}
 
-	return do_signal != 0;
+	return signal_usr1 || signal_usr2 || signal_term;
 }
 
 
@@ -624,11 +630,11 @@ static void sighandler(int signal)
 	if (signal == SIGCHLD)
 		while (waitpid(-1, NULL, WNOHANG) > 0);
 	else if (signal == SIGUSR1)
-		do_signal = SIGUSR1;
+		signal_usr1 = true;
 	else if (signal == SIGUSR2)
-		do_signal = SIGUSR2;
+		signal_usr2 = true;
 	else if (signal == SIGIO)
-		do_signal = SIGIO;
+		signal_io = true;
 	else
-		do_signal = SIGTERM;
+		signal_term = true;
 }
