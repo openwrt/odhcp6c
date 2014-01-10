@@ -59,7 +59,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_SOL_MAX_RT = 82,
 	DHCPV6_OPT_INF_MAX_RT = 83,
 #ifdef EXT_PREFIX_CLASS
-        /* draft-bhandari-dhc-class-based-prefix, not yet standardized */
+	/* draft-bhandari-dhc-class-based-prefix, not yet standardized */
 	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
 #endif
 };

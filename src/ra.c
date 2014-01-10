@@ -214,7 +214,7 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 	default:
 		return false;
 	}
-	
+
 	icmpv6_for_each_option(opt, opt, end)
 		;
 

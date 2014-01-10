@@ -262,7 +262,7 @@ int main(_unused int argc, char* const argv[])
 
 			while (do_signal == 0 || do_signal == SIGUSR1) {
 				do_signal = 0;
-				script_call("informed");					
+				script_call("informed");
 
 				int res = dhcpv6_poll_reconfigure();
 				odhcp6c_signal_process();
@@ -327,7 +327,7 @@ int main(_unused int argc, char* const argv[])
 					script_call("updated");
 					continue; // Renew was successful
 				}
-				
+
 				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 
 				// If we have IAs, try rebind otherwise restart
@@ -470,7 +470,7 @@ void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *d
 	uint8_t *n = odhcp6c_resize_state(state, len);
 	if (n) {
 		uint8_t *sdata = state_data[state];
-		
+
 		memmove(sdata + offset + len, sdata + offset, len_after);
 		memcpy(sdata + offset, data, len);
 	}
