@@ -13,6 +13,7 @@
  */
 
 #include <fcntl.h>
+#include <ifaddrs.h>
 #include <stdio.h>
 #include <signal.h>
 #include <string.h>
@@ -24,6 +25,7 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 
@@ -214,7 +216,7 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 	default:
 		return false;
 	}
-	
+
 	icmpv6_for_each_option(opt, opt, end)
 		;
 
@@ -225,23 +227,36 @@ bool ra_process(void)
 {
 	bool found = false;
 	bool changed = false;
+	bool has_lladdr = !IN6_IS_ADDR_UNSPECIFIED(&lladdr);
 	uint8_t buf[1500], cmsg_buf[128];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 
-	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
+	if (!has_lladdr) {
 		// Autodetect interface-id if not specified
-		FILE *fp = fopen("/proc/net/if_inet6", "r");
-		if (fp) {
-			char addrbuf[33], ifbuf[16];
-			while (fscanf(fp, "%32s %*x %*x %*x %*x %15s", addrbuf, ifbuf) == 2) {
-				if (!strcmp(ifbuf, if_name)) {
-					script_unhexlify((uint8_t*)&lladdr, sizeof(lladdr), addrbuf);
+		struct ifaddrs *ifaddr, *ifa;
+
+		if (getifaddrs(&ifaddr) == 0) {
+			for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+				struct sockaddr_in6 *addr;
+
+				if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_INET6)
+					continue;
+
+				addr = (struct sockaddr_in6*)ifa->ifa_addr;
+
+				if (!IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr))
+					continue;
+
+				if (!strcmp(ifa->ifa_name, if_name)) {
+					lladdr = addr->sin6_addr;
+					has_lladdr = true;
 					break;
 				}
 			}
-			fclose(fp);
+
+			freeifaddrs(ifaddr);
 		}
 	}
 
@@ -254,6 +269,9 @@ bool ra_process(void)
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
 		if (len <= 0)
 			break;
+
+		if (!has_lladdr)
+			continue;
 
 		int hlim = 0;
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
