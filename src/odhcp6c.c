@@ -52,7 +52,6 @@ static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true;
 static time_t last_update = 0;
 
-
 int main(_unused int argc, char* const argv[])
 {
 	// Allocate ressources
@@ -64,6 +63,7 @@ int main(_unused int argc, char* const argv[])
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_TRY;
+	int ia_pd_iaid_index = 0;
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
 
@@ -73,7 +73,7 @@ int main(_unused int argc, char* const argv[])
 
 	bool help = false, daemonize = false, strict_options = false;
 	int logopt = LOG_PID;
-	int c, request_pd = 0;
+	int c;
 	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:Rs:kt:hedp:")) != -1) {
 		switch (c) {
 		case 'S':
@@ -97,9 +97,24 @@ int main(_unused int argc, char* const argv[])
 			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
 				allow_slaac_only = 10;
 
-			request_pd = strtoul(optarg, NULL, 10);
-			if (request_pd == 0)
-				request_pd = -1;
+			char *iaid_begin;
+			int iaid_len = 0;
+
+			int prefix_length = strtoul(optarg, &iaid_begin, 10);
+
+			if (*iaid_begin != '\0' && *iaid_begin != ',') {
+				syslog(LOG_ERR, "invalid argument: '%s'", optarg);
+				return 1;
+			}
+
+			struct odhcp6c_request_prefix prefix = { 0, prefix_length };
+
+			if (*iaid_begin == ',' && (iaid_len = strlen(iaid_begin)) > 1)
+				memcpy(&prefix.iaid, iaid_begin + 1, iaid_len > 4 ? 4 : iaid_len);
+			else
+				prefix.iaid = ++ia_pd_iaid_index;
+
+			odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix));
 
 			break;
 
@@ -193,7 +208,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, request_pd, strict_options, sol_timeout) ||
+			init_dhcpv6(ifname, strict_options, sol_timeout) ||
 			ra_init(ifname, &ifid) || script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -554,6 +569,7 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 			x->t1 = new->t1;
 			x->t2 = new->t2;
 			x->class = new->class;
+			x->iaid = new->iaid;
 		} else {
 			odhcp6c_add_state(state, new, sizeof(*new));
 		}

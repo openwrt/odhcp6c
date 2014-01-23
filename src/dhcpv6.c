@@ -105,10 +105,8 @@ static bool accept_reconfig = false;
 // Reconfigure key
 static uint8_t reconf_key[16];
 
-
-int init_dhcpv6(const char *ifname, int request_pd, bool strict_options, int sol_timeout)
+int init_dhcpv6(const char *ifname, bool strict_options, int sol_timeout)
 {
-	request_prefix = request_pd;
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
@@ -201,7 +199,6 @@ void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
 	pd_mode = pd;
 }
 
-
 static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 {
 	// Build FQDN
@@ -230,62 +227,112 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	// Build IA_PDs
 	size_t ia_pd_entries, ia_pd_len = 0;
-	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
-	ia_pd_entries /= sizeof(*e);
-	struct dhcpv6_ia_hdr hdr_ia_pd = {
-		htons(DHCPV6_OPT_IA_PD),
-		htons(sizeof(hdr_ia_pd) - 4),
-		1, 0, 0
-	};
+	uint8_t *ia_pd;
 
+	if (type == DHCPV6_MSG_SOLICIT) {
+		odhcp6c_clear_state(STATE_IA_PD);
+		size_t n_prefixes;
+		struct odhcp6c_request_prefix *request_prefixes = odhcp6c_get_state(STATE_IA_PD_INIT, &n_prefixes);
+		n_prefixes /= sizeof(struct odhcp6c_request_prefix);
 
-	uint8_t *ia_pd = alloca(ia_pd_entries * (sizeof(struct dhcpv6_ia_prefix) + 10));
-	for (size_t i = 0; i < ia_pd_entries; ++i) {
-		uint8_t ex_len = 0;
-		if (e[i].priority > 0)
-			ex_len = ((e[i].priority - e[i].length - 1) / 8) + 6;
+		ia_pd = alloca(n_prefixes * (sizeof(struct dhcpv6_ia_hdr) + sizeof(struct dhcpv6_ia_prefix)));
 
-		struct dhcpv6_ia_prefix p = {
-			.type = htons(DHCPV6_OPT_IA_PREFIX),
-			.len = htons(sizeof(p) - 4U + ex_len),
-			.prefix = e[i].length,
-			.addr = e[i].target
-		};
+		for (size_t i = 0; i < n_prefixes; i++) {
+			struct dhcpv6_ia_hdr hdr_ia_pd = {
+				htons(DHCPV6_OPT_IA_PD),
+				htons(sizeof(hdr_ia_pd) - 4 + sizeof(struct dhcpv6_ia_prefix)),
+				request_prefixes[i].iaid, 0, 0
+			};
+			struct dhcpv6_ia_prefix pref = {
+				.type = htons(DHCPV6_OPT_IA_PREFIX),
+				.len = htons(25), .prefix = request_prefixes[i].length
+			};
+			memcpy(ia_pd + ia_pd_len, &hdr_ia_pd, sizeof(hdr_ia_pd));
+			ia_pd_len += sizeof(hdr_ia_pd);
+			memcpy(ia_pd + ia_pd_len, &pref, sizeof(pref));
+			ia_pd_len += sizeof(pref);
+		}
+	} else {
+		struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
+		ia_pd_entries /= sizeof(*e);
 
-		memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
-		ia_pd_len += sizeof(p);
+		// we're too lazy to count our distinct IAIDs,
+		// so just allocate maximally needed space
+		ia_pd = alloca(ia_pd_entries * (sizeof(struct dhcpv6_ia_prefix) + 10 +
+					sizeof(struct dhcpv6_ia_hdr)));
 
-		if (ex_len) {
-			ia_pd[ia_pd_len++] = 0;
-			ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
-			ia_pd[ia_pd_len++] = 0;
-			ia_pd[ia_pd_len++] = ex_len - 4;
-			ia_pd[ia_pd_len++] = e[i].priority;
+		for (size_t i = 0; i < ia_pd_entries; ++i) {
+			uint32_t iaid = e[i].iaid;
 
-			uint32_t excl = ntohl(e[i].router.s6_addr32[1]);
-			excl >>= (64 - e[i].priority);
-			excl <<= 8 - ((e[i].priority - e[i].length) % 8);
+			// check if this is an unprocessed IAID and skip if not.
+			int new_iaid = 1;
+			for (int j = i-1; j >= 0; j--) {
+				if (e[j].iaid == iaid) {
+					new_iaid = 0;
+					break;
+				}
+			}
 
-			for (size_t i = ex_len - 5; i > 0; --i, excl >>= 8)
-				ia_pd[ia_pd_len + i] = excl & 0xff;
-			ia_pd_len += ex_len - 5;
+			if (!new_iaid)
+				continue;
+
+			// construct header
+			struct dhcpv6_ia_hdr hdr_ia_pd = {
+				htons(DHCPV6_OPT_IA_PD),
+				htons(sizeof(hdr_ia_pd) - 4),
+				iaid, 0, 0
+			};
+
+			memcpy(ia_pd + ia_pd_len, &hdr_ia_pd, sizeof(hdr_ia_pd));
+			struct dhcpv6_ia_hdr *hdr = (struct dhcpv6_ia_hdr *) (ia_pd + ia_pd_len);
+			ia_pd_len += sizeof(hdr_ia_pd);
+
+			for (size_t j = i; j < ia_pd_entries; j++) {
+				if (e[j].iaid != iaid)
+					continue;
+
+				uint8_t ex_len = 0;
+				if (e[j].priority > 0)
+					ex_len = ((e[j].priority - e[j].length - 1) / 8) + 6;
+
+				struct dhcpv6_ia_prefix p = {
+					.type = htons(DHCPV6_OPT_IA_PREFIX),
+					.len = htons(sizeof(p) - 4U + ex_len),
+					.prefix = e[j].length,
+					.addr = e[j].target
+				};
+
+				memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
+				ia_pd_len += sizeof(p);
+
+				if (ex_len) {
+					ia_pd[ia_pd_len++] = 0;
+					ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
+					ia_pd[ia_pd_len++] = 0;
+					ia_pd[ia_pd_len++] = ex_len - 4;
+					ia_pd[ia_pd_len++] = e[j].priority;
+
+					uint32_t excl = ntohl(e[j].router.s6_addr32[1]);
+					excl >>= (64 - e[j].priority);
+					excl <<= 8 - ((e[j].priority - e[j].length) % 8);
+
+					for (size_t i = ex_len - 5; i > 0; --i, excl >>= 8)
+						ia_pd[ia_pd_len + i] = excl & 0xff;
+					ia_pd_len += ex_len - 5;
+				}
+
+				hdr->len = htons(ntohs(hdr->len) + ntohs(p.len) + 4U);
+			}
 		}
 	}
 
-	struct dhcpv6_ia_prefix pref = {
-		.type = htons(DHCPV6_OPT_IA_PREFIX),
-		.len = htons(25), .prefix = request_prefix
-	};
-	if (request_prefix > 0 && ia_pd_len == 0 && type == DHCPV6_MSG_SOLICIT) {
-		ia_pd = (uint8_t*)&pref;
-		ia_pd_len = sizeof(pref);
-	}
-	hdr_ia_pd.len = htons(ntohs(hdr_ia_pd.len) + ia_pd_len);
+	if (ia_pd_entries > 0)
+		request_prefix = 1;
 
 	// Build IA_NAs
 	size_t ia_na_entries, ia_na_len = 0;
 	void *ia_na = NULL;
-	e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
+	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
 	ia_na_entries /= sizeof(*e);
 
 	struct dhcpv6_ia_hdr hdr_ia_na = {
@@ -344,7 +391,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		{&fqdn, fqdn_len},
 		{&hdr_ia_na, sizeof(hdr_ia_na)},
 		{ia_na, ia_na_len},
-		{&hdr_ia_pd, sizeof(hdr_ia_pd)},
 		{ia_pd, ia_pd_len},
 	};
 
@@ -362,8 +408,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		iov[5].iov_len = 0;
 		if (ia_na_len == 0)
 			iov[7].iov_len = 0;
-		if (ia_pd_len == 0)
-			iov[9].iov_len = 0;
 	}
 
 	if (na_mode == IA_MODE_NONE)
@@ -825,7 +869,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
 
 			// Test ID
-			if (ia_hdr->iaid != 1)
+			if (ia_hdr->iaid != 1 && otype == DHCPV6_OPT_IA_NA)
 				continue;
 
 			uint16_t code = DHCPV6_Success;
@@ -975,7 +1019,9 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
 		struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0,
-				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0};
+				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0, 0};
+
+		entry.iaid = ia_hdr->iaid;
 
 		if (otype == DHCPV6_OPT_IA_PREFIX) {
 			struct dhcpv6_ia_prefix *prefix = (void*)&odata[-4];

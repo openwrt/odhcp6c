@@ -230,7 +230,7 @@ bool ra_process(void)
 	bool has_lladdr = !IN6_IS_ADDR_UNSPECIFIED(&lladdr);
 	uint8_t buf[1500], cmsg_buf[128];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0};
+	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0, 0};
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 
 	if (!has_lladdr) {

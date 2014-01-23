@@ -192,6 +192,7 @@ enum odhcp6c_state {
 	STATE_SEARCH,
 	STATE_IA_NA,
 	STATE_IA_PD,
+	STATE_IA_PD_INIT,
 	STATE_CUSTOM_OPTS,
 	STATE_SNTP_IP,
 	STATE_NTP_IP,
@@ -236,10 +237,15 @@ struct odhcp6c_entry {
 	uint32_t t1;
 	uint32_t t2;
 	uint16_t class;
+	uint32_t iaid;
 };
 
+struct odhcp6c_request_prefix {
+	uint32_t iaid;
+	uint16_t length;
+};
 
-int init_dhcpv6(const char *ifname, int request_pd, bool strict_options, int sol_timeout);
+int init_dhcpv6(const char *ifname, bool strict_options, int sol_timeout);
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
@@ -262,6 +268,7 @@ bool odhcp6c_is_bound(void);
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len);
+void odhcp6c_append_state(enum odhcp6c_state state, const void *data, size_t len);
 void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len);
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
 void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
