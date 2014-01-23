@@ -71,10 +71,12 @@ int main(_unused int argc, char* const argv[])
 	int bfd_interval = 0, bfd_loss = 3;
 #endif
 
-	bool help = false, daemonize = false, strict_options = false;
+	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c;
-	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:Rs:kt:hedp:")) != -1) {
+	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
+
+	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:Rs:kt:hedp:fa")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -160,7 +162,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'R':
-			strict_options = true;
+			client_options |= DHCPV6_STRICT_OPTIONS;
 			break;
 
 		case 's':
@@ -187,6 +189,14 @@ int main(_unused int argc, char* const argv[])
 			pidfile = optarg;
 			break;
 
+		case 'f':
+			client_options &= ~DHCPV6_CLIENT_FQDN;
+			break;
+
+		case 'a':
+			client_options &= ~DHCPV6_ACCEPT_RECONFIGURE;
+			break;
+
 		default:
 			help = true;
 			break;
@@ -208,7 +218,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, strict_options, sol_timeout) ||
+			init_dhcpv6(ifname, client_options, sol_timeout) ||
 			ra_init(ifname, &ifid) || script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -412,6 +422,8 @@ static int usage(void)
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-R		Do not request any options except those specified with -r\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
+	"	-a		Don't send Accept Reconfigure option\n"
+	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"\nInvocation options:\n"

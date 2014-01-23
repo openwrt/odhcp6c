@@ -97,6 +97,12 @@ enum dhcpv6_status {
 	_DHCPV6_Status_Max
 };
 
+enum dhcpv6_config {
+	DHCPV6_STRICT_OPTIONS = 1,
+	DHCPV6_CLIENT_FQDN = 2,
+	DHCPV6_ACCEPT_RECONFIGURE = 4,
+};
+
 typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end);
 
@@ -245,7 +251,7 @@ struct odhcp6c_request_prefix {
 	uint16_t length;
 };
 
-int init_dhcpv6(const char *ifname, bool strict_options, int sol_timeout);
+int init_dhcpv6(const char *ifname, unsigned int client_options, int sol_timeout);
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
