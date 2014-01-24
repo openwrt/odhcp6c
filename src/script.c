@@ -190,6 +190,8 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 
 			if ((type == ENTRY_PREFIX || type == ENTRY_ADDRESS) && e[i].class)
 				buf_len += snprintf(&buf[buf_len], 12, ",class=%u", e[i].class);
+			else if (type == ENTRY_PREFIX)
+				buf_len += snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e[i].iaid));
 
 			if (type == ENTRY_PREFIX && e[i].priority) {
 				// priority and router are abused for prefix exclusion
