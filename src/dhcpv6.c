@@ -368,6 +368,15 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	// Request Information Refresh
 	uint16_t oro_refresh = htons(DHCPV6_OPT_INFO_REFRESH);
 
+	// Build vendor-class option
+	size_t vendor_class_len;
+	struct dhcpv6_vendorclass *vendor_class = odhcp6c_get_state(STATE_VENDORCLASS, &vendor_class_len);
+
+	struct {
+		uint16_t type;
+		uint16_t length;
+	} vendor_class_hdr = {htons(DHCPV6_OPT_VENDOR_CLASS), htons(vendor_class_len)};
+
 	// Prepare Header
 	size_t oro_len;
 	void *oro = odhcp6c_get_state(STATE_ORO, &oro_len);
@@ -392,6 +401,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		{&oro_refresh, 0},
 		{cl_id, cl_id_len},
 		{srv_id, srv_id_len},
+		{&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
+		{vendor_class, vendor_class_len},
 		{&reconf_accept, sizeof(reconf_accept)},
 		{&fqdn, fqdn_len},
 		{&hdr_ia_na, sizeof(hdr_ia_na)},
@@ -401,28 +412,28 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	size_t cnt = ARRAY_SIZE(iov);
 	if (type == DHCPV6_MSG_INFO_REQ) {
-		cnt = 5;
+		cnt = 7;
 		iov[2].iov_len = sizeof(oro_refresh);
 		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
 	} else if (!request_prefix) {
-		cnt = 9;
+		cnt = 11;
 	}
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT) {
-		iov[5].iov_len = 0;
+		iov[7].iov_len = 0;
 		if (ia_na_len == 0)
-			iov[7].iov_len = 0;
+			iov[9].iov_len = 0;
 	}
 
 	if (na_mode == IA_MODE_NONE)
-		iov[7].iov_len = 0;
+		iov[9].iov_len = 0;
 
 	if (!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
-		iov[5].iov_len = 0;
+		iov[7].iov_len = 0;
 
 	if (!(client_options & DHCPV6_CLIENT_FQDN))
-		iov[6].iov_len = 0;
+		iov[8].iov_len = 0;
 
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};

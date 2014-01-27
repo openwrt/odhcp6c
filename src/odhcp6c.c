@@ -76,7 +76,7 @@ int main(_unused int argc, char* const argv[])
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 
-	while ((c = getopt(argc, argv, "S::N:P:FB:c:i:r:Rs:kt:hedp:fa")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Rs:kt:hedp:fa")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -95,6 +95,14 @@ int main(_unused int argc, char* const argv[])
 			}
 			break;
 
+		case 'V':
+			l = script_unhexlify(buf, sizeof(buf), optarg);
+			if (!l)
+				help=true;
+
+			odhcp6c_add_state(STATE_VENDORCLASS, buf, l);
+
+			break;
 		case 'P':
 			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
 				allow_slaac_only = 10;
@@ -414,6 +422,7 @@ static int usage(void)
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
+	"	-V <hex-string>	Set vendor-class option. string length must be a multiple of 2\n"
 #ifdef EXT_BFD_PING
 	"	-B <interval>	Enable BFD ping check\n"
 #endif
