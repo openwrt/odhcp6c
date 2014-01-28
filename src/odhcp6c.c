@@ -62,7 +62,7 @@ int main(_unused int argc, char* const argv[])
 	char *optpos;
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
-	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_TRY;
+	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
 	int ia_pd_iaid_index = 0;
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
@@ -104,6 +104,9 @@ int main(_unused int argc, char* const argv[])
 
 			break;
 		case 'P':
+			if (ia_pd_mode == IA_MODE_NONE)
+				ia_pd_mode = IA_MODE_TRY;
+
 			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
 				allow_slaac_only = 10;
 
