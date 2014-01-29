@@ -115,7 +115,7 @@ int main(_unused int argc, char* const argv[])
 
 			int prefix_length = strtoul(optarg, &iaid_begin, 10);
 
-			if (*iaid_begin != '\0' && *iaid_begin != ',') {
+			if (*iaid_begin != '\0' && *iaid_begin != ',' && *iaid_begin != ':') {
 				syslog(LOG_ERR, "invalid argument: '%s'", optarg);
 				return 1;
 			}
@@ -124,8 +124,10 @@ int main(_unused int argc, char* const argv[])
 
 			if (*iaid_begin == ',' && (iaid_len = strlen(iaid_begin)) > 1)
 				memcpy(&prefix.iaid, iaid_begin + 1, iaid_len > 4 ? 4 : iaid_len);
+			else if (*iaid_begin == ':')
+				prefix.iaid = htonl((uint32_t)strtoul(&iaid_begin[1], NULL, 16));
 			else
-				prefix.iaid = ++ia_pd_iaid_index;
+				prefix.iaid = htonl(++ia_pd_iaid_index);
 
 			odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix));
 
