@@ -356,18 +356,16 @@ bool ra_process(void)
 						|| entry.valid < entry.preferred)
 					continue;
 
+				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
+					changed |= odhcp6c_update_entry_safe(STATE_RA_ROUTE, &entry, 7200);
+
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
-						pinfo->nd_opt_pi_prefix_len != 64) {
-					if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
-						changed |= odhcp6c_update_entry_safe(STATE_RA_ROUTE, &entry, 7200);
+						pinfo->nd_opt_pi_prefix_len != 64)
 					continue;
-				}
 
 				entry.target.s6_addr32[2] = lladdr.s6_addr32[2];
 				entry.target.s6_addr32[3] = lladdr.s6_addr32[3];
 
-				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK))
-					entry.length = 128;
 				changed |= odhcp6c_update_entry_safe(STATE_RA_PREFIX, &entry, 7200);
 			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
 				entry.router = from.sin6_addr;
