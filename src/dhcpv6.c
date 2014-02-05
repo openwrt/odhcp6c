@@ -474,9 +474,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (type == DHCPV6_MSG_UNKNOWN)
 		timeout = t1;
 	else if (type == DHCPV6_MSG_RENEW)
-		timeout = (t2 > t1) ? t2 - t1 : 0;
+		timeout = (t2 > t1) ? t2 - t1 : ((t1 == UINT32_MAX) ? UINT32_MAX : 0);
 	else if (type == DHCPV6_MSG_REBIND)
-		timeout = (t3 > t2) ? t3 - t2 : 0;
+		timeout = (t3 > t2) ? t3 - t2 : ((t2 == UINT32_MAX) ? UINT32_MAX : 0);
 
 	if (timeout == 0)
 		return -1;
@@ -514,8 +514,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		uint64_t round_end = round_start + rto;
 		elapsed = round_start - start;
 
-		// Don't wait too long
-		if (round_end - start > timeout * 1000)
+		// Don't wait too long if timeout differs from infinite
+		if ((timeout != UINT32_MAX) && (round_end - start > timeout * 1000))
 			round_end = timeout * 1000 + start;
 
 		// Built and send package
@@ -542,9 +542,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 			// Set timeout for receiving
 			uint64_t t = round_end - round_start;
-			struct timeval timeout = {t / 1000, (t % 1000) * 1000};
+			struct timeval tv = {t / 1000, (t % 1000) * 1000};
 			setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
-					&timeout, sizeof(timeout));
+					&tv, sizeof(tv));
 
 			// Receive cycle
 			len = recvmsg(sock, &msg, 0);
@@ -589,8 +589,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Allow
 		if (retx->handler_finish)
 			len = retx->handler_finish();
-	} while (len < 0 && ((elapsed / 1000 < timeout) && (!retx->max_rc || rc < retx->max_rc)));
-
+	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) && 
+			(!retx->max_rc || rc < retx->max_rc));
 	return len;
 }
 
@@ -861,9 +861,14 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
 		last_update = now;
 
-		t1 -= elapsed;
-		t2 -= elapsed;
-		t3 -= elapsed;
+		if (t1 != UINT32_MAX)
+			t1 -= elapsed;
+
+		if (t2 != UINT32_MAX)
+			t2 -= elapsed;
+
+		if (t3 != UINT32_MAX)
+			t3 -= elapsed;
 
 		if (t1 < 0)
 			t1 = 0;
