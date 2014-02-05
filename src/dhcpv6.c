@@ -369,13 +369,19 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	uint16_t oro_refresh = htons(DHCPV6_OPT_INFO_REFRESH);
 
 	// Build vendor-class option
-	size_t vendor_class_len;
+	size_t vendor_class_len, user_class_len;
 	struct dhcpv6_vendorclass *vendor_class = odhcp6c_get_state(STATE_VENDORCLASS, &vendor_class_len);
+	void *user_class = odhcp6c_get_state(STATE_USERCLASS, &user_class_len);
 
 	struct {
 		uint16_t type;
 		uint16_t length;
 	} vendor_class_hdr = {htons(DHCPV6_OPT_VENDOR_CLASS), htons(vendor_class_len)};
+
+	struct {
+		uint16_t type;
+		uint16_t length;
+	} user_class_hdr = {htons(DHCPV6_OPT_USER_CLASS), htons(user_class_len)};
 
 	// Prepare Header
 	size_t oro_len;
@@ -403,6 +409,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		{srv_id, srv_id_len},
 		{&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
 		{vendor_class, vendor_class_len},
+		{&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
+		{user_class, user_class_len},
 		{&reconf_accept, sizeof(reconf_accept)},
 		{&fqdn, fqdn_len},
 		{&hdr_ia_na, sizeof(hdr_ia_na)},
@@ -412,11 +420,11 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	size_t cnt = ARRAY_SIZE(iov);
 	if (type == DHCPV6_MSG_INFO_REQ) {
-		cnt = 7;
+		cnt = 9;
 		iov[2].iov_len = sizeof(oro_refresh);
 		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
 	} else if (!request_prefix) {
-		cnt = 11;
+		cnt = 13;
 	}
 
 	// Disable IAs if not used

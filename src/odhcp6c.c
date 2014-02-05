@@ -61,6 +61,7 @@ int main(_unused int argc, char* const argv[])
 	uint8_t buf[134];
 	char *optpos;
 	uint16_t opttype;
+	uint16_t optlen;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
 	int ia_pd_iaid_index = 0;
@@ -76,7 +77,7 @@ int main(_unused int argc, char* const argv[])
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Rs:kt:hedp:fa")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:hedp:fa")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -176,6 +177,12 @@ int main(_unused int argc, char* const argv[])
 
 		case 'R':
 			client_options |= DHCPV6_STRICT_OPTIONS;
+			break;
+
+		case 'u':
+			optlen = htons(strlen(optarg));
+			odhcp6c_add_state(STATE_USERCLASS, &optlen, 2);
+			odhcp6c_add_state(STATE_USERCLASS, optarg, strlen(optarg));
 			break;
 
 		case 's':
