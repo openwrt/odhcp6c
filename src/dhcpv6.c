@@ -429,19 +429,19 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT) {
-		iov[7].iov_len = 0;
+		iov[9].iov_len = 0;
 		if (ia_na_len == 0)
-			iov[9].iov_len = 0;
+			iov[11].iov_len = 0;
 	}
 
 	if (na_mode == IA_MODE_NONE)
-		iov[9].iov_len = 0;
+		iov[11].iov_len = 0;
 
 	if (!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
-		iov[7].iov_len = 0;
+		iov[9].iov_len = 0;
 
 	if (!(client_options & DHCPV6_CLIENT_FQDN))
-		iov[8].iov_len = 0;
+		iov[10].iov_len = 0;
 
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};
