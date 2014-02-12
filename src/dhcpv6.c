@@ -197,6 +197,23 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 	return 0;
 }
 
+enum {
+	IOV_HDR=0,
+	IOV_ORO,
+	IOV_ORO_REFRESH,
+	IOV_CL_ID,
+	IOV_SRV_ID,
+	IOV_VENDOR_CLASS_HDR,
+	IOV_VENDOR_CLASS,
+	IOV_USER_CLASS_HDR,
+	IOV_USER_CLASS,
+	IOV_RECONF_ACCEPT,
+	IOV_FQDN,
+	IOV_HDR_IA_NA,
+	IOV_IA_NA,
+	IOV_IA_PD,
+	IOV_TOTAL
+};
 
 void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
 {
@@ -401,27 +418,27 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		htons(DHCPV6_OPT_ORO), htons(oro_len),
 	};
 
-	struct iovec iov[] = {
-		{&hdr, sizeof(hdr)},
-		{oro, oro_len},
-		{&oro_refresh, 0},
-		{cl_id, cl_id_len},
-		{srv_id, srv_id_len},
-		{&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
-		{vendor_class, vendor_class_len},
-		{&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
-		{user_class, user_class_len},
-		{&reconf_accept, sizeof(reconf_accept)},
-		{&fqdn, fqdn_len},
-		{&hdr_ia_na, sizeof(hdr_ia_na)},
-		{ia_na, ia_na_len},
-		{ia_pd, ia_pd_len},
+	struct iovec iov[IOV_TOTAL] = {
+		[IOV_HDR] = {&hdr, sizeof(hdr)},
+		[IOV_ORO] = {oro, oro_len},
+		[IOV_ORO_REFRESH] = {&oro_refresh, 0},
+		[IOV_CL_ID] = {cl_id, cl_id_len},
+		[IOV_SRV_ID] = {srv_id, srv_id_len},
+		[IOV_VENDOR_CLASS_HDR] = {&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
+		[IOV_VENDOR_CLASS] = {vendor_class, vendor_class_len},
+		[IOV_USER_CLASS_HDR] = {&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
+		[IOV_USER_CLASS] = {user_class, user_class_len},
+		[IOV_RECONF_ACCEPT] = {&reconf_accept, sizeof(reconf_accept)},
+		[IOV_FQDN] = {&fqdn, fqdn_len},
+		[IOV_HDR_IA_NA] = {&hdr_ia_na, sizeof(hdr_ia_na)},
+		[IOV_IA_NA] = {ia_na, ia_na_len},
+		[IOV_IA_PD] = {ia_pd, ia_pd_len},
 	};
 
-	size_t cnt = ARRAY_SIZE(iov);
+	size_t cnt = IOV_TOTAL;
 	if (type == DHCPV6_MSG_INFO_REQ) {
 		cnt = 9;
-		iov[2].iov_len = sizeof(oro_refresh);
+		iov[IOV_ORO_REFRESH].iov_len = sizeof(oro_refresh);
 		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
 	} else if (!request_prefix) {
 		cnt = 13;
@@ -429,19 +446,19 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT) {
-		iov[9].iov_len = 0;
+		iov[IOV_RECONF_ACCEPT].iov_len = 0;
 		if (ia_na_len == 0)
-			iov[11].iov_len = 0;
+			iov[IOV_HDR_IA_NA].iov_len = 0;
 	}
 
 	if (na_mode == IA_MODE_NONE)
-		iov[11].iov_len = 0;
+		iov[IOV_HDR_IA_NA].iov_len = 0;
 
 	if (!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
-		iov[9].iov_len = 0;
+		iov[IOV_RECONF_ACCEPT].iov_len = 0;
 
 	if (!(client_options & DHCPV6_CLIENT_FQDN))
-		iov[10].iov_len = 0;
+		iov[IOV_FQDN].iov_len = 0;
 
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};
