@@ -445,16 +445,14 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	}
 
 	// Disable IAs if not used
-	if (type != DHCPV6_MSG_SOLICIT) {
-		iov[IOV_RECONF_ACCEPT].iov_len = 0;
-		if (ia_na_len == 0)
-			iov[IOV_HDR_IA_NA].iov_len = 0;
-	}
+	if (type != DHCPV6_MSG_SOLICIT && ia_na_len == 0)
+		iov[IOV_HDR_IA_NA].iov_len = 0;
 
 	if (na_mode == IA_MODE_NONE)
 		iov[IOV_HDR_IA_NA].iov_len = 0;
 
-	if (!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
+	if ((type != DHCPV6_MSG_SOLICIT && type != DHCPV6_MSG_REQUEST) ||
+			!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
 		iov[IOV_RECONF_ACCEPT].iov_len = 0;
 
 	if (!(client_options & DHCPV6_CLIENT_FQDN))
