@@ -434,7 +434,7 @@ static int usage(void)
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
-	"	-V <hex-string>	Set vendor-class option. string length must be a multiple of 2\n"
+	"	-V <class>	Set vendor-class option (base-16 encoded)\n"
 #ifdef EXT_BFD_PING
 	"	-B <interval>	Enable BFD ping check\n"
 #endif
