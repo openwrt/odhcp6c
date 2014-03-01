@@ -259,7 +259,7 @@ int main(_unused int argc, char* const argv[])
 			pidfile = pidbuf;
 		}
 
-		int fd = open(pidfile, O_WRONLY | O_CREAT);
+		int fd = open(pidfile, O_WRONLY | O_CREAT, 0644);
 		if (fd >= 0) {
 			char buf[8];
 			int len = snprintf(buf, sizeof(buf), "%i\n", getpid());
