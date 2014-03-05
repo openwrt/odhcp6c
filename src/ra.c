@@ -311,11 +311,13 @@ bool ra_process(void)
 			update_proc("conf", "hop_limit", adv->nd_ra_curhoplimit);
 
 		// Parse ND parameters
-		if (ntohl(adv->nd_ra_reachable) <= 3600000)
-			update_proc("neigh", "base_reachable_time_ms", ntohl(adv->nd_ra_reachable));
+		uint32_t reachable = ntohl(adv->nd_ra_reachable);
+		if (reachable > 0 && reachable <= 3600000)
+			update_proc("neigh", "base_reachable_time_ms", reachable);
 
-		if (ntohl(adv->nd_ra_retransmit) <= 60000)
-			update_proc("neigh", "retrans_time_ms", ntohl(adv->nd_ra_retransmit));
+		uint32_t retransmit = ntohl(adv->nd_ra_retransmit);
+		if (retransmit > 0 && retransmit <= 60000)
+			update_proc("neigh", "retrans_time_ms", retransmit);
 
 
 		// Evaluate options
