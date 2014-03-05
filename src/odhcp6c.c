@@ -453,7 +453,7 @@ static int usage(void)
 	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (3600)\n"
-	"	-m <seconds>	Minimum time between accepting updates (60)\n"
+	"	-m <seconds>	Minimum time between accepting updates (30)\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
