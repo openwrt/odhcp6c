@@ -470,7 +470,7 @@ uint64_t odhcp6c_get_milli_time(void)
 {
 	struct timespec t = {0, 0};
 	syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &t);
-	return t.tv_sec * 1000 + t.tv_nsec / 1000000;
+	return ((uint64_t)t.tv_sec) * 1000 + ((uint64_t)t.tv_nsec) / 1000000;
 }
 
 
