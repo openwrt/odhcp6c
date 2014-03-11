@@ -657,10 +657,12 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 				continue;
 
 			md5_ctx_t md5;
-			uint8_t serverhash[16], secretbytes[16], hash[16];
+			uint8_t serverhash[16], secretbytes[64], hash[16];
 			memcpy(serverhash, r->key, sizeof(serverhash));
 			memset(r->key, 0, sizeof(r->key));
-			memcpy(secretbytes, reconf_key, sizeof(secretbytes));
+
+			memset(secretbytes, 0, sizeof(secretbytes));
+			memcpy(secretbytes, reconf_key, sizeof(reconf_key));
 
 			for (size_t i = 0; i < sizeof(secretbytes); ++i)
 				secretbytes[i] ^= 0x36;
