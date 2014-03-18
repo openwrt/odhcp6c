@@ -20,6 +20,7 @@
 #include <syslog.h>
 #include <signal.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
@@ -175,7 +176,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
 		if (type != ENTRY_HOST) {
-			buf_len += snprintf(&buf[buf_len], 6, "/%hhu", e[i].length);
+			buf_len += snprintf(&buf[buf_len], 6, "/%"PRIu16, e[i].length);
 			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {

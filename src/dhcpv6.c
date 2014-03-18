@@ -248,7 +248,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	void *srv_id = odhcp6c_get_state(STATE_SERVER_ID, &srv_id_len);
 
 	// Build IA_PDs
-	size_t ia_pd_entries, ia_pd_len = 0;
+	size_t ia_pd_entries = 0, ia_pd_len = 0;
 	uint8_t *ia_pd;
 
 	if (type == DHCPV6_MSG_SOLICIT) {
