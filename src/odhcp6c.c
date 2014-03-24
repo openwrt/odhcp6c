@@ -391,6 +391,12 @@ int main(_unused int argc, char* const argv[])
 
 				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 
+				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+
+				if (ia_pd_len == 0 && ia_na_len == 0)
+					break;
+
 				// If we have IAs, try rebind otherwise restart
 				res = dhcpv6_request(DHCPV6_MSG_REBIND);
 				odhcp6c_signal_process();
