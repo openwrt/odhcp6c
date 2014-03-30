@@ -67,6 +67,10 @@ enum dhcvp6_opt {
 	/* draft-bhandari-dhc-class-based-prefix, not yet standardized */
 	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
 #endif
+#ifdef EXT_CER_ID
+	/* draft-donley-dhc-cer-id-option-03 */
+	DHCPV6_OPT_CER_ID = EXT_CER_ID,
+#endif
 };
 
 enum dhcpv6_opt_npt {
@@ -170,6 +174,15 @@ struct dhcpv6_auth_reconfigure {
 	uint8_t key[16];
 } _packed;
 
+struct dhcpv6_cer_id {
+	uint16_t type;
+	uint16_t len;
+	uint16_t reserved;
+	uint16_t auth_type;
+	uint8_t auth[16];
+	struct in6_addr addr;
+} _packed;
+
 
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\
@@ -215,6 +228,7 @@ enum odhcp6c_state {
 	STATE_AFTR_NAME,
 	STATE_VENDORCLASS,
 	STATE_USERCLASS,
+	STATE_CER,
 	_STATE_MAX
 };
 

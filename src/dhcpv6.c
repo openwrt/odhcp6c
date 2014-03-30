@@ -176,6 +176,9 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 #ifdef EXT_PREFIX_CLASS
 			htons(DHCPV6_OPT_PREFIX_CLASS),
 #endif
+#ifdef EXT_CER_ID
+			htons(DHCPV6_OPT_CER_ID),
+#endif
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}
@@ -1010,7 +1013,15 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
 					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
 				dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = inf_max_rt;
-		}else if (otype != DHCPV6_OPT_CLIENTID &&
+#ifdef EXT_CER_ID
+		} else if (otype == DHCPV6_OPT_CER_ID && olen == -4 +
+				sizeof(struct dhcpv6_cer_id)) {
+			struct dhcpv6_cer_id *cer_id = (void*)&odata[-4];
+			struct in6_addr any = IN6ADDR_ANY_INIT;
+			if (memcmp(&cer_id->addr, &any, sizeof(any)))
+				odhcp6c_add_state(STATE_CER, &cer_id->addr, sizeof(any));
+#endif
+		} else if (otype != DHCPV6_OPT_CLIENTID &&
 				otype != DHCPV6_OPT_SERVERID) {
 			odhcp6c_add_state(STATE_CUSTOM_OPTS,
 					&odata[-4], olen + 4);

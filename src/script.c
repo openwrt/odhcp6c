@@ -232,7 +232,7 @@ void script_delay_call(const char *status, int timeout)
 void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
-	size_t sip_ip_len, sip_fqdn_len, aftr_name_len;
+	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, cer_len;
 
 	odhcp6c_expire();
 	if (delayed_call) {
@@ -249,6 +249,7 @@ void script_call(const char *status)
 	struct in6_addr *sip = odhcp6c_get_state(STATE_SIP_IP, &sip_ip_len);
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 	uint8_t *aftr_name = odhcp6c_get_state(STATE_AFTR_NAME, &aftr_name_len);
+	struct in6_addr *cer = odhcp6c_get_state(STATE_CER, &cer_len);
 
 	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
@@ -268,6 +269,7 @@ void script_call(const char *status)
 		fqdn_to_env("SIP_DOMAIN", sip_fqdn, sip_fqdn_len);
 		fqdn_to_env("AFTR", aftr_name, aftr_name_len);
 		fqdn_to_ip_env("AFTR_IP", aftr_name, aftr_name_len);
+		ipv6_to_env("CER", cer, cer_len / sizeof(*cer));
 		bin_to_env(custom, custom_len);
 		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
 		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
