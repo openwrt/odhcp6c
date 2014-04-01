@@ -914,6 +914,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		odhcp6c_clear_state(STATE_AFTR_NAME);
+		odhcp6c_clear_state(STATE_CER);
 	}
 
 	// Parse and find all matching IAs
