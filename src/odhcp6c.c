@@ -450,6 +450,7 @@ static int usage(void)
 #ifdef EXT_BFD_PING
 	"	-B <interval>	Enable BFD ping check\n"
 #endif
+	"	-u <user-class> Set user-class option string\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
