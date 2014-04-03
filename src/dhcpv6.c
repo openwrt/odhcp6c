@@ -188,7 +188,6 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 	setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
 	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
-	val = 0;
 	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
 
 	struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
