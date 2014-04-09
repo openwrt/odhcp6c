@@ -1231,6 +1231,8 @@ static int dhcpv6_calc_refresh_timers(void)
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;
+	} else {
+		t1 = 600;
 	}
 
 	return (int)(ia_pd_entries + ia_na_entries);
