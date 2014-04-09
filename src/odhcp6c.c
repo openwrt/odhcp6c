@@ -372,16 +372,7 @@ int main(_unused int argc, char* const argv[])
 					break; // Other signal type
 
 				// Send renew as T1 expired
-				size_t ia_pd_len, ia_na_len;
-				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-
-				// If we have any IAs, send renew, otherwise request
-				if (ia_pd_len == 0 && ia_na_len == 0)
-					res = dhcpv6_request(DHCPV6_MSG_REQUEST);
-				else
-					res = dhcpv6_request(DHCPV6_MSG_RENEW);
-
+				res = dhcpv6_request(DHCPV6_MSG_RENEW);
 				odhcp6c_signal_process();
 				if (res > 0) { // Renew was succesfull
 					// Publish updates

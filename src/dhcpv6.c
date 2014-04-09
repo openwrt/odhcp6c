@@ -1231,8 +1231,6 @@ static int dhcpv6_calc_refresh_timers(void)
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;
-	} else {
-		t1 = 600;
 	}
 
 	return (int)(ia_pd_entries + ia_na_entries);
@@ -1370,8 +1368,7 @@ int dhcpv6_promote_server_cand(void)
 	size_t cand_len;
 	struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
 	uint16_t hdr[2];
-	int ret = (na_mode == IA_MODE_NONE && pd_mode == IA_MODE_NONE) ?
-			DHCPV6_STATELESS : DHCPV6_STATEFUL;
+	int ret = DHCPV6_STATELESS;
 
 	// Clear lingering candidate state info
 	odhcp6c_clear_state(STATE_SERVER_ID);
