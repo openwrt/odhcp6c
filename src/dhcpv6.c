@@ -179,6 +179,11 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 #ifdef EXT_CER_ID
 			htons(DHCPV6_OPT_CER_ID),
 #endif
+#ifdef EXT_S46
+			htons(DHCPV6_OPT_S46_CONT_MAPE),
+			htons(DHCPV6_OPT_S46_CONT_MAPT),
+			htons(DHCPV6_OPT_S46_CONT_LW),
+#endif
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}
@@ -914,6 +919,9 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		odhcp6c_clear_state(STATE_AFTR_NAME);
 		odhcp6c_clear_state(STATE_CER);
+		odhcp6c_clear_state(STATE_S46_MAPT);
+		odhcp6c_clear_state(STATE_S46_MAPE);
+		odhcp6c_clear_state(STATE_S46_LW);
 	}
 
 	// Parse and find all matching IAs
@@ -1019,6 +1027,14 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			struct in6_addr any = IN6ADDR_ANY_INIT;
 			if (memcmp(&cer_id->addr, &any, sizeof(any)))
 				odhcp6c_add_state(STATE_CER, &cer_id->addr, sizeof(any));
+#endif
+#ifdef EXT_S46
+		} else if (otype == DHCPV6_OPT_S46_CONT_MAPT) {
+			odhcp6c_add_state(STATE_S46_MAPT, odata, olen);
+		} else if (otype == DHCPV6_OPT_S46_CONT_MAPE) {
+			odhcp6c_add_state(STATE_S46_MAPE, odata, olen);
+		} else if (otype == DHCPV6_OPT_S46_CONT_LW) {
+			odhcp6c_add_state(STATE_S46_LW, odata, olen);
 #endif
 		} else if (otype != DHCPV6_OPT_CLIENTID &&
 				otype != DHCPV6_OPT_SERVERID) {

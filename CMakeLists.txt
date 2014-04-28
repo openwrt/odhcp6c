@@ -15,6 +15,10 @@ if(${EXT_CER_ID})
 	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
+if(${EXT_S46})
+	add_definitions(-DEXT_S46=${EXT_S46})
+endif(${EXT_S46})
+
 if(${EXT_BFD_PING})
 	add_definitions(-DEXT_BFD_PING)
 	set(BFD_SOURCE src/bfd.c)

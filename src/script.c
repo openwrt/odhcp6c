@@ -209,6 +209,102 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	putenv(buf);
 }
 
+#ifdef EXT_S46
+static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
+{
+	uint8_t *odata;
+	uint16_t otype, olen;
+	dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
+		if (otype == DHCPV6_OPT_S46_PORTPARAMS &&
+				olen == sizeof(struct dhcpv6_s46_portparams)) {
+			struct dhcpv6_s46_portparams *params = (void*)odata;
+			fprintf(fp, "offset=%d,psidlen=%d,psid=%d,",
+					params->offset, params->psid_len, ntohs(params->psid));
+		}
+	}
+}
+#endif
+
+static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len)
+{
+	const char *name = (state == STATE_S46_MAPE) ? "MAPE" :
+			(state == STATE_S46_MAPT) ? "MAPT" : "LW4O6";
+
+	char *str;
+	size_t strsize;
+
+	FILE *fp = open_memstream(&str, &strsize);
+	fputs(name, fp);
+	fputc('=', fp);
+
+#ifdef EXT_S46
+	uint8_t *odata;
+	uint16_t otype, olen;
+	dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
+		struct dhcpv6_s46_rule *rule = (struct dhcpv6_s46_rule*)odata;
+		struct dhcpv6_s46_dmr *dmr = (struct dhcpv6_s46_dmr*)odata;
+		struct dhcpv6_s46_v4v6bind *bind = (struct dhcpv6_s46_v4v6bind*)odata;
+
+		if (state != STATE_S46_LW && otype == DHCPV6_OPT_S46_RULE &&
+				olen >= sizeof(struct dhcpv6_s46_rule) && olen >=
+				sizeof(struct dhcpv6_s46_rule) + rule->prefix6_len) {
+			char buf4[INET_ADDRSTRLEN];
+			char buf6[INET6_ADDRSTRLEN];
+			struct in6_addr in6 = IN6ADDR_ANY_INIT;
+			memcpy(&in6, rule->ipv6_prefix, rule->prefix6_len);
+
+			inet_ntop(AF_INET, &rule->ipv4_prefix, buf4, sizeof(buf4));
+			inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
+
+			if (rule->flags & 1)
+				fputs("fmr,", fp);
+
+			fprintf(fp, "ealen=%d,prefix4len=%d,prefix6len=%d,ipv4prefix=%s,ipv6prefix=%s,",
+					rule->ea_len, rule->prefix4_len, rule->prefix6_len, buf4, buf6);
+
+			s46_to_env_portparams(&rule->ipv6_prefix[rule->prefix6_len],
+					olen - sizeof(*rule) - rule->prefix6_len, fp);
+		} else if (state == STATE_S46_LW && otype == DHCPV6_OPT_S46_V4V6BIND &&
+				olen >= sizeof(struct dhcpv6_s46_v4v6bind) && olen >=
+				sizeof(struct dhcpv6_s46_v4v6bind) + bind->bindprefix6_len) {
+			char buf4[INET_ADDRSTRLEN];
+			char buf6[INET6_ADDRSTRLEN];
+			struct in6_addr in6 = IN6ADDR_ANY_INIT;
+			memcpy(&in6, bind->bind_ipv6_prefix, bind->bindprefix6_len);
+
+			inet_ntop(AF_INET, &bind->ipv4_address, buf4, sizeof(buf4));
+			inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
+
+			fprintf(fp, "ipv4address=%s,prefix6len=%d,ipv6prefix=%s,",
+					buf4, bind->bindprefix6_len, buf6);
+
+			s46_to_env_portparams(&bind->bind_ipv6_prefix[bind->bindprefix6_len],
+					olen - sizeof(*bind) - bind->bindprefix6_len, fp);
+		} else if (state != STATE_S46_MAPT && otype == DHCPV6_OPT_S46_BR
+				&& olen == sizeof(struct in6_addr)) {
+			char buf6[INET6_ADDRSTRLEN];
+			inet_ntop(AF_INET6, odata, buf6, sizeof(buf6));
+			fprintf(fp, "br=%s,", buf6);
+		} else if (state == STATE_S46_MAPT && otype == DHCPV6_OPT_S46_DMR &&
+				olen >= sizeof(struct dhcpv6_s46_dmr) && olen >=
+				sizeof(struct dhcpv6_s46_dmr) + dmr->dmr_prefix6_len) {
+			struct in6_addr in6 = IN6ADDR_ANY_INIT;
+			memcpy(&in6, dmr->dmr_ipv6_prefix, dmr->dmr_prefix6_len);
+			char buf6[INET6_ADDRSTRLEN];
+			inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
+			fprintf(fp, "dmr=%s/%d,", buf6, dmr->dmr_prefix6_len);
+		}
+
+		fputc(' ', fp);
+	}
+#else
+	if (data && len) {}
+#endif
+
+	fclose(fp);
+	putenv(str);
+}
+
 
 static void script_call_delayed(int signal __attribute__((unused)))
 {
@@ -233,6 +329,7 @@ void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, cer_len;
+	size_t s46_mapt_len, s46_mape_len, s46_lw_len;
 
 	odhcp6c_expire();
 	if (delayed_call) {
@@ -250,6 +347,9 @@ void script_call(const char *status)
 	uint8_t *sip_fqdn = odhcp6c_get_state(STATE_SIP_FQDN, &sip_fqdn_len);
 	uint8_t *aftr_name = odhcp6c_get_state(STATE_AFTR_NAME, &aftr_name_len);
 	struct in6_addr *cer = odhcp6c_get_state(STATE_CER, &cer_len);
+	uint8_t *s46_mapt = odhcp6c_get_state(STATE_S46_MAPT, &s46_mapt_len);
+	uint8_t *s46_mape = odhcp6c_get_state(STATE_S46_MAPE, &s46_mape_len);
+	uint8_t *s46_lw = odhcp6c_get_state(STATE_S46_LW, &s46_lw_len);
 
 	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
@@ -270,6 +370,9 @@ void script_call(const char *status)
 		fqdn_to_env("AFTR", aftr_name, aftr_name_len);
 		fqdn_to_ip_env("AFTR_IP", aftr_name, aftr_name_len);
 		ipv6_to_env("CER", cer, cer_len / sizeof(*cer));
+		s46_to_env(STATE_S46_MAPE, s46_mape, s46_mape_len);
+		s46_to_env(STATE_S46_MAPT, s46_mapt, s46_mapt_len);
+		s46_to_env(STATE_S46_LW, s46_lw, s46_lw_len);
 		bin_to_env(custom, custom_len);
 		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
 		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
