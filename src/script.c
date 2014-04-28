@@ -264,6 +264,21 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 
 			s46_to_env_portparams(&rule->ipv6_prefix[rule->prefix6_len],
 					olen - sizeof(*rule) - rule->prefix6_len, fp);
+
+			dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
+				if (state != STATE_S46_MAPT && otype == DHCPV6_OPT_S46_BR &&
+						olen == sizeof(struct in6_addr)) {
+					inet_ntop(AF_INET6, odata, buf6, sizeof(buf6));
+					fprintf(fp, "br=%s,", buf6);
+				} else if (state == STATE_S46_MAPT && otype == DHCPV6_OPT_S46_DMR &&
+						olen >= sizeof(struct dhcpv6_s46_dmr) && olen >=
+						sizeof(struct dhcpv6_s46_dmr) + dmr->dmr_prefix6_len) {
+					memset(&in6, 0, sizeof(in6));
+					memcpy(&in6, dmr->dmr_ipv6_prefix, dmr->dmr_prefix6_len);
+					inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
+					fprintf(fp, "dmr=%s/%d,", buf6, dmr->dmr_prefix6_len);
+				}
+			}
 		} else if (state == STATE_S46_LW && otype == DHCPV6_OPT_S46_V4V6BIND &&
 				olen >= sizeof(struct dhcpv6_s46_v4v6bind) && olen >=
 				sizeof(struct dhcpv6_s46_v4v6bind) + bind->bindprefix6_len) {
@@ -280,19 +295,13 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 
 			s46_to_env_portparams(&bind->bind_ipv6_prefix[bind->bindprefix6_len],
 					olen - sizeof(*bind) - bind->bindprefix6_len, fp);
-		} else if (state != STATE_S46_MAPT && otype == DHCPV6_OPT_S46_BR
-				&& olen == sizeof(struct in6_addr)) {
-			char buf6[INET6_ADDRSTRLEN];
-			inet_ntop(AF_INET6, odata, buf6, sizeof(buf6));
-			fprintf(fp, "br=%s,", buf6);
-		} else if (state == STATE_S46_MAPT && otype == DHCPV6_OPT_S46_DMR &&
-				olen >= sizeof(struct dhcpv6_s46_dmr) && olen >=
-				sizeof(struct dhcpv6_s46_dmr) + dmr->dmr_prefix6_len) {
-			struct in6_addr in6 = IN6ADDR_ANY_INIT;
-			memcpy(&in6, dmr->dmr_ipv6_prefix, dmr->dmr_prefix6_len);
-			char buf6[INET6_ADDRSTRLEN];
-			inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
-			fprintf(fp, "dmr=%s/%d,", buf6, dmr->dmr_prefix6_len);
+
+			dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
+				if (otype == DHCPV6_OPT_S46_BR && olen == sizeof(struct in6_addr)) {
+					inet_ntop(AF_INET6, odata, buf6, sizeof(buf6));
+					fprintf(fp, "br=%s,", buf6);
+				}
+			}
 		}
 
 		fputc(' ', fp);

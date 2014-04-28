@@ -1032,7 +1032,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		} else if (otype == DHCPV6_OPT_S46_CONT_MAPT) {
 			odhcp6c_add_state(STATE_S46_MAPT, odata, olen);
 		} else if (otype == DHCPV6_OPT_S46_CONT_MAPE) {
-			odhcp6c_add_state(STATE_S46_MAPE, odata, olen);
+			size_t mape_len;
+			odhcp6c_get_state(STATE_S46_MAPE, &mape_len);
+			if (mape_len == 0)
+				odhcp6c_add_state(STATE_S46_MAPE, odata, olen);
 		} else if (otype == DHCPV6_OPT_S46_CONT_LW) {
 			odhcp6c_add_state(STATE_S46_LW, odata, olen);
 #endif
