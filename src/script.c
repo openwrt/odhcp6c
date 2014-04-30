@@ -229,8 +229,6 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 {
 	const char *name = (state == STATE_S46_MAPE) ? "MAPE" :
 			(state == STATE_S46_MAPT) ? "MAPT" : "LW4O6";
-	const char *type = (state == STATE_S46_MAPE) ? "map-e" :
-			(state == STATE_S46_MAPT) ? "map-t" : "lw4o6";
 
 	char *str;
 	size_t strsize;
@@ -240,6 +238,9 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	fputc('=', fp);
 
 #ifdef EXT_S46
+	const char *type = (state == STATE_S46_MAPE) ? "map-e" :
+			(state == STATE_S46_MAPT) ? "map-t" : "lw4o6";
+
 	uint8_t *odata;
 	uint16_t otype, olen;
 	dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
