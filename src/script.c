@@ -229,6 +229,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 {
 	const char *name = (state == STATE_S46_MAPE) ? "MAPE" :
 			(state == STATE_S46_MAPT) ? "MAPT" : "LW4O6";
+	const char *type = (state == STATE_S46_MAPE) ? "map-e" :
+			(state == STATE_S46_MAPT) ? "map-t" : "lw4o6";
 
 	char *str;
 	size_t strsize;
@@ -265,8 +267,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 			if (rule->flags & 1)
 				fputs("fmr,", fp);
 
-			fprintf(fp, "ealen=%d,prefix4len=%d,prefix6len=%d,ipv4prefix=%s,ipv6prefix=%s,",
-					rule->ea_len, rule->prefix4_len, rule->prefix6_len, buf4, buf6);
+			fprintf(fp, "type=%s,ealen=%d,prefix4len=%d,prefix6len=%d,ipv4prefix=%s,ipv6prefix=%s,",
+					type, rule->ea_len, rule->prefix4_len, rule->prefix6_len, buf4, buf6);
 
 			s46_to_env_portparams(&rule->ipv6_prefix[prefix6len],
 					olen - sizeof(*rule) - prefix6len, fp);
@@ -307,8 +309,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 			inet_ntop(AF_INET, &bind->ipv4_address, buf4, sizeof(buf4));
 			inet_ntop(AF_INET6, &in6, buf6, sizeof(buf6));
 
-			fprintf(fp, "ipv4address=%s,prefix6len=%d,ipv6prefix=%s,",
-					buf4, bind->bindprefix6_len, buf6);
+			fprintf(fp, "type=%s,ipv4address=%s,prefix6len=%d,ipv6prefix=%s,",
+					type, buf4, bind->bindprefix6_len, buf6);
 
 			s46_to_env_portparams(&bind->bind_ipv6_prefix[prefix6len],
 					olen - sizeof(*bind) - prefix6len, fp);
