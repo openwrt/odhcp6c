@@ -980,6 +980,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_add_state(STATE_DNS, odata, olen);
 		} else if (otype == DHCPV6_OPT_DNS_DOMAIN) {
 			odhcp6c_add_state(STATE_SEARCH, odata, olen);
+			passthru = false;
 		} else if (otype == DHCPV6_OPT_SNTP_SERVERS) {
 			if (olen % 16 == 0)
 				odhcp6c_add_state(STATE_SNTP_IP, odata, olen);
