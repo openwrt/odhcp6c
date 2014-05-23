@@ -359,7 +359,7 @@ void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, cer_len;
-	size_t s46_mapt_len, s46_mape_len, s46_lw_len;
+	size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
 
 	odhcp6c_expire();
 	if (delayed_call) {
@@ -380,6 +380,7 @@ void script_call(const char *status)
 	uint8_t *s46_mapt = odhcp6c_get_state(STATE_S46_MAPT, &s46_mapt_len);
 	uint8_t *s46_mape = odhcp6c_get_state(STATE_S46_MAPE, &s46_mape_len);
 	uint8_t *s46_lw = odhcp6c_get_state(STATE_S46_LW, &s46_lw_len);
+	uint8_t *passthru = odhcp6c_get_state(STATE_PASSTHRU, &passthru_len);
 
 	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
@@ -409,6 +410,11 @@ void script_call(const char *status)
 		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
 		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
 		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
+
+		char *buf = malloc(10 + passthru_len * 2);
+		strncpy(buf, "PASSTHRU=", 10);
+		script_hexlify(&buf[9], passthru, passthru_len);
+		putenv(buf);
 
 		argv[2] = (char*)status;
 		execv(argv[0], argv);
