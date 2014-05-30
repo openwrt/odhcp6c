@@ -1060,6 +1060,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				otype == DHCPV6_OPT_IA_TA ||
 				otype == DHCPV6_OPT_PREF ||
 				otype == DHCPV6_OPT_UNICAST ||
+				otype == DHCPV6_OPT_FQDN ||
 				otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			passthru = false;
 		} else {
