@@ -773,6 +773,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			int error = ((int)odata[0] << 8 | (int)odata[1]);
 
 			switch (error) {
+			case DHCPV6_NoAddrsAvail:
 			case DHCPV6_NoPrefixAvail:
 				// Status code on global level
 				cand.preference -= 2000;
