@@ -26,6 +26,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 
@@ -132,9 +133,26 @@ int ra_init(const char *ifname, const struct in6_addr *ifid)
 
 static void ra_send_rs(int signal __attribute__((unused)))
 {
-	const struct icmp6_hdr rs = {ND_ROUTER_SOLICIT, 0, 0, {{0}}};
+	struct {
+		struct icmp6_hdr hdr;
+		struct icmpv6_opt lladdr;
+	} rs = {
+		.hdr = {ND_ROUTER_SOLICIT, 0, 0, {{0}}},
+		.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
+	};
 	const struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
-	sendto(sock, &rs, sizeof(rs), MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+	size_t len = sizeof(rs);
+
+	struct ifreq ifr;
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
+	if (!ioctl(sock, SIOCGIFHWADDR, &ifr)
+			&& memcmp(rs.lladdr.data, ifr.ifr_hwaddr.sa_data, 6))
+		memcpy(rs.lladdr.data, ifr.ifr_hwaddr.sa_data, 6);
+	else
+		len = sizeof(struct icmp6_hdr);
+
+	sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
 
 	if (++rs_attempt <= 3)
 		alarm(4);
