@@ -366,7 +366,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	struct dhcpv6_ia_hdr hdr_ia_na = {
 		htons(DHCPV6_OPT_IA_NA),
 		htons(sizeof(hdr_ia_na) - 4),
-		1, 0, 0
+		htonl(1), 0, 0
 	};
 
 	struct dhcpv6_ia_addr pa[ia_na_entries];
