@@ -934,7 +934,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
 
 			// Test ID
-			if (ia_hdr->iaid != 1 && otype == DHCPV6_OPT_IA_NA)
+			if (ia_hdr->iaid != htonl(1) && otype == DHCPV6_OPT_IA_NA)
 				continue;
 
 			uint16_t code = DHCPV6_Success;
