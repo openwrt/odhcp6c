@@ -73,17 +73,15 @@ enum dhcvp6_opt {
 	/* draft-donley-dhc-cer-id-option-03 */
 	DHCPV6_OPT_CER_ID = EXT_CER_ID,
 #endif
-#ifdef EXT_S46
-	/* draft-ietf-softwire-map-dhcp-07 */
-	DHCPV6_OPT_S46_RULE = EXT_S46,
-	DHCPV6_OPT_S46_BR = EXT_S46 + 1,
-	DHCPV6_OPT_S46_DMR = EXT_S46 + 2,
-	DHCPV6_OPT_S46_V4V6BIND = EXT_S46 + 3,
-	DHCPV6_OPT_S46_PORTPARAMS = EXT_S46 + 4,
-	DHCPV6_OPT_S46_CONT_MAPE = EXT_S46 + 5,
-	DHCPV6_OPT_S46_CONT_MAPT = EXT_S46 + 6,
-	DHCPV6_OPT_S46_CONT_LW = EXT_S46 + 7,
-#endif
+	/* draft-ietf-softwire-map-dhcp-08 */
+	DHCPV6_OPT_S46_RULE = 89,
+	DHCPV6_OPT_S46_BR = 90,
+	DHCPV6_OPT_S46_DMR = 91,
+	DHCPV6_OPT_S46_V4V6BIND = 92,
+	DHCPV6_OPT_S46_PORTPARAMS = 93,
+	DHCPV6_OPT_S46_CONT_MAPE = 94,
+	DHCPV6_OPT_S46_CONT_MAPT = 95,
+	DHCPV6_OPT_S46_CONT_LW = 96,
 };
 
 enum dhcpv6_opt_npt {

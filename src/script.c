@@ -209,7 +209,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	putenv(buf);
 }
 
-#ifdef EXT_S46
+
 static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
 {
 	uint8_t *odata;
@@ -223,7 +223,7 @@ static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
 		}
 	}
 }
-#endif
+
 
 static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len)
 {
@@ -237,7 +237,6 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	fputs(name, fp);
 	fputc('=', fp);
 
-#ifdef EXT_S46
 	const char *type = (state == STATE_S46_MAPE) ? "map-e" :
 			(state == STATE_S46_MAPT) ? "map-t" : "lw4o6";
 
@@ -327,9 +326,6 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 
 		fputc(' ', fp);
 	}
-#else
-	if (data && len) {}
-#endif
 
 	fclose(fp);
 	putenv(str);
