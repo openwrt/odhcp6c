@@ -146,7 +146,7 @@ static void ra_send_rs(int signal __attribute__((unused)))
 	struct ifreq ifr;
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name));
-	if (!ioctl(sock, SIOCGIFHWADDR, &ifr)
+	if ((rs_attempt % 2 == 0) && !ioctl(sock, SIOCGIFHWADDR, &ifr)
 			&& memcmp(rs.lladdr.data, ifr.ifr_hwaddr.sa_data, 6))
 		memcpy(rs.lladdr.data, ifr.ifr_hwaddr.sa_data, 6);
 	else
