@@ -551,9 +551,11 @@ int dhcpv6_request(enum dhcpv6_msg type)
 				round_start = odhcp6c_get_milli_time()) {
 			uint8_t buf[1536], cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
 			struct iovec iov = {buf, sizeof(buf)};
-			struct msghdr msg = {NULL, 0, &iov, 1,
+			struct sockaddr_in6 addr;
+			struct msghdr msg = {&addr, sizeof(addr), &iov, 1,
 					cmsg_buf, sizeof(cmsg_buf), 0};
 			struct in6_pktinfo *pktinfo = NULL;
+
 
 			// Check for pending signal
 			if (odhcp6c_signal_process())
@@ -599,7 +601,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 					"%llums", (unsigned long long)elapsed);
 
 			if (retx->handler_reply)
-				len = retx->handler_reply(type, rc, opt, opt_end);
+				len = retx->handler_reply(type, rc, opt, opt_end, &addr);
 
 			if (len > 0 && round_end - round_start > 1000)
 				round_end = 1000 + round_start;
@@ -729,7 +731,7 @@ int dhcpv6_poll_reconfigure(void)
 
 
 static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end)
+		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
 {
 	uint16_t otype, olen;
 	uint8_t *odata, msg = DHCPV6_MSG_RENEW;
@@ -739,14 +741,14 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
 				odata[0] == DHCPV6_MSG_INFO_REQ))
 			msg = odata[0];
 
-	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, rc, NULL, NULL);
+	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, rc, NULL, NULL, NULL);
 	return msg;
 }
 
 
 // Collect all advertised servers
 static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end)
+		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
 {
 	uint16_t olen, otype;
 	uint8_t *odata, pref = 0;
@@ -854,18 +856,18 @@ static int dhcpv6_commit_advert(void)
 
 
 static int dhcpv6_handle_rebind_reply(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end)
+		const void *opt, const void *end, const struct sockaddr_in6 *from)
 {
-	dhcpv6_handle_advert(orig, rc, opt, end);
+	dhcpv6_handle_advert(orig, rc, opt, end, from);
 	if (dhcpv6_commit_advert() < 0)
 		return -1;
 
-	return dhcpv6_handle_reply(orig, rc, opt, end);
+	return dhcpv6_handle_reply(orig, rc, opt, end, from);
 }
 
 
 static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
-		const void *opt, const void *end)
+		const void *opt, const void *end, const struct sockaddr_in6 *from)
 {
 	uint8_t *odata;
 	uint16_t otype, olen;
@@ -1089,6 +1091,11 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 
 			default :
 				break;
+			}
+
+			if (orig == DHCPV6_MSG_REBIND || orig == DHCPV6_MSG_REQUEST) {
+				odhcp6c_clear_state(STATE_SERVER_ADDR);
+				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
 			}
 		}
 	}

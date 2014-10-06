@@ -123,7 +123,7 @@ enum dhcpv6_config {
 };
 
 typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end);
+		const void *opt, const void *end, const struct sockaddr_in6 *from);
 
 // retransmission strategy
 struct dhcpv6_retx {
@@ -246,6 +246,7 @@ enum odhcp6c_state {
 	STATE_CLIENT_ID,
 	STATE_SERVER_ID,
 	STATE_SERVER_CAND,
+	STATE_SERVER_ADDR,
 	STATE_ORO,
 	STATE_DNS,
 	STATE_SEARCH,

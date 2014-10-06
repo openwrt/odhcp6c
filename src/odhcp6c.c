@@ -266,6 +266,7 @@ int main(_unused int argc, char* const argv[])
 
 	while (!signal_term) { // Main logic
 		odhcp6c_clear_state(STATE_SERVER_ID);
+		odhcp6c_clear_state(STATE_SERVER_ADDR);
 		odhcp6c_clear_state(STATE_IA_NA);
 		odhcp6c_clear_state(STATE_IA_PD);
 		odhcp6c_clear_state(STATE_SNTP_IP);
@@ -365,6 +366,7 @@ int main(_unused int argc, char* const argv[])
 				}
 
 				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
+				odhcp6c_clear_state(STATE_SERVER_ADDR);
 
 				size_t ia_pd_len, ia_na_len;
 				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
