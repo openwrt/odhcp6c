@@ -41,8 +41,6 @@ static const int8_t hexvals[] = {
 
 
 static char *argv[4] = {NULL, NULL, NULL, NULL};
-static volatile char *delayed_call = NULL;
-static bool dont_delay = false;
 
 
 int script_init(const char *path, const char *ifname)
@@ -332,25 +330,6 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 }
 
 
-static void script_call_delayed(int signal __attribute__((unused)))
-{
-	if (delayed_call)
-		script_call((char*)delayed_call);
-}
-
-
-void script_delay_call(const char *status, int timeout)
-{
-	if (dont_delay) {
-		script_call(status);
-	} else if (!delayed_call) {
-		delayed_call = strdup(status);
-		signal(SIGALRM, script_call_delayed);
-		alarm(timeout);
-	}
-}
-
-
 void script_call(const char *status)
 {
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
@@ -358,10 +337,6 @@ void script_call(const char *status)
 	size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
 
 	odhcp6c_expire();
-	if (delayed_call) {
-		alarm(0);
-		dont_delay = true;
-	}
 
 	struct in6_addr *addr = odhcp6c_get_state(STATE_SERVER_ADDR, &addr_len);
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);

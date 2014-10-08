@@ -325,7 +325,6 @@ int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
 void script_call(const char *status);
-void script_delay_call(const char *status, int timeout);
 
 bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);

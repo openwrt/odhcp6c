@@ -480,11 +480,8 @@ bool odhcp6c_signal_process(void)
 		if (ra_link_up())
 			signal_usr2 = true;
 
-		if (ra_updated && (bound || allow_slaac_only == 0))
+		if (ra_updated && (bound || allow_slaac_only >= 0))
 			script_call("ra-updated"); // Immediate process urgent events
-		else if (ra_updated && !bound && allow_slaac_only > 0)
-			script_delay_call("ra-updated", allow_slaac_only);
-
 	}
 
 	return signal_usr1 || signal_usr2 || signal_term;
