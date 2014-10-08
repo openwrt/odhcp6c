@@ -336,8 +336,8 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_STATEFUL:
-			script_call("bound");
 			bound = true;
+			script_call("bound");
 			syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 
 			while (!signal_usr2 && !signal_term) {
