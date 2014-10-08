@@ -378,8 +378,12 @@ void script_call(const char *status)
 		s46_to_env(STATE_S46_MAPT, s46_mapt, s46_mapt_len);
 		s46_to_env(STATE_S46_LW, s46_lw, s46_lw_len);
 		bin_to_env(custom, custom_len);
-		entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
-		entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
+
+		if (odhcp6c_is_bound()) {
+			entry_to_env("PREFIXES", prefix, prefix_len, ENTRY_PREFIX);
+			entry_to_env("ADDRESSES", address, address_len, ENTRY_ADDRESS);
+		}
+
 		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
 		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
 		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
