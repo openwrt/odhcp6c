@@ -693,7 +693,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			rcmsg = odata[0];
 		} else if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)) {
 			ia_present = true;
-			if (olen < sizeof(struct dhcpv6_ia_hdr))
+			if (olen < -4 + sizeof(struct dhcpv6_ia_hdr))
 				options_valid = false;
 		}
 		else if ((otype == DHCPV6_OPT_IA_ADDR) || (otype == DHCPV6_OPT_IA_PREFIX) ||
@@ -761,7 +761,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (orig == DHCPV6_MSG_SOLICIT &&
 				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
-				olen > sizeof(struct dhcpv6_ia_hdr)) {
+				olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
 			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
 		}
@@ -800,8 +800,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
-				if (otype == DHCPV6_OPT_IA_PREFIX && (olen + 4) >=
-						(uint16_t)sizeof(struct dhcpv6_ia_prefix)) {
+				if (otype == DHCPV6_OPT_IA_PREFIX &&
+						olen >= -4 + sizeof(struct dhcpv6_ia_prefix)) {
 					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&d[-4];
 					have_pd = p->prefix;
 				}
@@ -810,7 +810,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d)
-				if (otype == DHCPV6_OPT_IA_ADDR)
+				if (otype == DHCPV6_OPT_IA_ADDR &&
+						olen >= -4 + sizeof(struct dhcpv6_ia_addr))
 					have_na = true;
 		}
 	}
@@ -930,7 +931,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		bool passthru = true;
 
 		if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)
-				&& olen > sizeof(struct dhcpv6_ia_hdr)) {
+				&& olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
 
 			// Test ID
