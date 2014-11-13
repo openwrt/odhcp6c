@@ -188,9 +188,6 @@ struct dhcpv6_auth_reconfigure {
 struct dhcpv6_cer_id {
 	uint16_t type;
 	uint16_t len;
-	uint16_t reserved;
-	uint16_t auth_type;
-	uint8_t auth[16];
 	struct in6_addr addr;
 } _packed;
 
