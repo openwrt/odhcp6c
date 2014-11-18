@@ -464,7 +464,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};
-	struct msghdr msg = {&srv, sizeof(srv), iov, cnt, NULL, 0, 0};
+	struct msghdr msg = {.msg_name = &srv, .msg_namelen = sizeof(srv),
+			.msg_iov = iov, .msg_iovlen = cnt};
 
 	sendmsg(sock, &msg, 0);
 }
@@ -552,8 +553,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 			uint8_t buf[1536], cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
 			struct iovec iov = {buf, sizeof(buf)};
 			struct sockaddr_in6 addr;
-			struct msghdr msg = {&addr, sizeof(addr), &iov, 1,
-					cmsg_buf, sizeof(cmsg_buf), 0};
+			struct msghdr msg = {.msg_name = &addr, .msg_namelen = sizeof(addr),
+					.msg_iov = &iov, .msg_iovlen = 1, .msg_control = cmsg_buf,
+					.msg_controllen = sizeof(cmsg_buf)};
 			struct in6_pktinfo *pktinfo = NULL;
 
 
