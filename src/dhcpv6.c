@@ -1356,23 +1356,8 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		}
 		break;
 
-	case DHCPV6_NoAddrsAvail:
-	case DHCPV6_NoPrefixAvail:
-		switch (orig) {
-		case DHCPV6_MSG_REQUEST:
-			if (*ret != 0)
-				*ret = 0;
-			break;
-		default:
-			break;
-		}
-		break;
-
-	case DHCPV6_NotOnLink:
-		// TODO handle not onlink in case of confirm
-		break;
-
 	default:
+		*ret = 0;
 		break;
 	}
 }
