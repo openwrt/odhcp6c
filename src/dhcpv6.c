@@ -487,8 +487,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 	if (retx->delay) {
 		struct timespec ts = {0, 0};
-		ts.tv_nsec = dhcpv6_rand_delay(10 * DHCPV6_REQ_DELAY);
-		nanosleep(&ts, NULL);
+		ts.tv_nsec = (dhcpv6_rand_delay((10000 * DHCPV6_REQ_DELAY) / 2) + (1000 * DHCPV6_REQ_DELAY) / 2) * 1000000;
+		while (nanosleep(&ts, &ts) < 0 && errno == EINTR);
 	}
 
 	if (type == DHCPV6_MSG_UNKNOWN)
