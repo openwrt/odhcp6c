@@ -254,19 +254,15 @@ int main(_unused int argc, char* const argv[])
 			return 4;
 		}
 
-		char pidbuf[128];
 		if (!pidfile) {
-			snprintf(pidbuf, sizeof(pidbuf),
-					"/var/run/odhcp6c.%s.pid", ifname);
-			pidfile = pidbuf;
+			snprintf((char*)buf, sizeof(buf), "/var/run/odhcp6c.%s.pid", ifname);
+			pidfile = (char*)buf;
 		}
 
-		int fd = open(pidfile, O_WRONLY | O_CREAT, 0644);
-		if (fd >= 0) {
-			char buf[8];
-			int len = snprintf(buf, sizeof(buf), "%i\n", getpid());
-			write(fd, buf, len);
-			close(fd);
+		FILE *fp = fopen(pidfile, "w");
+		if (fp) {
+			fprintf(fp, "%i\n", getpid());
+			fclose(fp);
 		}
 	}
 
