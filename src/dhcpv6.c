@@ -328,6 +328,11 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 					.addr = e[j].target
 				};
 
+				if (type == DHCPV6_MSG_REQUEST) {
+					p.preferred = htonl(e[j].preferred);
+					p.valid = htonl(e[j].valid);
+				}
+
 				memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
 				ia_pd_len += sizeof(p);
 
@@ -372,8 +377,14 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		pa[i].type = htons(DHCPV6_OPT_IA_ADDR);
 		pa[i].len = htons(sizeof(pa[i]) - 4U);
 		pa[i].addr = e[i].target;
-		pa[i].preferred = 0;
-		pa[i].valid = 0;
+
+		if (type == DHCPV6_MSG_REQUEST) {
+			pa[i].preferred = htonl(e[i].preferred);
+			pa[i].valid = htonl(e[i].valid);
+		} else {
+			pa[i].preferred = 0;
+			pa[i].valid = 0;
+		}
 	}
 
 	ia_na = pa;
