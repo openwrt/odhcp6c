@@ -565,7 +565,8 @@ struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct 
 }
 
 
-bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe)
+bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
+		uint32_t safe, bool filterexcess)
 {
 	size_t len;
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
@@ -576,7 +577,8 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 
 	if (new->valid > 0) {
 		if (x) {
-			if (new->valid >= x->valid && new->valid != UINT32_MAX &&
+			if (filterexcess && new->valid >= x->valid &&
+					new->valid != UINT32_MAX &&
 					new->valid - x->valid < min_update_interval &&
 					new->preferred >= x->preferred &&
 					new->preferred != UINT32_MAX &&
@@ -596,12 +598,6 @@ bool odhcp6c_update_entry_safe(enum odhcp6c_state state, struct odhcp6c_entry *n
 		odhcp6c_remove_state(state, (x - start) * sizeof(*x), sizeof(*x));
 	}
 	return true;
-}
-
-
-bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new)
-{
-	return odhcp6c_update_entry_safe(state, new, 0);
 }
 
 
