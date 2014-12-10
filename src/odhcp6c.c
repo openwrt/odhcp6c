@@ -395,6 +395,8 @@ int main(_unused int argc, char* const argv[])
 			break;
 		}
 
+		odhcp6c_expire();
+
 		size_t ia_pd_len, ia_na_len, server_id_len;
 		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
 		odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
