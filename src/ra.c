@@ -160,8 +160,8 @@ static void ra_send_rs(int signal __attribute__((unused)))
 static int16_t pref_to_priority(uint8_t flags)
 {
 	flags = (flags >> 3) & 0x03;
-	return (flags == 0x0) ? 1024 : (flags == 0x1) ? 512 :
-			(flags == 0x3) ? 2048 : -1;
+	return (flags == 0x0) ? 512 : (flags == 0x1) ? 384 :
+			(flags == 0x3) ? 640 : -1;
 }
 
 
