@@ -165,14 +165,16 @@ static int16_t pref_to_priority(uint8_t flags)
 }
 
 
-static void update_proc(const char *sect, const char *opt, uint32_t value)
+static int update_proc(const char *sect, const char *opt, uint32_t value)
 {
 	char buf[64];
 	snprintf(buf, sizeof(buf), "/proc/sys/net/ipv6/%s/%s/%s", sect, if_name, opt);
 
 	int fd = open(buf, O_WRONLY);
-	write(fd, buf, snprintf(buf, sizeof(buf), "%u", value));
+	int ret = write(fd, buf, snprintf(buf, sizeof(buf), "%u", value));
 	close(fd);
+
+	return ret;
 }
 
 
