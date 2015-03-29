@@ -271,8 +271,15 @@ bool ra_process(void)
 	while (true) {
 		struct sockaddr_in6 from;
 		struct iovec iov = {buf, sizeof(buf)};
-		struct msghdr msg = {&from, sizeof(from), &iov, 1,
-				cmsg_buf, sizeof(cmsg_buf), 0};
+		struct msghdr msg = {
+			.msg_name = (void *) &from,
+			.msg_namelen = sizeof(from),
+			.msg_iov = &iov,
+			.msg_iovlen = 1,
+			.msg_control = cmsg_buf,
+			.msg_controllen = sizeof(cmsg_buf),
+			.msg_flags = 0
+		};
 
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
 		if (len <= 0)
