@@ -184,6 +184,15 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 }
 
 
+static void int_to_env(const char *name, int value)
+{
+	size_t len = 12 + strlen(name);
+	char *buf = realloc(NULL, len);
+	snprintf(buf, len, "%s=%d", name, value);
+	putenv(buf);
+}
+
+
 static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
 {
 	uint8_t *odata;
@@ -365,6 +374,11 @@ void script_call(const char *status)
 		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
 		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
 		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
+
+		int_to_env("RA_HOPLIMIT", ra_conf_hoplimit(0));
+		int_to_env("RA_MTU", ra_conf_mtu(0));
+		int_to_env("RA_REACHABLE", ra_conf_reachable(0));
+		int_to_env("RA_RETRANSMIT", ra_conf_retransmit(0));
 
 		char *buf = malloc(10 + passthru_len * 2);
 		strncpy(buf, "PASSTHRU=", 10);

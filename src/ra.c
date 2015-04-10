@@ -165,19 +165,6 @@ static int16_t pref_to_priority(uint8_t flags)
 }
 
 
-static int update_proc(const char *sect, const char *opt, uint32_t value)
-{
-	char buf[64];
-	snprintf(buf, sizeof(buf), "/proc/sys/net/ipv6/%s/%s/%s", sect, if_name, opt);
-
-	int fd = open(buf, O_WRONLY);
-	int ret = write(fd, buf, snprintf(buf, sizeof(buf), "%u", value));
-	close(fd);
-
-	return ret;
-}
-
-
 bool ra_link_up(void)
 {
 	static bool firstcall = true;
@@ -247,6 +234,38 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 		;
 
 	return opt == end;
+}
+
+int ra_conf_hoplimit(int newvalue)
+{
+	static int value = 0;
+	if (newvalue > value)
+		value = newvalue;
+	return value;
+}
+
+int ra_conf_mtu(int newvalue)
+{
+	static int value = 0;
+	if (newvalue >= 1280 && newvalue <= 65535)
+		value = newvalue;
+	return value;
+}
+
+int ra_conf_reachable(int newvalue)
+{
+	static int value = 0;
+	if (newvalue > 0 && newvalue <= 3600000)
+		value = newvalue;
+	return value;
+}
+
+int ra_conf_retransmit(int newvalue)
+{
+	static int value = 0;
+	if (newvalue > 0 && newvalue <= 60000)
+		value = newvalue;
+	return value;
 }
 
 bool ra_process(void)
@@ -324,26 +343,18 @@ bool ra_process(void)
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry, 0, true);
 
 		// Parse hoplimit
-		if (adv->nd_ra_curhoplimit)
-			update_proc("conf", "hop_limit", adv->nd_ra_curhoplimit);
+		ra_conf_hoplimit(adv->nd_ra_curhoplimit);
 
 		// Parse ND parameters
-		uint32_t reachable = ntohl(adv->nd_ra_reachable);
-		if (reachable > 0 && reachable <= 3600000)
-			update_proc("neigh", "base_reachable_time_ms", reachable);
-
-		uint32_t retransmit = ntohl(adv->nd_ra_retransmit);
-		if (retransmit > 0 && retransmit <= 60000)
-			update_proc("neigh", "retrans_time_ms", retransmit);
-
+		ra_conf_reachable(ntohl(adv->nd_ra_reachable));
+		ra_conf_retransmit(ntohl(adv->nd_ra_retransmit));
 
 		// Evaluate options
 		struct icmpv6_opt *opt;
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
-				if (ntohl(*mtu) >= 1280 && ntohl(*mtu) <= 65535)
-					update_proc("conf", "mtu", ntohl(*mtu));
+				ra_conf_mtu(ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
 				entry.router = from.sin6_addr;
 				entry.target = any;
