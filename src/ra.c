@@ -239,7 +239,7 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 int ra_conf_hoplimit(int newvalue)
 {
 	static int value = 0;
-	if (newvalue > value)
+	if (newvalue > 0)
 		value = newvalue;
 	return value;
 }
