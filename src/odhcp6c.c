@@ -584,14 +584,12 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 					new->valid - x->valid < min_update_interval &&
 					new->preferred >= x->preferred &&
 					new->preferred != UINT32_MAX &&
-					new->preferred - x->preferred < min_update_interval &&
-					x->class == new->class)
+					new->preferred - x->preferred < min_update_interval)
 				return false;
 			x->valid = new->valid;
 			x->preferred = new->preferred;
 			x->t1 = new->t1;
 			x->t2 = new->t2;
-			x->class = new->class;
 			x->iaid = new->iaid;
 		} else {
 			odhcp6c_add_state(state, new, sizeof(*new));

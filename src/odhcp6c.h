@@ -65,10 +65,6 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_PD_EXCLUDE = 67,
 	DHCPV6_OPT_SOL_MAX_RT = 82,
 	DHCPV6_OPT_INF_MAX_RT = 83,
-#ifdef EXT_PREFIX_CLASS
-	/* draft-bhandari-dhc-class-based-prefix, not yet standardized */
-	DHCPV6_OPT_PREFIX_CLASS = EXT_PREFIX_CLASS,
-#endif
 #ifdef EXT_CER_ID
 	/* draft-donley-dhc-cer-id-option-03 */
 	DHCPV6_OPT_CER_ID = EXT_CER_ID,
@@ -300,7 +296,6 @@ struct odhcp6c_entry {
 	uint32_t preferred;
 	uint32_t t1;
 	uint32_t t2;
-	uint16_t class;
 	uint32_t iaid;
 };
 
