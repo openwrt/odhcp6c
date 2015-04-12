@@ -553,9 +553,9 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len)
 }
 
 
-struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
+static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
 {
-	size_t len, cmplen = offsetof(struct odhcp6c_entry, target) + new->length / 8;
+	size_t len, cmplen = offsetof(struct odhcp6c_entry, target) + ((new->length + 7) / 8);
 	struct odhcp6c_entry *start = odhcp6c_get_state(state, &len);
 	struct odhcp6c_entry *x = NULL;
 
