@@ -20,6 +20,8 @@
 #include <stdbool.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <resolv.h>
+#include <alloca.h>
 
 #include <net/if.h>
 #include <arpa/inet.h>
@@ -274,8 +276,10 @@ bool ra_process(void)
 	bool changed = false;
 	uint8_t buf[1500], cmsg_buf[128];
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
-	struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0};
+	struct odhcp6c_entry *entry = alloca(sizeof(*entry) + 256);
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
+
+	memset(entry, 0, sizeof(*entry));
 
 	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
 		struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
@@ -332,15 +336,15 @@ bool ra_process(void)
 		uint32_t router_valid = ntohs(adv->nd_ra_router_lifetime);
 
 		// Parse default route
-		entry.target = any;
-		entry.length = 0;
-		entry.router = from.sin6_addr;
-		entry.priority = pref_to_priority(adv->nd_ra_flags_reserved);
-		if (entry.priority < 0)
-			entry.priority = pref_to_priority(0);
-		entry.valid = router_valid;
-		entry.preferred = entry.valid;
-		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry, 0, true);
+		entry->target = any;
+		entry->length = 0;
+		entry->router = from.sin6_addr;
+		entry->priority = pref_to_priority(adv->nd_ra_flags_reserved);
+		if (entry->priority < 0)
+			entry->priority = pref_to_priority(0);
+		entry->valid = router_valid;
+		entry->preferred = entry->valid;
+		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 0, true);
 
 		// Parse hoplimit
 		ra_conf_hoplimit(adv->nd_ra_curhoplimit);
@@ -356,69 +360,93 @@ bool ra_process(void)
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
 				ra_conf_mtu(ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
-				entry.router = from.sin6_addr;
-				entry.target = any;
-				entry.priority = pref_to_priority(opt->data[1]);
-				entry.length = opt->data[0];
+				entry->router = from.sin6_addr;
+				entry->target = any;
+				entry->priority = pref_to_priority(opt->data[1]);
+				entry->length = opt->data[0];
 				uint32_t *valid = (uint32_t*)&opt->data[2];
-				entry.valid = ntohl(*valid);
-				memcpy(&entry.target, &opt->data[6], (opt->len - 1) * 8);
+				entry->valid = ntohl(*valid);
+				memcpy(&entry->target, &opt->data[6], (opt->len - 1) * 8);
 
-				if (entry.length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry.target)
-						|| IN6_IS_ADDR_LOOPBACK(&entry.target)
-						|| IN6_IS_ADDR_MULTICAST(&entry.target))
+				if (entry->length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry->target)
+						|| IN6_IS_ADDR_LOOPBACK(&entry->target)
+						|| IN6_IS_ADDR_MULTICAST(&entry->target))
 					continue;
 
-				if (entry.priority > 0)
-					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry, 0, true);
+				if (entry->priority > 0)
+					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 0, true);
 			} else if (opt->type == ND_OPT_PREFIX_INFORMATION && opt->len == 4) {
 				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info*)opt;
-				entry.router = any;
-				entry.target = pinfo->nd_opt_pi_prefix;
-				entry.priority = 256;
-				entry.length = pinfo->nd_opt_pi_prefix_len;
-				entry.valid = ntohl(pinfo->nd_opt_pi_valid_time);
-				entry.preferred = ntohl(pinfo->nd_opt_pi_preferred_time);
+				entry->router = any;
+				entry->target = pinfo->nd_opt_pi_prefix;
+				entry->priority = 256;
+				entry->length = pinfo->nd_opt_pi_prefix_len;
+				entry->valid = ntohl(pinfo->nd_opt_pi_valid_time);
+				entry->preferred = ntohl(pinfo->nd_opt_pi_preferred_time);
 
-				if (entry.length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry.target)
-						|| IN6_IS_ADDR_LOOPBACK(&entry.target)
-						|| IN6_IS_ADDR_MULTICAST(&entry.target)
-						|| entry.valid < entry.preferred)
+				if (entry->length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry->target)
+						|| IN6_IS_ADDR_LOOPBACK(&entry->target)
+						|| IN6_IS_ADDR_MULTICAST(&entry->target)
+						|| entry->valid < entry->preferred)
 					continue;
 
 				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
-					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, &entry, 7200, true);
+					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 7200, true);
 
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
 						pinfo->nd_opt_pi_prefix_len != 64)
 					continue;
 
-				entry.target.s6_addr32[2] = lladdr.s6_addr32[2];
-				entry.target.s6_addr32[3] = lladdr.s6_addr32[3];
+				entry->target.s6_addr32[2] = lladdr.s6_addr32[2];
+				entry->target.s6_addr32[3] = lladdr.s6_addr32[3];
 
-				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, &entry, 7200, true);
+				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry, 7200, true);
 			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
-				entry.router = from.sin6_addr;
-				entry.priority = 0;
-				entry.length = 128;
+				entry->router = from.sin6_addr;
+				entry->priority = 0;
+				entry->length = 128;
 				uint32_t *valid = (uint32_t*)&opt->data[2];
-				entry.valid = ntohl(*valid);
-				entry.preferred = 0;
+				entry->valid = ntohl(*valid);
+				entry->preferred = 0;
 
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
-					memcpy(&entry.target, &opt->data[6 + i * sizeof(entry.target)],
-							sizeof(entry.target));
-					changed |= odhcp6c_update_entry(STATE_RA_DNS, &entry, 0, true);
+					memcpy(&entry->target, &opt->data[6 + i * sizeof(entry->target)],
+							sizeof(entry->target));
+					changed |= odhcp6c_update_entry(STATE_RA_DNS, entry, 0, true);
+				}
+			} else if (opt->type == ND_OPT_DNSSL && opt->len > 1) {
+				uint32_t *valid = (uint32_t*)&opt->data[2];
+				uint8_t *buf = &opt->data[6];
+				uint8_t *end = &buf[(opt->len - 1) * 8];
+
+				entry->router = from.sin6_addr;
+				entry->valid = ntohl(*valid);
+
+				while (buf < end) {
+					int len = dn_expand(buf, end, buf, (char*)entry->auxtarget, 256);
+					if (len > 0) {
+						buf = &buf[len];
+						entry->auxlen = strlen((char*)entry->auxtarget);
+						changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry, 0, true);
+						entry->auxlen = 0;
+					} else {
+						break;
+					}
 				}
 			}
 		}
 
-		size_t ra_dns_len;
-		struct odhcp6c_entry *entry = odhcp6c_get_state(STATE_RA_DNS, &ra_dns_len);
-		for (size_t i = 0; i < ra_dns_len / sizeof(*entry); ++i)
-			if (IN6_ARE_ADDR_EQUAL(&entry[i].router, &from.sin6_addr) &&
-					entry[i].valid > router_valid)
-				entry[i].valid = router_valid;
+		int states[2] = {STATE_RA_DNS, STATE_RA_SEARCH};
+		for (size_t i = 0; i < 2; ++i) {
+			size_t ra_dns_len;
+			uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
+			for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
+						(uint8_t*)c < &start[ra_dns_len] && &c->auxtarget[c->auxlen] <= &start[ra_dns_len];
+						c = (struct odhcp6c_entry*)(&c->auxtarget[c->auxlen]))
+				if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
+						c->valid > router_valid)
+					c->valid = router_valid;
+		}
 	}
 
 	if (found)

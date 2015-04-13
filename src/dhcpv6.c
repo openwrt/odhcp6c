@@ -995,7 +995,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_add_state(STATE_DNS, odata, olen);
 		} else if (otype == DHCPV6_OPT_DNS_DOMAIN) {
 			odhcp6c_add_state(STATE_SEARCH, odata, olen);
-			passthru = false;
 		} else if (otype == DHCPV6_OPT_SNTP_SERVERS) {
 			if (olen % 16 == 0)
 				odhcp6c_add_state(STATE_SNTP_IP, odata, olen);
@@ -1142,7 +1141,7 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
-		struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0,
+		struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0, 0,
 				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0};
 
 		entry.iaid = ia_hdr->iaid;

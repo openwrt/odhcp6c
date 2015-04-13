@@ -182,6 +182,25 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 }
 
 
+static void search_to_env(const char *name, const uint8_t *start, size_t len)
+{
+	size_t buf_len = strlen(name);
+	char *buf = realloc(NULL, buf_len + 2 + len);
+	char *c = mempcpy(buf, name, buf_len);
+	*c++ = '=';
+
+	for (struct odhcp6c_entry *e = (struct odhcp6c_entry*)start;
+				(uint8_t*)e < &start[len] && &e->auxtarget[e->auxlen] <= &start[len];
+				e = (struct odhcp6c_entry*)(&e->auxtarget[e->auxlen])) {
+		c = mempcpy(c, e->auxtarget, e->auxlen);
+		*c++ = ' ';
+	}
+
+	c[-1] = '\0';
+	putenv(buf);
+}
+
+
 static void int_to_env(const char *name, int value)
 {
 	size_t len = 12 + strlen(name);
@@ -340,12 +359,14 @@ void script_call(const char *status)
 	uint8_t *s46_lw = odhcp6c_get_state(STATE_S46_LW, &s46_lw_len);
 	uint8_t *passthru = odhcp6c_get_state(STATE_PASSTHRU, &passthru_len);
 
-	size_t prefix_len, address_len, ra_pref_len, ra_route_len, ra_dns_len;
+	size_t prefix_len, address_len, ra_pref_len,
+		ra_route_len, ra_dns_len, ra_search_len;
 	uint8_t *prefix = odhcp6c_get_state(STATE_IA_PD, &prefix_len);
 	uint8_t *address = odhcp6c_get_state(STATE_IA_NA, &address_len);
 	uint8_t *ra_pref = odhcp6c_get_state(STATE_RA_PREFIX, &ra_pref_len);
 	uint8_t *ra_route = odhcp6c_get_state(STATE_RA_ROUTE, &ra_route_len);
 	uint8_t *ra_dns = odhcp6c_get_state(STATE_RA_DNS, &ra_dns_len);
+	uint8_t *ra_search = odhcp6c_get_state(STATE_RA_SEARCH, &ra_search_len);
 
 	// Don't set environment before forking, because env is leaky.
 	if (fork() == 0) {
@@ -372,6 +393,7 @@ void script_call(const char *status)
 		entry_to_env("RA_ADDRESSES", ra_pref, ra_pref_len, ENTRY_ADDRESS);
 		entry_to_env("RA_ROUTES", ra_route, ra_route_len, ENTRY_ROUTE);
 		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
+		search_to_env("RA_DOMAINS", ra_search, ra_search_len);
 
 		int_to_env("RA_HOPLIMIT", ra_conf_hoplimit(0));
 		int_to_env("RA_MTU", ra_conf_mtu(0));
