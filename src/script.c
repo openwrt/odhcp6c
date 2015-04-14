@@ -247,7 +247,6 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	uint16_t otype, olen;
 	dhcpv6_for_each_option(data, &data[len], otype, olen, odata) {
 		struct dhcpv6_s46_rule *rule = (struct dhcpv6_s46_rule*)odata;
-		struct dhcpv6_s46_dmr *dmr = (struct dhcpv6_s46_dmr*)odata;
 		struct dhcpv6_s46_v4v6bind *bind = (struct dhcpv6_s46_v4v6bind*)odata;
 
 		if (state != STATE_S46_LW && otype == DHCPV6_OPT_S46_RULE &&
@@ -283,7 +282,7 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 					fprintf(fp, "br=%s,", buf6);
 				} else if (state == STATE_S46_MAPT && otype == DHCPV6_OPT_S46_DMR &&
 						olen >= sizeof(struct dhcpv6_s46_dmr)) {
-					dmr = (struct dhcpv6_s46_dmr*)odata;
+					struct dhcpv6_s46_dmr *dmr = (struct dhcpv6_s46_dmr*)odata;
 					memset(&in6, 0, sizeof(in6));
 					size_t prefix6len = dmr->dmr_prefix6_len;
 					prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
