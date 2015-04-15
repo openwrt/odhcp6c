@@ -424,14 +424,17 @@ bool ra_process(void)
 
 				while (buf < end) {
 					int len = dn_expand(buf, end, buf, (char*)entry->auxtarget, 256);
-					if (len > 0) {
-						buf = &buf[len];
-						entry->auxlen = strlen((char*)entry->auxtarget);
-						changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry, 0, true);
-						entry->auxlen = 0;
-					} else {
+					if (len < 1)
 						break;
-					}
+
+					buf = &buf[len];
+					entry->auxlen = strlen((char*)entry->auxtarget);
+
+					if (entry->auxlen == 0)
+						continue;
+
+					changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry, 0, true);
+					entry->auxlen = 0;
 				}
 			}
 		}
