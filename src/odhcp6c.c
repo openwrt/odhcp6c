@@ -278,13 +278,14 @@ int main(_unused int argc, char* const argv[])
 		odhcp6c_clear_state(STATE_NTP_FQDN);
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
-		dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
 		bound = false;
 
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 		signal_usr1 = signal_usr2 = false;
-		int mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+		int mode = dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
+		if (mode != DHCPV6_STATELESS)
+			mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 		odhcp6c_signal_process();
 
 		if (mode < 0)
