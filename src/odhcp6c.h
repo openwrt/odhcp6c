@@ -308,7 +308,7 @@ struct odhcp6c_request_prefix {
 };
 
 int init_dhcpv6(const char *ifname, unsigned int client_options, int sol_timeout);
-void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
+int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
 int dhcpv6_promote_server_cand(void);

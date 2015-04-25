@@ -216,10 +216,19 @@ enum {
 	IOV_TOTAL
 };
 
-void dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
+int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
 {
+	int mode = DHCPV6_UNKNOWN;
+
 	na_mode = na;
 	pd_mode = pd;
+
+	if (na_mode == IA_MODE_NONE && pd_mode == IA_MODE_NONE)
+		mode = DHCPV6_STATELESS;
+	else if (na_mode == IA_MODE_FORCE || pd_mode == IA_MODE_FORCE)
+		mode = DHCPV6_STATEFUL;
+
+	return mode;
 }
 
 static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
@@ -547,10 +556,15 @@ int dhcpv6_request(enum dhcpv6_msg type)
 			round_end = timeout * 1000 + start;
 
 		// Built and send package
-		if (type != DHCPV6_MSG_UNKNOWN) {
-			if (type != DHCPV6_MSG_SOLICIT)
-				syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
-						retx->name, (unsigned long long)elapsed, rc);
+		switch (type) {
+		case DHCPV6_MSG_UNKNOWN:
+			break;
+		default:
+			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
+					retx->name, (unsigned long long)elapsed, rc);
+			// Fall through
+		case DHCPV6_MSG_SOLICIT:
+		case DHCPV6_MSG_INFO_REQ:
 			dhcpv6_send(type, trid, elapsed / 10);
 			rc++;
 		}
