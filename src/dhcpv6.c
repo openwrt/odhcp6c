@@ -948,6 +948,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_S46_MAPE);
 		odhcp6c_clear_state(STATE_S46_LW);
 		odhcp6c_clear_state(STATE_PASSTHRU);
+		odhcp6c_clear_state(STATE_CUSTOM_OPTS);
 
 		// Parse and find all matching IAs
 		dhcpv6_for_each_option(opt, end, otype, olen, odata) {
