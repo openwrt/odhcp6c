@@ -272,17 +272,21 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		for (size_t i = 0; i < n_prefixes; i++) {
 			struct dhcpv6_ia_hdr hdr_ia_pd = {
 				htons(DHCPV6_OPT_IA_PD),
-				htons(sizeof(hdr_ia_pd) - 4 + sizeof(struct dhcpv6_ia_prefix)),
+				htons(sizeof(hdr_ia_pd) - 4 +
+				      sizeof(struct dhcpv6_ia_prefix) * !!request_prefixes[i].length),
 				request_prefixes[i].iaid, 0, 0
 			};
 			struct dhcpv6_ia_prefix pref = {
 				.type = htons(DHCPV6_OPT_IA_PREFIX),
-				.len = htons(25), .prefix = request_prefixes[i].length
+				.len = htons(sizeof(pref) - 4),
+				.prefix = request_prefixes[i].length
 			};
 			memcpy(ia_pd + ia_pd_len, &hdr_ia_pd, sizeof(hdr_ia_pd));
 			ia_pd_len += sizeof(hdr_ia_pd);
-			memcpy(ia_pd + ia_pd_len, &pref, sizeof(pref));
-			ia_pd_len += sizeof(pref);
+			if (request_prefixes[i].length) {
+				memcpy(ia_pd + ia_pd_len, &pref, sizeof(pref));
+				ia_pd_len += sizeof(pref);
+			}
 		}
 	} else {
 		struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
