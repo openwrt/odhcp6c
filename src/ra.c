@@ -274,7 +274,8 @@ bool ra_process(void)
 {
 	bool found = false;
 	bool changed = false;
-	uint8_t buf[1500], cmsg_buf[128];
+	uint8_t buf[1500] __aligned(4);
+	uint8_t cmsg_buf[128] __aligned(__alignof__(struct cmsghdr));
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry *entry = alloca(sizeof(*entry) + 256);
 	const struct in6_addr any = IN6ADDR_ANY_INIT;

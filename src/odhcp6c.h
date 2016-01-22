@@ -18,6 +18,7 @@
 
 #define _unused __attribute__((unused))
 #define _packed __attribute__((packed))
+#define __aligned(n) __attribute__((aligned(n)))
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 

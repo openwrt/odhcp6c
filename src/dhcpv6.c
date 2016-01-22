@@ -577,7 +577,9 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Receive rounds
 		for (; len < 0 && (round_start < round_end);
 				round_start = odhcp6c_get_milli_time()) {
-			uint8_t buf[1536], cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+			uint8_t buf[1536];
+			uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))]
+				__aligned(__alignof__(struct cmsghdr));
 			struct iovec iov = {buf, sizeof(buf)};
 			struct sockaddr_in6 addr;
 			struct msghdr msg = {.msg_name = &addr, .msg_namelen = sizeof(addr),
