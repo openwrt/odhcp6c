@@ -227,7 +227,7 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 
 static void int_to_env(const char *name, int value)
 {
-	size_t len = 12 + strlen(name);
+	size_t len = 13 + strlen(name);
 	char *buf = realloc(NULL, len);
 	snprintf(buf, len, "%s=%d", name, value);
 	putenv(buf);
