@@ -118,9 +118,10 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 	char *buf = realloc(NULL, len + buf_len + 2);
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
-	int l = 1;
-	while (l > 0 && fqdn < fqdn_end) {
-		l = dn_expand(fqdn, fqdn_end, fqdn, &buf[buf_len], buf_size - buf_len);
+	while (fqdn < fqdn_end) {
+		int l = dn_expand(fqdn, fqdn_end, fqdn, &buf[buf_len], buf_size - buf_len);
+		if (l <= 0)
+			break;
 		fqdn += l;
 		buf_len += strlen(&buf[buf_len]);
 		buf[buf_len++] = ' ';
