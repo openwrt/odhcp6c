@@ -105,7 +105,9 @@ static void ipv6_to_env(const char *name,
 		buf_len += strlen(&buf[buf_len]);
 		buf[buf_len++] = ' ';
 	}
-	buf[buf_len - 1] = '\0';
+	if (buf[buf_len - 1] == ' ')
+		buf_len--;
+	buf[buf_len] = '\0';
 	putenv(buf);
 }
 
@@ -126,7 +128,9 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 		buf_len += strlen(&buf[buf_len]);
 		buf[buf_len++] = ' ';
 	}
-	buf[buf_len - 1] = '\0';
+	if (buf[buf_len - 1] == ' ')
+		buf_len--;
+	buf[buf_len] = '\0';
 	putenv(buf);
 }
 
@@ -201,7 +205,9 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		buf[buf_len++] = ' ';
 	}
 
-	buf[buf_len - 1] = '\0';
+	if (buf[buf_len - 1] == ' ')
+		buf_len--;
+	buf[buf_len] = '\0';
 	putenv(buf);
 }
 
@@ -220,7 +226,9 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 		*c++ = ' ';
 	}
 
-	c[-1] = '\0';
+	if (c[-1] == ' ')
+		c--;
+	*c = '\0';
 	putenv(buf);
 }
 
