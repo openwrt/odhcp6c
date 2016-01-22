@@ -619,7 +619,7 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 	uint8_t *start = odhcp6c_get_state(state, &len);
 	for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
 			(uint8_t*)c < &start[len] && &c->auxtarget[c->auxlen] <= &start[len];
-			c = (struct odhcp6c_entry*)(&c->auxtarget[c->auxlen])) {
+			) {
 		if (c->t1 < elapsed)
 			c->t1 = 0;
 		else if (c->t1 != UINT32_MAX)
@@ -640,8 +640,12 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 		else if (c->valid != UINT32_MAX)
 			c->valid -= elapsed;
 
-		if (!c->valid)
+		if (!c->valid) {
 			odhcp6c_remove_state(state, ((uint8_t*)c) - start, sizeof(*c) + c->auxlen);
+			start = odhcp6c_get_state(state, &len);
+		} else {
+			c = (struct odhcp6c_entry*)(&c->auxtarget[c->auxlen]);
+		}
 	}
 }
 
