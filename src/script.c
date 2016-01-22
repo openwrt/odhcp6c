@@ -157,7 +157,10 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 {
 	size_t buf_len = strlen(name);
 	const struct odhcp6c_entry *e = data;
-	char *buf = realloc(NULL, buf_len + 2 + (len / sizeof(*e)) * 144);
+	// Worst case: ENTRY_PREFIX with iaid != 1 and exclusion
+	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 22 + 15 + 10 +
+				      INET6_ADDRSTRLEN-1 + 11 + 1);
+	char *buf = realloc(NULL, buf_len + 2 + (len / sizeof(*e)) * max_entry_len);
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
 
@@ -165,28 +168,34 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
 		if (type != ENTRY_HOST) {
-			buf_len += snprintf(&buf[buf_len], 6, "/%"PRIu16, e[i].length);
+			snprintf(&buf[buf_len], 6, "/%"PRIu16, e[i].length);
+			buf += strlen(&buf[buf_len]);
 			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
 					inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
 					buf_len += strlen(&buf[buf_len]);
 				}
-				buf_len += snprintf(&buf[buf_len], 24, ",%u", e[i].valid);
-				buf_len += snprintf(&buf[buf_len], 12, ",%u", e[i].priority);
+				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].valid, e[i].priority);
+				buf += strlen(&buf[buf_len]);
 			} else {
-				buf_len += snprintf(&buf[buf_len], 24, ",%u,%u", e[i].preferred, e[i].valid);
+				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].preferred, e[i].valid);
+				buf += strlen(&buf[buf_len]);
 			}
 
-			if (type == ENTRY_PREFIX && ntohl(e[i].iaid) != 1)
-				buf_len += snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e[i].iaid));
+			if (type == ENTRY_PREFIX && ntohl(e[i].iaid) != 1) {
+				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e[i].iaid));
+				buf += strlen(&buf[buf_len]);
+			}
 
 			if (type == ENTRY_PREFIX && e[i].priority) {
 				// priority and router are abused for prefix exclusion
-				buf_len += snprintf(&buf[buf_len], 12, ",excluded=");
+				snprintf(&buf[buf_len], 11, ",excluded=");
+				buf_len += strlen(&buf[buf_len]);
 				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
 				buf_len += strlen(&buf[buf_len]);
-				buf_len += snprintf(&buf[buf_len], 24, "/%u", e[i].priority);
+				snprintf(&buf[buf_len], 12, "/%u", e[i].priority);
+				buf_len += strlen(&buf[buf_len]);
 			}
 		}
 		buf[buf_len++] = ' ';
