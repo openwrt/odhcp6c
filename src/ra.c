@@ -444,8 +444,9 @@ bool ra_process(void)
 			size_t ra_dns_len;
 			uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
 			for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
-						(uint8_t*)c < &start[ra_dns_len] && &c->auxtarget[c->auxlen] <= &start[ra_dns_len];
-						c = (struct odhcp6c_entry*)(&c->auxtarget[c->auxlen]))
+						(uint8_t*)c < &start[ra_dns_len] &&
+						(uint8_t*)odhcp6c_next_entry(c) <= &start[ra_dns_len];
+						c = odhcp6c_next_entry(c))
 				if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
 						c->valid > router_valid)
 					c->valid = router_valid;
