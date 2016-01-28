@@ -1185,7 +1185,7 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 				if (elen > 64)
 					elen = 64;
 
-				if (elen <= 32 || elen <= entry.length) {
+				if (entry.length < 32 || elen <= entry.length) {
 					ok = false;
 					continue;
 				}
