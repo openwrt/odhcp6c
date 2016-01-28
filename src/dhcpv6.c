@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -1290,16 +1291,22 @@ static int dhcpv6_calc_refresh_timers(void)
 
 
 static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
-		const void *status_msg, const int len)
+		const void *status_msg, int len)
 {
-	uint8_t buf[len + 3];
+	const char *src = status_msg;
+	char buf[len + 3];
+	char *dst = buf;
 
-	memset(buf, 0, sizeof(buf));
 	if (len) {
-		buf[0] = '(';
-		memcpy(&buf[1], status_msg, len);
-		buf[len + 1] = ')';
+		*dst++ = '(';
+		while (len--) {
+			*dst = isprint((unsigned char)*src) ? *src : '?';
+			src++;
+			dst++;
+		}
+		*dst++ = ')';
 	}
+	*dst = 0;
 
 	syslog(LOG_WARNING, "Server returned %s status %i %s",
 		scope, code, buf);
