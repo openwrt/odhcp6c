@@ -1362,6 +1362,7 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 	}
 }
 
+// Note this always takes ownership of cand->ia_na and cand->ia_pd
 static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 {
 	size_t cand_len, i;
@@ -1384,7 +1385,10 @@ static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 			break;
 	}
 
-	odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*c), cand, sizeof(*cand));
+	if (odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*c), cand, sizeof(*cand))) {
+		free(cand->ia_na);
+		free(cand->ia_pd);
+	}
 }
 
 static void dhcpv6_clear_all_server_cand(void)
