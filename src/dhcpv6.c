@@ -813,7 +813,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
 					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
 				cand.inf_max_rt = inf_max_rt;
-		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix) {
+		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix &&
+					olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
@@ -823,7 +824,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 					have_pd = p->prefix;
 				}
 			}
-		} else if (otype == DHCPV6_OPT_IA_NA) {
+		} else if (otype == DHCPV6_OPT_IA_NA &&
+					olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
 			dhcpv6_for_each_option(&h[1], oend, otype, olen, d)
