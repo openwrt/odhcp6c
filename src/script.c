@@ -282,7 +282,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 			size_t prefix6len = rule->prefix6_len;
 			prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
 
-			if (olen < sizeof(struct dhcpv6_s46_rule) + prefix6len)
+			if (prefix6len > sizeof(in6) ||
+			    olen < sizeof(struct dhcpv6_s46_rule) + prefix6len)
 				continue;
 
 			memcpy(&in6, rule->ipv6_prefix, prefix6len);
@@ -311,7 +312,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 					size_t prefix6len = dmr->dmr_prefix6_len;
 					prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
 
-					if (olen < sizeof(struct dhcpv6_s46_dmr) + prefix6len)
+					if (prefix6len > sizeof(in6) ||
+					    olen < sizeof(struct dhcpv6_s46_dmr) + prefix6len)
 						continue;
 
 					memcpy(&in6, dmr->dmr_ipv6_prefix, prefix6len);
@@ -330,7 +332,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 			size_t prefix6len = bind->bindprefix6_len;
 			prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
 
-			if (olen < sizeof(struct dhcpv6_s46_v4v6bind) + prefix6len)
+			if (prefix6len > sizeof(in6) ||
+			    olen < sizeof(struct dhcpv6_s46_v4v6bind) + prefix6len)
 				continue;
 
 			memcpy(&in6, bind->bind_ipv6_prefix, prefix6len);
