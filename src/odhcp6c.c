@@ -516,11 +516,11 @@ void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 		memcpy(n, data, len);
 }
 
-void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
+int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
 {
 	ssize_t len_after = state_len[state] - offset;
 	if (len_after < 0)
-		return;
+		return -1;
 
 	uint8_t *n = odhcp6c_resize_state(state, len);
 	if (n) {
@@ -529,6 +529,8 @@ void odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *d
 		memmove(sdata + offset + len, sdata + offset, len_after);
 		memcpy(sdata + offset, data, len);
 	}
+
+	return 0;
 }
 
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
