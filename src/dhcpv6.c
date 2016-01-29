@@ -989,7 +989,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				if (code != DHCPV6_Success)
 					continue;
 
-				dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
+				dhcpv6_parse_ia(ia_hdr, odata + olen);
 				passthru = false;
 			} else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
 				uint8_t *mdata = (olen > 2) ? &odata[2] : NULL;

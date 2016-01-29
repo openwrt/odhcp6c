@@ -173,7 +173,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		buf_len += strlen(&buf[buf_len]);
 		if (type != ENTRY_HOST) {
 			snprintf(&buf[buf_len], 6, "/%"PRIu16, e[i].length);
-			buf += strlen(&buf[buf_len]);
+			buf_len += strlen(&buf[buf_len]);
 			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
@@ -181,15 +181,15 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 					buf_len += strlen(&buf[buf_len]);
 				}
 				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].valid, e[i].priority);
-				buf += strlen(&buf[buf_len]);
+				buf_len += strlen(&buf[buf_len]);
 			} else {
 				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].preferred, e[i].valid);
-				buf += strlen(&buf[buf_len]);
+				buf_len += strlen(&buf[buf_len]);
 			}
 
 			if (type == ENTRY_PREFIX && ntohl(e[i].iaid) != 1) {
 				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e[i].iaid));
-				buf += strlen(&buf[buf_len]);
+				buf_len += strlen(&buf[buf_len]);
 			}
 
 			if (type == ENTRY_PREFIX && e[i].priority) {
