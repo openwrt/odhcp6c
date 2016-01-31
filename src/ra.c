@@ -274,7 +274,7 @@ bool ra_process(void)
 {
 	bool found = false;
 	bool changed = false;
-	uint8_t buf[1500] __aligned(4);
+	uint8_t buf[1500] _aligned(4);
 	union {
 		struct cmsghdr hdr;
 		uint8_t buf[CMSG_SPACE(sizeof(int))];
