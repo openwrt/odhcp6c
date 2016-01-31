@@ -274,7 +274,8 @@ bool ra_process(void)
 {
 	bool found = false;
 	bool changed = false;
-	uint8_t buf[1500], cmsg_buf[128];
+	uint8_t buf[1500] __aligned(4);
+	uint8_t cmsg_buf[128] __aligned(__alignof__(struct cmsghdr));
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry *entry = alloca(sizeof(*entry) + 256);
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
@@ -444,8 +445,9 @@ bool ra_process(void)
 			size_t ra_dns_len;
 			uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
 			for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
-						(uint8_t*)c < &start[ra_dns_len] && &c->auxtarget[c->auxlen] <= &start[ra_dns_len];
-						c = (struct odhcp6c_entry*)(&c->auxtarget[c->auxlen]))
+						(uint8_t*)c < &start[ra_dns_len] &&
+						(uint8_t*)odhcp6c_next_entry(c) <= &start[ra_dns_len];
+						c = odhcp6c_next_entry(c))
 				if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
 						c->valid > router_valid)
 					c->valid = router_valid;
