@@ -586,12 +586,14 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		for (; len < 0 && (round_start < round_end);
 				round_start = odhcp6c_get_milli_time()) {
 			uint8_t buf[1536];
-			uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))]
-				__aligned(__alignof__(struct cmsghdr));
+			union {
+				struct cmsghdr hdr;
+				uint8_t buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+			} cmsg_buf;
 			struct iovec iov = {buf, sizeof(buf)};
 			struct sockaddr_in6 addr;
 			struct msghdr msg = {.msg_name = &addr, .msg_namelen = sizeof(addr),
-					.msg_iov = &iov, .msg_iovlen = 1, .msg_control = cmsg_buf,
+					.msg_iov = &iov, .msg_iovlen = 1, .msg_control = cmsg_buf.buf,
 					.msg_controllen = sizeof(cmsg_buf)};
 			struct in6_pktinfo *pktinfo = NULL;
 
