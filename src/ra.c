@@ -274,8 +274,11 @@ bool ra_process(void)
 {
 	bool found = false;
 	bool changed = false;
-	uint8_t buf[1500] __aligned(4);
-	uint8_t cmsg_buf[128] __aligned(__alignof__(struct cmsghdr));
+	uint8_t buf[1500] _aligned(4);
+	union {
+		struct cmsghdr hdr;
+		uint8_t buf[CMSG_SPACE(sizeof(int))];
+	} cmsg_buf;
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
 	struct odhcp6c_entry *entry = alloca(sizeof(*entry) + 256);
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
@@ -302,7 +305,7 @@ bool ra_process(void)
 			.msg_namelen = sizeof(from),
 			.msg_iov = &iov,
 			.msg_iovlen = 1,
-			.msg_control = cmsg_buf,
+			.msg_control = cmsg_buf.buf,
 			.msg_controllen = sizeof(cmsg_buf),
 			.msg_flags = 0
 		};
