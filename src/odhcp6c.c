@@ -75,7 +75,7 @@ int main(_unused int argc, char* const argv[])
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:hedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:A:P:FB:c:i:r:Ru:s:kt:m:hedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -102,6 +102,16 @@ int main(_unused int argc, char* const argv[])
 			odhcp6c_add_state(STATE_VENDORCLASS, buf, l);
 
 			break;
+
+		case 'A':
+			l = script_unhexlify(buf, sizeof(buf), optarg);
+			if (!l)
+				help=true;
+
+			odhcp6c_add_state(STATE_AUTH, buf, l);
+
+			break;
+			
 		case 'P':
 			if (ia_pd_mode == IA_MODE_NONE)
 				ia_pd_mode = IA_MODE_TRY;
@@ -432,6 +442,7 @@ static int usage(void)
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
 	"	-V <class>	Set vendor-class option (base-16 encoded)\n"
+	"	-A <hex-string> Set auth option (base-16 encoded)\n"
 	"	-u <user-class> Set user-class option string\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded 16-bit type + value)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"

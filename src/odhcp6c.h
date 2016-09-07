@@ -265,6 +265,7 @@ enum odhcp6c_state {
 	STATE_S46_MAPE,
 	STATE_S46_LW,
 	STATE_PASSTHRU,
+	STATE_AUTH,
 	_STATE_MAX
 };
 
