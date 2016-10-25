@@ -33,7 +33,11 @@
 #include <net/ethernet.h>
 
 #include "odhcp6c.h"
+#ifdef LIBUBOX
+#include <libubox/md5.h>
+#else
 #include "md5.h"
+#endif
 
 
 #define ALL_DHCPV6_RELAYS {{{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,\
