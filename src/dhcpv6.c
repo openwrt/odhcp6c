@@ -798,13 +798,18 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 {
 	uint16_t olen, otype;
 	uint8_t *odata, pref = 0;
-	struct dhcpv6_server_cand cand = {false, false, 0, 0, {0},
+	struct dhcpv6_server_cand cand = {false, 0, 0, {0},
 					DHCPV6_SOL_MAX_RT,
 					DHCPV6_INF_MAX_RT, NULL, NULL, 0, 0};
 	bool have_na = false;
 	int have_pd = 0;
 
+	enum dhcpv6_status status_code = DHCPV6_Success;
+
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
+		if (otype == DHCPV6_OPT_STATUS) {
+			status_code = ntohs(*((uint16_t *) odata));
+		}
 		if (orig == DHCPV6_MSG_SOLICIT &&
 				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
 				olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
@@ -852,7 +857,28 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 		}
 	}
 
-	if ((!have_na && na_mode == IA_MODE_FORCE) ||
+	// If we receive a NoAddrsAvail Advert response, and if the user doesn't
+	// require an address assignment, then attempt the request again, but
+	// without asking for an address next time. This ensures that we won't get
+	// stuck in a loop of NoAddrsAvail responses from servers that only support
+	// stateless clients, or only support prefix delegation.
+	if (status_code == DHCPV6_NoAddrsAvail && na_mode == IA_MODE_TRY) {
+		na_mode = IA_MODE_NONE;
+	}
+	// Do the same in case of a NoPrefixAvail Advert response.
+	if (status_code == DHCPV6_NoPrefixAvail && pd_mode == IA_MODE_TRY) {
+		pd_mode = IA_MODE_NONE;
+	}
+
+	// According to RFC3315/3633, we must ignore the Advert message (and perhaps
+	// retry the request) if NoAddrsAvail/NoPrefixAvail is returned. Or, if the
+	// user requires an address or prefix but none was provided by the server,
+	// all we can do is retry later as well. Finally, if UnspecFail is returned
+	// all we can do is retry later as well.
+	if (status_code == DHCPV6_UnspecFail ||
+			status_code == DHCPV6_NoAddrsAvail ||
+			status_code == DHCPV6_NoPrefixAvail ||
+			(!have_na && na_mode == IA_MODE_FORCE) ||
 			(!have_pd && pd_mode == IA_MODE_FORCE)) {
 		/*
 		 * RFC7083 states to process the SOL_MAX_RT and
@@ -864,10 +890,10 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 		return -1;
 	}
 
-	if (na_mode != IA_MODE_NONE && !have_na) {
-		cand.has_noaddravail = true;
-		cand.preference -= 1000;
-	}
+	// If this point is reached it means that we must be dealing with an Advert
+	// message that suits the requirements set by the user (i.e. specifies
+	// either available addresses, available prefix delegations, or both, as
+	// required by user).
 
 	if (pd_mode != IA_MODE_NONE) {
 		if (have_pd)
@@ -1445,14 +1471,7 @@ int dhcpv6_promote_server_cand(void)
 	if (!cand_len)
 		return -1;
 
-	if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
-		na_mode = IA_MODE_NONE;
-
-		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
-		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
-
-		return dhcpv6_request(DHCPV6_MSG_SOLICIT);
-	}
+	// If we reach this point then a suitable candidate must have been found.
 
 	hdr[0] = htons(DHCPV6_OPT_SERVERID);
 	hdr[1] = htons(cand->duid_len);
