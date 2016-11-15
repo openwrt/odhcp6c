@@ -226,6 +226,8 @@ enum {
 	IOV_HDR_IA_NA,
 	IOV_IA_NA,
 	IOV_IA_PD,
+	IOV_AUTH_HDR,
+	IOV_AUTH,
 	IOV_TOTAL
 };
 
@@ -438,6 +440,15 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		uint16_t length;
 	} user_class_hdr = {htons(DHCPV6_OPT_USER_CLASS), htons(user_class_len)};
 
+	//Build auth option
+	size_t auth_len;
+	struct dhcpv6_auth *auth = odhcp6c_get_state(STATE_AUTH, &auth_len);
+
+	struct {
+		uint16_t type;
+		uint16_t length;
+	} auth_hdr = {htons(DHCPV6_OPT_AUTH), htons(auth_len)};
+
 	// Prepare Header
 	size_t oro_len;
 	void *oro = odhcp6c_get_state(STATE_ORO, &oro_len);
@@ -471,15 +482,17 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		[IOV_HDR_IA_NA] = {&hdr_ia_na, sizeof(hdr_ia_na)},
 		[IOV_IA_NA] = {ia_na, ia_na_len},
 		[IOV_IA_PD] = {ia_pd, ia_pd_len},
+		[IOV_AUTH_HDR] = {&auth_hdr, auth_len ? sizeof(auth_hdr) : 0},
+		[IOV_AUTH] = {auth, auth_len},
 	};
 
 	size_t cnt = IOV_TOTAL;
 	if (type == DHCPV6_MSG_INFO_REQ) {
-		cnt = 9;
+		cnt = 11;
 		iov[IOV_ORO_REFRESH].iov_len = sizeof(oro_refresh);
 		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
 	} else if (!request_prefix) {
-		cnt = 13;
+		cnt = 15;
 	}
 
 	// Disable IAs if not used
