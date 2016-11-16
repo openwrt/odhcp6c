@@ -74,8 +74,9 @@ int main(_unused int argc, char* const argv[])
 	int logopt = LOG_PID;
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
+	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:hedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -193,6 +194,10 @@ int main(_unused int argc, char* const argv[])
 			min_update_interval = atoi(optarg);
 			break;
 
+		case 'L':
+			ra_options &= ~RA_RDNSS_DEFAULT_LIFETIME;
+			break;
+
 		case 'e':
 			logopt |= LOG_PERROR;
 			break;
@@ -244,7 +249,8 @@ int main(_unused int argc, char* const argv[])
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
 			init_dhcpv6(ifname, client_options, sol_timeout) ||
-			ra_init(ifname, &ifid) || script_init(script, ifname)) {
+			ra_init(ifname, &ifid, ra_options) ||
+			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
 	}
@@ -443,6 +449,7 @@ static int usage(void)
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"	-m <seconds>	Minimum time between accepting updates (30)\n"
+	"	-L		Ignore default lifetime for RDNSS records\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
