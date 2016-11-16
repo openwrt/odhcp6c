@@ -282,6 +282,10 @@ enum dhcpv6_mode {
 	DHCPV6_STATEFUL
 };
 
+enum ra_config {
+	RA_RDNSS_DEFAULT_LIFETIME = 1,
+};
+
 enum odhcp6c_ia_mode {
 	IA_MODE_NONE,
 	IA_MODE_TRY,

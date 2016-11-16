@@ -55,6 +55,7 @@ static int if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
 static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
+static unsigned int ra_options = 0;
 
 struct {
 	struct icmp6_hdr hdr;
@@ -67,8 +68,10 @@ struct {
 
 static void ra_send_rs(int signal __attribute__((unused)));
 
-int ra_init(const char *ifname, const struct in6_addr *ifid)
+int ra_init(const char *ifname, const struct in6_addr *ifid, unsigned int options)
 {
+	ra_options = options;
+
 	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (sock < 0)
@@ -443,17 +446,19 @@ bool ra_process(void)
 			}
 		}
 
-		int states[2] = {STATE_RA_DNS, STATE_RA_SEARCH};
-		for (size_t i = 0; i < 2; ++i) {
-			size_t ra_dns_len;
-			uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
-			for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
-						(uint8_t*)c < &start[ra_dns_len] &&
-						(uint8_t*)odhcp6c_next_entry(c) <= &start[ra_dns_len];
-						c = odhcp6c_next_entry(c))
-				if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
-						c->valid > router_valid)
-					c->valid = router_valid;
+		if (ra_options & RA_RDNSS_DEFAULT_LIFETIME) {
+			int states[2] = {STATE_RA_DNS, STATE_RA_SEARCH};
+			for (size_t i = 0; i < 2; ++i) {
+				size_t ra_dns_len;
+				uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
+				for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
+							(uint8_t*)c < &start[ra_dns_len] &&
+							(uint8_t*)odhcp6c_next_entry(c) <= &start[ra_dns_len];
+							c = odhcp6c_next_entry(c))
+					if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
+							c->valid > router_valid)
+						c->valid = router_valid;
+			}
 		}
 	}
 
