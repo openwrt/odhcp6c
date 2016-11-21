@@ -286,7 +286,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			struct dhcpv6_ia_hdr hdr_ia_pd = {
 				htons(DHCPV6_OPT_IA_PD),
 				htons(sizeof(hdr_ia_pd) - 4 +
-				      sizeof(struct dhcpv6_ia_prefix) * !!request_prefixes[i].length),
+					sizeof(struct dhcpv6_ia_prefix) * !!request_prefixes[i].length),
 				request_prefixes[i].iaid, 0, 0
 			};
 			struct dhcpv6_ia_prefix pref = {
@@ -655,7 +655,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Allow
 		if (retx->handler_finish)
 			len = retx->handler_finish();
-	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) && 
+	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) &&
 			(!retx->max_rc || rc < retx->max_rc));
 	return len;
 }
@@ -855,10 +855,10 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	if ((!have_na && na_mode == IA_MODE_FORCE) ||
 			(!have_pd && pd_mode == IA_MODE_FORCE)) {
 		/*
-		 * RFC7083 states to process the SOL_MAX_RT and
-		 * INF_MAX_RT options even if the DHCPv6 server
-		 * did not propose any IA_NA and/or IA_PD
-		 */
+		* RFC7083 states to process the SOL_MAX_RT and
+		* INF_MAX_RT options even if the DHCPv6 server
+		* did not propose any IA_NA and/or IA_PD
+		*/
 		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand.sol_max_rt;
 		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand.inf_max_rt;
 		return -1;
