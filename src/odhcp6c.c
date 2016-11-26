@@ -39,6 +39,11 @@ static int usage(void);
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
+static uint8_t **state_custom_opts_data = NULL;
+static size_t *state_custom_opts_len = NULL;
+static uint16_t *state_custom_opts_type = NULL;
+size_t custom_opts_number = 0;
+
 static volatile bool signal_io = false;
 static volatile bool signal_usr1 = false;
 static volatile bool signal_usr2 = false;
@@ -75,7 +80,7 @@ int main(_unused int argc, char* const argv[])
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:hedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:hedp:favx:")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -211,6 +216,21 @@ int main(_unused int argc, char* const argv[])
 
 		case 'a':
 			client_options &= ~DHCPV6_ACCEPT_RECONFIGURE;
+			break;
+
+		case 'x':
+			;
+			char *pos = strchr(optarg, (int)':');
+			pos = &pos[1];
+			size_t len = pos - optarg;
+			char *id;
+			id = malloc((len-1)* sizeof(char));
+			strncpy(id, optarg, len-1);
+			uint16_t custom_type = strtoul(id, NULL, 10);
+			l = script_unhexlify(buf, sizeof(buf), pos);
+			if (!l)
+				help=true;
+			odhcp6c_add_custom_state(custom_type, buf, l);
 			break;
 
 		case 'v':
@@ -443,6 +463,9 @@ static int usage(void)
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"	-m <seconds>	Minimum time between accepting updates (30)\n"
+	"	-x OPT:VAL	Include option OPT in sent packets (cumulative)\n"
+	"			OPT must be in decimal and VAL must be in hexadecimal\n"
+	"			Example: -x 11:00:00:00:00:00:00:00:00:00:00:00\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
@@ -516,6 +539,23 @@ void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 		memcpy(n, data, len);
 }
 
+
+void odhcp6c_add_custom_state(enum dhcpv6_opt type, const void *data, size_t len)
+{
+	state_custom_opts_data = realloc(state_custom_opts_data, (custom_opts_number+1)*sizeof(uint8_t*));
+	state_custom_opts_len = realloc(state_custom_opts_len, (custom_opts_number+1)*sizeof(size_t));
+	state_custom_opts_type = realloc(state_custom_opts_type, (custom_opts_number+1)*sizeof(uint16_t));
+	state_custom_opts_data[custom_opts_number] = malloc(len);
+	if (state_custom_opts_data[custom_opts_number])
+	{
+		memcpy(state_custom_opts_data[custom_opts_number], data, len);
+		state_custom_opts_len[custom_opts_number] = len;
+		state_custom_opts_type[custom_opts_number] = type;
+		custom_opts_number++;
+	}
+}
+
+
 int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
 {
 	ssize_t len_after = state_len[state] - offset;
@@ -561,6 +601,14 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len)
 {
 	*len = state_len[state];
 	return state_data[state];
+}
+
+
+void* odhcp6c_get_custom_state(int custom_state_idx, size_t *len, enum dhcpv6_opt *type)
+{
+	*len = state_custom_opts_len[custom_state_idx];
+	*type = state_custom_opts_type[custom_state_idx];
+	return state_custom_opts_data[custom_state_idx];
 }
 
 
