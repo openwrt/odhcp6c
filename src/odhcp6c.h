@@ -34,7 +34,7 @@
 
 #define DEFAULT_MIN_UPDATE_INTERVAL 30
 
-enum dhcvp6_opt {
+enum dhcpv6_opt {
 	DHCPV6_OPT_CLIENTID = 1,
 	DHCPV6_OPT_SERVERID = 2,
 	DHCPV6_OPT_IA_NA = 3,
@@ -348,6 +348,9 @@ int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *da
 size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len);
 void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
+void odhcp6c_add_custom_state(enum dhcpv6_opt type, const void *data, size_t len);
+void* odhcp6c_get_custom_state(int custom_state_idx, size_t *len, enum dhcpv6_opt *type);
+size_t custom_opts_number;
 
 // Entry manipulation
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe, bool filterexcess);

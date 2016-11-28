@@ -286,7 +286,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			struct dhcpv6_ia_hdr hdr_ia_pd = {
 				htons(DHCPV6_OPT_IA_PD),
 				htons(sizeof(hdr_ia_pd) - 4 +
-				      sizeof(struct dhcpv6_ia_prefix) * !!request_prefixes[i].length),
+					sizeof(struct dhcpv6_ia_prefix) * !!request_prefixes[i].length),
 				request_prefixes[i].iaid, 0, 0
 			};
 			struct dhcpv6_ia_prefix pref = {
@@ -456,22 +456,36 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		htons(DHCPV6_OPT_ORO), htons(oro_len),
 	};
 
-	struct iovec iov[IOV_TOTAL] = {
-		[IOV_HDR] = {&hdr, sizeof(hdr)},
-		[IOV_ORO] = {oro, oro_len},
-		[IOV_ORO_REFRESH] = {&oro_refresh, 0},
-		[IOV_CL_ID] = {cl_id, cl_id_len},
-		[IOV_SRV_ID] = {srv_id, srv_id_len},
-		[IOV_VENDOR_CLASS_HDR] = {&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
-		[IOV_VENDOR_CLASS] = {vendor_class, vendor_class_len},
-		[IOV_USER_CLASS_HDR] = {&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
-		[IOV_USER_CLASS] = {user_class, user_class_len},
-		[IOV_RECONF_ACCEPT] = {&reconf_accept, sizeof(reconf_accept)},
-		[IOV_FQDN] = {&fqdn, fqdn_len},
-		[IOV_HDR_IA_NA] = {&hdr_ia_na, sizeof(hdr_ia_na)},
-		[IOV_IA_NA] = {ia_na, ia_na_len},
-		[IOV_IA_PD] = {ia_pd, ia_pd_len},
-	};
+	struct iovec *iov;
+	iov = malloc(IOV_TOTAL*sizeof(struct iovec));
+	iov[IOV_HDR].iov_base = &hdr;
+	iov[IOV_HDR].iov_len = sizeof(hdr);
+	iov[IOV_ORO].iov_base = oro;
+	iov[IOV_ORO].iov_len = oro_len;
+	iov[IOV_ORO_REFRESH].iov_base = &oro_refresh;
+	iov[IOV_ORO_REFRESH].iov_len  = 0;
+	iov[IOV_CL_ID].iov_base = cl_id;
+	iov[IOV_CL_ID].iov_len  = cl_id_len;
+	iov[IOV_SRV_ID].iov_base = srv_id;
+	iov[IOV_SRV_ID].iov_len  = srv_id_len;
+	iov[IOV_VENDOR_CLASS_HDR].iov_base = &vendor_class_hdr;
+	iov[IOV_VENDOR_CLASS_HDR].iov_len  = vendor_class_len ? sizeof(vendor_class_hdr) : 0;
+	iov[IOV_VENDOR_CLASS].iov_base = vendor_class;
+	iov[IOV_VENDOR_CLASS].iov_len  = vendor_class_len;
+	iov[IOV_USER_CLASS_HDR].iov_base = &user_class_hdr;
+	iov[IOV_USER_CLASS_HDR].iov_len  = user_class_len ? sizeof(user_class_hdr) : 0;
+	iov[IOV_USER_CLASS].iov_base = user_class;
+	iov[IOV_USER_CLASS].iov_len  = user_class_len;
+	iov[IOV_RECONF_ACCEPT].iov_base = &reconf_accept;
+	iov[IOV_RECONF_ACCEPT].iov_len  = sizeof(reconf_accept);
+	iov[IOV_FQDN].iov_base = &fqdn;
+	iov[IOV_FQDN].iov_len  = fqdn_len;
+	iov[IOV_HDR_IA_NA].iov_base = &hdr_ia_na;
+	iov[IOV_HDR_IA_NA].iov_len = sizeof(hdr_ia_na);
+	iov[IOV_IA_NA].iov_base = ia_na;
+	iov[IOV_IA_NA].iov_len = ia_na_len;
+	iov[IOV_IA_PD].iov_base = ia_pd;
+	iov[IOV_IA_PD].iov_len = ia_pd_len;
 
 	size_t cnt = IOV_TOTAL;
 	if (type == DHCPV6_MSG_INFO_REQ) {
@@ -480,6 +494,36 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
 	} else if (!request_prefix) {
 		cnt = 13;
+	}
+
+	struct iovec* tmp;
+	tmp = (struct iovec*) realloc(iov, (cnt+2*custom_opts_number)*sizeof(struct iovec));
+	if (tmp)
+	{
+		iov = tmp;
+		size_t custom_len;
+		uint8_t **custom_data;
+		struct {uint16_t type; uint16_t len;} *custom_iov;
+		custom_iov = malloc(custom_opts_number*sizeof(struct {uint16_t type; uint16_t len;}));
+		enum dhcpv6_opt custom_type;
+		custom_data = malloc(custom_opts_number*sizeof(uint8_t*));
+		for (size_t i=0; i<custom_opts_number; i++)
+		{
+			custom_data[i] = odhcp6c_get_custom_state(i, &custom_len, &custom_type);
+			iov = tmp;
+			custom_iov[i].type = htons(custom_type);
+			custom_iov[i].len = htons(custom_len);
+			iov[cnt].iov_base = &custom_iov[i];
+			iov[cnt].iov_len = 4;
+			cnt++;
+			iov[cnt].iov_base = custom_data[i];
+			iov[cnt].iov_len = custom_len;
+			cnt++;
+		}
+	}
+	else
+	{
+		syslog(LOG_WARNING, "couldn't add custom opt(s)");
 	}
 
 	// Disable IAs if not used
@@ -655,7 +699,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Allow
 		if (retx->handler_finish)
 			len = retx->handler_finish();
-	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) && 
+	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) &&
 			(!retx->max_rc || rc < retx->max_rc));
 	return len;
 }
@@ -855,10 +899,10 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 	if ((!have_na && na_mode == IA_MODE_FORCE) ||
 			(!have_pd && pd_mode == IA_MODE_FORCE)) {
 		/*
-		 * RFC7083 states to process the SOL_MAX_RT and
-		 * INF_MAX_RT options even if the DHCPv6 server
-		 * did not propose any IA_NA and/or IA_PD
-		 */
+		* RFC7083 states to process the SOL_MAX_RT and
+		* INF_MAX_RT options even if the DHCPv6 server
+		* did not propose any IA_NA and/or IA_PD
+		*/
 		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand.sol_max_rt;
 		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand.inf_max_rt;
 		return -1;
