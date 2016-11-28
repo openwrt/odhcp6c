@@ -545,13 +545,27 @@ void odhcp6c_add_custom_state(enum dhcpv6_opt type, const void *data, size_t len
 	state_custom_opts_data = realloc(state_custom_opts_data, (custom_opts_number+1)*sizeof(uint8_t*));
 	state_custom_opts_len = realloc(state_custom_opts_len, (custom_opts_number+1)*sizeof(size_t));
 	state_custom_opts_type = realloc(state_custom_opts_type, (custom_opts_number+1)*sizeof(uint16_t));
-	state_custom_opts_data[custom_opts_number] = malloc(len);
-	if (state_custom_opts_data[custom_opts_number])
+	if (state_custom_opts_data && state_custom_opts_len && state_custom_opts_type)
 	{
-		memcpy(state_custom_opts_data[custom_opts_number], data, len);
-		state_custom_opts_len[custom_opts_number] = len;
-		state_custom_opts_type[custom_opts_number] = type;
-		custom_opts_number++;
+		state_custom_opts_data[custom_opts_number] = malloc(len);
+		if (state_custom_opts_data[custom_opts_number])
+		{
+			memcpy(state_custom_opts_data[custom_opts_number], data, len);
+			state_custom_opts_len[custom_opts_number] = len;
+			state_custom_opts_type[custom_opts_number] = type;
+			custom_opts_number++;
+		}
+		else
+		{
+			state_custom_opts_data = realloc(state_custom_opts_data, custom_opts_number*sizeof(uint8_t*));
+			state_custom_opts_len = realloc(state_custom_opts_len, custom_opts_number*sizeof(size_t));
+			state_custom_opts_type = realloc(state_custom_opts_type, custom_opts_number*sizeof(uint16_t));
+			syslog(LOG_WARNING, "could not add custom opt: %i", type);
+		}
+	}
+	else
+	{
+		syslog(LOG_WARNING, "could not add custom opt: %i", type);
 	}
 }
 
