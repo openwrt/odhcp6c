@@ -512,7 +512,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			custom_data[i] = odhcp6c_get_custom_state(i, &custom_len, &custom_type);
 			iov = tmp;
 			custom_iov[i].type = htons(custom_type);
-		       	custom_iov[i].len = htons(custom_len);
+			custom_iov[i].len = htons(custom_len);
 			iov[cnt].iov_base = &custom_iov[i];
 			iov[cnt].iov_len = 4;
 			cnt++;
