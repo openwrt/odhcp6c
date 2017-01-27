@@ -227,6 +227,7 @@ struct dhcpv6_server_cand {
 	int16_t preference;
 	uint8_t duid_len;
 	uint8_t duid[130];
+	struct in6_addr server_addr;
 	uint32_t sol_max_rt;
 	uint32_t inf_max_rt;
 	void *ia_na;
@@ -343,6 +344,7 @@ bool odhcp6c_signal_process(void);
 uint64_t odhcp6c_get_milli_time(void);
 int odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr);
 
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
