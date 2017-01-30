@@ -682,7 +682,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		// Allow
 		if (retx->handler_finish)
 			len = retx->handler_finish();
-	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) && 
+	} while (len < 0 && ((timeout == UINT32_MAX) || (elapsed / 1000 < timeout)) &&
 			(!retx->max_rc || rc < retx->max_rc));
 	return len;
 }
