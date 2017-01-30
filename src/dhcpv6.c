@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2012-2014 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2017 Hans Dedecker <dedeckeh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -1142,7 +1143,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 
 	if (orig != DHCPV6_MSG_INFO_REQ) {
 		// Update refresh timers if no fatal status code was received
-		if ((ret > 0) && dhcpv6_calc_refresh_timers()) {
+		if ((ret > 0) && (ret = dhcpv6_calc_refresh_timers())) {
 			switch (orig) {
 			case DHCPV6_MSG_RENEW:
 				// Send further renews if T1 is not set
@@ -1331,8 +1332,6 @@ static int dhcpv6_calc_refresh_timers(void)
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;
-	} else {
-		t1 = 600;
 	}
 
 	return (int)(ia_pd_entries + ia_na_entries);
