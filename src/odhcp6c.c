@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2012-2014 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2017 Hans Dedecker <dedeckeh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -712,7 +713,7 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 		struct in6_addr inet6_addr;
 		uint32_t flags, dummy;
 		unsigned int i;
-		char name[8], addr_buf[32];
+		char name[IF_NAMESIZE], addr_buf[33];
 
 		len = strlen(buf);
 
@@ -729,13 +730,13 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
 			continue;
 
-		for (i = 0; i < sizeof(addr_buf); i++) {
+		for (i = 0; i < strlen(addr_buf); i++) {
 			if (!isxdigit(addr_buf[i]) || isupper(addr_buf[i]))
 				return false;
 		}
 
 		memset(&inet6_addr, 0, sizeof(inet6_addr));
-		for (i = 0; i < (sizeof(addr_buf) / 2); i++) {
+		for (i = 0; i < (strlen(addr_buf) / 2); i++) {
 			unsigned char byte;
 			static const char hex[] = "0123456789abcdef";
 			byte = ((index(hex, addr_buf[i * 2]) - hex) << 4) |
