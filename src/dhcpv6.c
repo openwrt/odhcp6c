@@ -16,6 +16,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <limits.h>
@@ -562,8 +563,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 	if (timeout == 0)
 		return -1;
 
-	syslog(LOG_NOTICE, "Starting %s transaction (timeout %llus, max rc %d)",
-			retx->name, (unsigned long long)timeout, retx->max_rc);
+	syslog(LOG_NOTICE, "Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
+			retx->name, timeout, retx->max_rc);
 
 	uint64_t start = odhcp6c_get_milli_time(), round_start = start, elapsed;
 
@@ -604,8 +605,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 		case DHCPV6_MSG_UNKNOWN:
 			break;
 		default:
-			syslog(LOG_NOTICE, "Send %s message (elapsed %llums, rc %d)",
-					retx->name, (unsigned long long)elapsed, rc);
+			syslog(LOG_NOTICE, "Send %s message (elapsed %"PRIu64"ms, rc %d)",
+					retx->name, elapsed, rc);
 			// Fall through
 		case DHCPV6_MSG_SOLICIT:
 		case DHCPV6_MSG_INFO_REQ:
@@ -669,8 +670,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 			round_start = odhcp6c_get_milli_time();
 			elapsed = round_start - start;
-			syslog(LOG_NOTICE, "Got a valid reply after "
-					"%llums", (unsigned long long)elapsed);
+			syslog(LOG_NOTICE, "Got a valid reply after %"PRIu64"ms",
+					elapsed);
 
 			if (retx->handler_reply)
 				len = retx->handler_reply(type, rc, opt, opt_end, &addr);
