@@ -5,7 +5,6 @@ cmake_policy(SET CMP0015 NEW)
 project(odhcp6c C)
 set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
-set(LIBUBOX 1 CACHE BOOL "Link with libubox")
 add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra -pedantic)
 
 if(${EXT_PREFIX_CLASS})
@@ -17,15 +16,20 @@ if(${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
 set(SOURCES src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c)
-if(LIBUBOX EQUAL 0)
-	set(SOURCES ${SOURCES} src/md5.c)
-endif()
-add_executable(odhcp6c ${SOURCES})
 
 set(LIBRARIES resolv)
-if(LIBUBOX EQUAL 1)
+
+if(USE_LIBUBOX)
+	add_definitions(-DUSE_LIBUBOX)
 	set(LIBRARIES ${LIBRARIES} ubox)
+	FIND_PATH(ubox_include_dir libubox/md5.h)
+	INCLUDE_DIRECTORIES(${ubox_include_dir})
+else()
+	set(SOURCES ${SOURCES} src/md5.c)
 endif()
+
+add_executable(odhcp6c ${SOURCES})
+
 target_link_libraries(odhcp6c ${LIBRARIES})
 
 # Installation

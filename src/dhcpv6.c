@@ -36,7 +36,7 @@
 #include <net/ethernet.h>
 
 #include "odhcp6c.h"
-#ifdef LIBUBOX
+#ifdef USE_LIBUBOX
 #include <libubox/md5.h>
 #else
 #include "md5.h"

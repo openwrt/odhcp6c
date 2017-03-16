@@ -39,7 +39,7 @@ especially routers. It compiles to only about 35 KB (-Os -s).
 ** Compiling **
 
 odhcp6c uses cmake:
-* To prepare a Makefile use:  "cmake -DLIBUBOX=0 ."
+* To prepare a Makefile use:  "cmake ."
 * To build / install use: "make" / "make install" afterwards.
 * To build DEB or RPM packages use: "make package" afterwards.
 
