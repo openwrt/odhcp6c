@@ -35,7 +35,6 @@
 #include "odhcp6c.h"
 #include "ra.h"
 
-
 #ifndef IN6_IS_ADDR_UNIQUELOCAL
 #define IN6_IS_ADDR_UNIQUELOCAL(a) \
 	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
@@ -64,7 +63,8 @@ static unsigned int script_accu_delay = 1;
 
 int main(_unused int argc, char* const argv[])
 {
-	// Allocate ressources
+	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
+	// Allocate resources
 	const char *pidfile = NULL;
 	const char *script = "/usr/sbin/odhcp6c-update";
 	ssize_t l;
@@ -75,11 +75,8 @@ int main(_unused int argc, char* const argv[])
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
 	int ia_pd_iaid_index = 0;
-	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
 	int verbosity = 0;
-
-
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c;
@@ -96,23 +93,22 @@ int main(_unused int argc, char* const argv[])
 			if (!strcmp(optarg, "force")) {
 				ia_na_mode = IA_MODE_FORCE;
 				allow_slaac_only = -1;
-			} else if (!strcmp(optarg, "none")) {
+			} else if (!strcmp(optarg, "none"))
 				ia_na_mode = IA_MODE_NONE;
-			} else if (!strcmp(optarg, "try")) {
+			else if (!strcmp(optarg, "try"))
 				ia_na_mode = IA_MODE_TRY;
-			} else{
+			else
 				help = true;
-			}
 			break;
 
 		case 'V':
 			l = script_unhexlify(buf, sizeof(buf), optarg);
 			if (!l)
-				help=true;
+				help = true;
 
 			odhcp6c_add_state(STATE_VENDORCLASS, buf, l);
-
 			break;
+
 		case 'P':
 			if (ia_pd_mode == IA_MODE_NONE)
 				ia_pd_mode = IA_MODE_TRY;
@@ -122,7 +118,6 @@ int main(_unused int argc, char* const argv[])
 
 			char *iaid_begin;
 			int iaid_len = 0;
-
 			int prefix_length = strtoul(optarg, &iaid_begin, 10);
 
 			if (*iaid_begin != '\0' && *iaid_begin != ',' && *iaid_begin != ':') {
@@ -140,7 +135,6 @@ int main(_unused int argc, char* const argv[])
 				prefix.iaid = htonl(++ia_pd_iaid_index);
 
 			odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix));
-
 			break;
 
 		case 'F':
@@ -156,9 +150,8 @@ int main(_unused int argc, char* const argv[])
 				buf[2] = 0;
 				buf[3] = l;
 				odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4);
-			} else {
+			} else
 				help = true;
-			}
 			break;
 
 		case 'i':
@@ -174,6 +167,7 @@ int main(_unused int argc, char* const argv[])
 					break;
 				else if (optpos[0])
 					optarg = &optpos[1];
+
 				odhcp6c_add_state(STATE_ORO, &opttype, 2);
 			}
 			break;
@@ -305,6 +299,7 @@ int main(_unused int argc, char* const argv[])
 		int mode = dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
 		if (mode != DHCPV6_STATELESS)
 			mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+
 		odhcp6c_signal_process();
 
 		if (mode < 0)
@@ -347,11 +342,13 @@ int main(_unused int argc, char* const argv[])
 					signal_usr1 = false; // Acknowledged
 					continue;
 				}
+
 				if (signal_usr2 || signal_term)
 					break;
 
 				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
 				odhcp6c_signal_process();
+
 				if (signal_usr1)
 					continue;
 				else if (res < 0)
@@ -377,12 +374,14 @@ int main(_unused int argc, char* const argv[])
 				// Handle signal, if necessary
 				if (signal_usr1)
 					signal_usr1 = false; // Acknowledged
+
 				if (signal_usr2 || signal_term)
 					break; // Other signal type
 
 				// Send renew as T1 expired
 				res = dhcpv6_request(DHCPV6_MSG_RENEW);
 				odhcp6c_signal_process();
+
 				if (res > 0) { // Renew was succesfull
 					// Publish updates
 					script_call("updated", 0, false);
@@ -405,9 +404,8 @@ int main(_unused int argc, char* const argv[])
 
 				if (res > 0)
 					script_call("rebound", 0, true);
-				else {
+				else
 					break;
-				}
 			}
 			break;
 
@@ -434,9 +432,9 @@ int main(_unused int argc, char* const argv[])
 	}
 
 	script_call("stopped", 0, true);
+
 	return 0;
 }
-
 
 static int usage(void)
 {
@@ -467,18 +465,18 @@ static int usage(void)
 	"	-v		Increase logging verbosity\n"
 	"	-h		Show this help\n\n";
 	fputs(buf, stderr);
+
 	return 1;
 }
-
 
 // Don't want to pull-in librt and libpthread just for a monotonic clock...
 uint64_t odhcp6c_get_milli_time(void)
 {
 	struct timespec t = {0, 0};
 	syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &t);
+
 	return ((uint64_t)t.tv_sec) * 1000 + ((uint64_t)t.tv_nsec) / 1000000;
 }
-
 
 static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 {
@@ -488,14 +486,15 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 		return NULL;
 
 	uint8_t *n = realloc(state_data[state], state_len[state] + len);
+
 	if (n || state_len[state] + len == 0) {
 		state_data[state] = n;
 		n += state_len[state];
 		state_len[state] += len;
 	}
+
 	return n;
 }
-
 
 bool odhcp6c_signal_process(void)
 {
@@ -519,16 +518,15 @@ bool odhcp6c_signal_process(void)
 	return signal_usr1 || signal_usr2 || signal_term;
 }
 
-
 void odhcp6c_clear_state(enum odhcp6c_state state)
 {
 	state_len[state] = 0;
 }
 
-
 void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 {
 	uint8_t *n = odhcp6c_resize_state(state, len);
+
 	if (n)
 		memcpy(n, data, len);
 }
@@ -540,6 +538,7 @@ int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *da
 		return -1;
 
 	uint8_t *n = odhcp6c_resize_state(state, len);
+
 	if (n) {
 		uint8_t *sdata = state_data[state];
 
@@ -554,13 +553,14 @@ size_t odhcp6c_remove_state(enum odhcp6c_state state, size_t offset, size_t len)
 {
 	uint8_t *data = state_data[state];
 	ssize_t len_after = state_len[state] - (offset + len);
+
 	if (len_after < 0)
 		return state_len[state];
 
 	memmove(data + offset, data + offset + len, len_after);
+
 	return state_len[state] -= len;
 }
-
 
 void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len)
 {
@@ -573,13 +573,12 @@ void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len)
 	return data;
 }
 
-
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len)
 {
 	*len = state_len[state];
+
 	return state_data[state];
 }
-
 
 static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const struct odhcp6c_entry *new)
 {
@@ -589,13 +588,13 @@ static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const 
 	for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
 			(uint8_t*)c < &start[len] &&
 			(uint8_t*)odhcp6c_next_entry(c) <= &start[len];
-			c = odhcp6c_next_entry(c))
+			c = odhcp6c_next_entry(c)) {
 		if (!memcmp(c, new, cmplen) && !memcmp(c->auxtarget, new->auxtarget, new->auxlen))
 			return c;
+	}
 
 	return NULL;
 }
-
 
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 		uint32_t safe, bool filterexcess)
@@ -616,25 +615,25 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 					new->preferred != UINT32_MAX &&
 					new->preferred - x->preferred < min_update_interval)
 				return false;
+
 			x->valid = new->valid;
 			x->preferred = new->preferred;
 			x->t1 = new->t1;
 			x->t2 = new->t2;
 			x->iaid = new->iaid;
-		} else {
+		} else
 			odhcp6c_add_state(state, new, odhcp6c_entry_size(new));
-		}
-	} else if (x) {
+	} else if (x)
 		odhcp6c_remove_state(state, ((uint8_t*)x) - start, odhcp6c_entry_size(x));
-	}
+
 	return true;
 }
-
 
 static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 {
 	size_t len;
 	uint8_t *start = odhcp6c_get_state(state, &len);
+
 	for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
 			(uint8_t*)c < &start[len] &&
 			(uint8_t*)odhcp6c_next_entry(c) <= &start[len];
@@ -662,17 +661,16 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 		if (!c->valid) {
 			odhcp6c_remove_state(state, ((uint8_t*)c) - start, odhcp6c_entry_size(c));
 			start = odhcp6c_get_state(state, &len);
-		} else {
+		} else
 			c = odhcp6c_next_entry(c);
-		}
 	}
 }
-
 
 void odhcp6c_expire(void)
 {
 	time_t now = odhcp6c_get_milli_time() / 1000;
 	uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
+
 	last_update = now;
 
 	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);
@@ -683,12 +681,10 @@ void odhcp6c_expire(void)
 	odhcp6c_expire_list(STATE_IA_PD, elapsed);
 }
 
-
 uint32_t odhcp6c_elapsed(void)
 {
 	return odhcp6c_get_milli_time() / 1000 - last_update;
 }
-
 
 int odhcp6c_random(void *buf, size_t len)
 {
@@ -748,6 +744,7 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr)))
 			return true;
 	}
+
 	return false;
 }
 

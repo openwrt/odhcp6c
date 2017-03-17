@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2012-2014 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2017 Hans Dedecker <dedeckeh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -47,7 +48,6 @@
 #include "odhcp6c.h"
 #include "ra.h"
 
-
 static bool nocarrier = false;
 
 static int sock = -1, rtnl = -1;
@@ -64,7 +64,6 @@ struct {
 	.hdr = {ND_ROUTER_SOLICIT, 0, 0, {{0}}},
 	.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
 };
-
 
 static void ra_send_rs(int signal __attribute__((unused)));
 
@@ -143,7 +142,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid, unsigned int option
 	return 0;
 }
 
-
 static void ra_send_rs(int signal __attribute__((unused)))
 {
 	const struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
@@ -161,14 +159,13 @@ static void ra_send_rs(int signal __attribute__((unused)))
 		alarm(4);
 }
 
-
 static int16_t pref_to_priority(uint8_t flags)
 {
 	flags = (flags >> 3) & 0x03;
+
 	return (flags == 0x0) ? 512 : (flags == 0x1) ? 384 :
 			(flags == 0x3) ? 640 : -1;
 }
-
 
 bool ra_link_up(void)
 {
@@ -178,12 +175,12 @@ bool ra_link_up(void)
 		struct ifinfomsg msg;
 		uint8_t pad[4000];
 	} resp;
-
 	bool ret = false;
 	ssize_t read;
 
 	do {
 		read = recv(rtnl, &resp, sizeof(resp), MSG_DONTWAIT);
+
 		if (read < 0 || !NLMSG_OK(&resp.hdr, (size_t)read) ||
 				resp.hdr.nlmsg_type != RTM_NEWLINK ||
 				resp.msg.ifi_index != if_index)
@@ -244,32 +241,40 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 int ra_conf_hoplimit(int newvalue)
 {
 	static int value = 0;
+
 	if (newvalue > 0)
 		value = newvalue;
+
 	return value;
 }
 
 int ra_conf_mtu(int newvalue)
 {
 	static int value = 0;
+
 	if (newvalue >= 1280 && newvalue <= 65535)
 		value = newvalue;
+
 	return value;
 }
 
 int ra_conf_reachable(int newvalue)
 {
 	static int value = 0;
+
 	if (newvalue > 0 && newvalue <= 3600000)
 		value = newvalue;
+
 	return value;
 }
 
 int ra_conf_retransmit(int newvalue)
 {
 	static int value = 0;
+
 	if (newvalue > 0 && newvalue <= 60000)
 		value = newvalue;
+
 	return value;
 }
 
@@ -349,6 +354,7 @@ bool ra_process(void)
 		entry->priority = pref_to_priority(adv->nd_ra_flags_reserved);
 		if (entry->priority < 0)
 			entry->priority = pref_to_priority(0);
+
 		entry->valid = router_valid;
 		entry->preferred = entry->valid;
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 0, true);
@@ -448,16 +454,19 @@ bool ra_process(void)
 
 		if (ra_options & RA_RDNSS_DEFAULT_LIFETIME) {
 			int states[2] = {STATE_RA_DNS, STATE_RA_SEARCH};
+
 			for (size_t i = 0; i < 2; ++i) {
 				size_t ra_dns_len;
 				uint8_t *start = odhcp6c_get_state(states[i], &ra_dns_len);
+
 				for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
 							(uint8_t*)c < &start[ra_dns_len] &&
 							(uint8_t*)odhcp6c_next_entry(c) <= &start[ra_dns_len];
-							c = odhcp6c_next_entry(c))
+							c = odhcp6c_next_entry(c)) {
 					if (IN6_ARE_ADDR_EQUAL(&c->router, &from.sin6_addr) &&
 							c->valid > router_valid)
 						c->valid = router_valid;
+				}
 			}
 		}
 	}
