@@ -801,7 +801,8 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
 {
 	uint16_t otype, olen;
-	uint8_t *odata, msg = DHCPV6_MSG_RENEW;
+	uint8_t *odata;
+	int msg = -1;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1 && (
