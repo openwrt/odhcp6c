@@ -797,7 +797,7 @@ int dhcpv6_poll_reconfigure(void)
 	return ret;
 }
 
-static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
+static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
 {
 	uint16_t otype, olen;
@@ -811,7 +811,7 @@ static int dhcpv6_handle_reconfigure(_unused enum dhcpv6_msg orig, const int rc,
 			msg = odata[0];
 	}
 
-	dhcpv6_handle_reply(DHCPV6_MSG_UNKNOWN, rc, NULL, NULL, NULL);
+	dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
 
 	return msg;
 }
@@ -1138,41 +1138,47 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		}
 	}
 
-	if (orig != DHCPV6_MSG_INFO_REQ) {
+	switch (orig) {
+	case DHCPV6_MSG_REQUEST:
+	case DHCPV6_MSG_REBIND:
+	case DHCPV6_MSG_RENEW:
 		// Update refresh timers if no fatal status code was received
 		if ((ret > 0) && (ret = dhcpv6_calc_refresh_timers())) {
-			switch (orig) {
-			case DHCPV6_MSG_RENEW:
-				// Send further renews if T1 is not set
-				if (!t1)
-					ret = -1;
-				break;
-			case DHCPV6_MSG_REBIND:
-				// Send further rebinds if T1 and T2 is not set
-				if (!t1 && !t2)
-					ret = -1;
-				break;
-
-			case DHCPV6_MSG_REQUEST:
+			if (orig == DHCPV6_MSG_REQUEST) {
 				// All server candidates can be cleared if not yet bound
 				if (!odhcp6c_is_bound())
 					dhcpv6_clear_all_server_cand();
 
-			default :
-				break;
-			}
+				odhcp6c_clear_state(STATE_SERVER_ADDR);
+				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+			} else if (orig == DHCPV6_MSG_RENEW) {
+				// Send further renews if T1 is not set
+				if (!t1)
+					ret = -1;
 
-			if (orig == DHCPV6_MSG_REBIND || orig == DHCPV6_MSG_REQUEST) {
+			} else if (orig == DHCPV6_MSG_REBIND) {
+				// Send further rebinds if T1 and T2 is not set
+				if (!t1 && !t2)
+					ret = -1;
+
 				odhcp6c_clear_state(STATE_SERVER_ADDR);
 				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
 			}
 		}
-	} else if (ret > 0) {
-		// All server candidates can be cleared if not yet bound
-		if (!odhcp6c_is_bound())
-			dhcpv6_clear_all_server_cand();
+		break;
 
-		t1 = refresh;
+	case DHCPV6_MSG_INFO_REQ:
+		if (ret > 0) {
+			// All server candidates can be cleared if not yet bound
+			if (!odhcp6c_is_bound())
+				dhcpv6_clear_all_server_cand();
+
+			t1 = refresh;
+		}
+		break;
+
+	default:
+		break;
 	}
 
 	return ret;
