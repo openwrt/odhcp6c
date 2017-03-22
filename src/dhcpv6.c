@@ -805,10 +805,20 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 	int msg = -1;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1 && (
-				odata[0] == DHCPV6_MSG_RENEW ||
-				odata[0] == DHCPV6_MSG_INFO_REQ))
-			msg = odata[0];
+		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
+			switch (odata[0]) {
+			case DHCPV6_MSG_RENEW:
+				if (t1 != UINT32_MAX)
+					t1 = 0;
+			// Fall through
+			case DHCPV6_MSG_INFO_REQ:
+				msg = odata[0];
+				break;
+
+			default:
+				break;
+			}
+		}
 	}
 
 	dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
