@@ -778,7 +778,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		return false;
 
 	if (rep->msg_type == DHCPV6_MSG_RECONF) {
-		if ((rcmsg != DHCPV6_MSG_RENEW && rcmsg != DHCPV6_MSG_INFO_REQ) ||
+		if ((rcmsg != DHCPV6_MSG_RENEW && rcmsg != DHCPV6_MSG_REBIND && rcmsg != DHCPV6_MSG_INFO_REQ) ||
 			(rcmsg == DHCPV6_MSG_INFO_REQ && ia_present) ||
 			!rcauth_ok || IN6_IS_ADDR_MULTICAST(daddr))
 			return false;
@@ -807,6 +807,10 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
 			switch (odata[0]) {
+			case DHCPV6_MSG_REBIND:
+				if (t2 != UINT32_MAX)
+					t2 = 0;
+			// Fall through
 			case DHCPV6_MSG_RENEW:
 				if (t1 != UINT32_MAX)
 					t1 = 0;
