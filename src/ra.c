@@ -56,6 +56,7 @@ static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
 static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
 static unsigned int ra_options = 0;
+static unsigned int ra_holdoff_interval = 0;
 
 struct {
 	struct icmp6_hdr hdr;
@@ -67,9 +68,11 @@ struct {
 
 static void ra_send_rs(int signal __attribute__((unused)));
 
-int ra_init(const char *ifname, const struct in6_addr *ifid, unsigned int options)
+int ra_init(const char *ifname, const struct in6_addr *ifid,
+		unsigned int options, unsigned int holdoff_interval)
 {
 	ra_options = options;
+	ra_holdoff_interval = holdoff_interval;
 
 	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
@@ -357,7 +360,8 @@ bool ra_process(void)
 
 		entry->valid = router_valid;
 		entry->preferred = entry->valid;
-		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 0, true);
+		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
+						0, ra_holdoff_interval);
 
 		// Parse hoplimit
 		ra_conf_hoplimit(adv->nd_ra_curhoplimit);
@@ -387,7 +391,8 @@ bool ra_process(void)
 					continue;
 
 				if (entry->priority > 0)
-					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 0, true);
+					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
+									0, ra_holdoff_interval);
 			} else if (opt->type == ND_OPT_PREFIX_INFORMATION && opt->len == 4) {
 				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info*)opt;
 				entry->router = any;
@@ -404,7 +409,8 @@ bool ra_process(void)
 					continue;
 
 				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
-					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry, 7200, true);
+					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
+									7200, ra_holdoff_interval);
 
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
 						pinfo->nd_opt_pi_prefix_len != 64)
@@ -413,7 +419,8 @@ bool ra_process(void)
 				entry->target.s6_addr32[2] = lladdr.s6_addr32[2];
 				entry->target.s6_addr32[3] = lladdr.s6_addr32[3];
 
-				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry, 7200, true);
+				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry,
+								7200, ra_holdoff_interval);
 			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
 				entry->router = from.sin6_addr;
 				entry->priority = 0;
@@ -425,7 +432,8 @@ bool ra_process(void)
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
 					memcpy(&entry->target, &opt->data[6 + i * sizeof(entry->target)],
 							sizeof(entry->target));
-					changed |= odhcp6c_update_entry(STATE_RA_DNS, entry, 0, true);
+					changed |= odhcp6c_update_entry(STATE_RA_DNS, entry,
+									0, ra_holdoff_interval);
 				}
 			} else if (opt->type == ND_OPT_DNSSL && opt->len > 1) {
 				uint32_t *valid = (uint32_t*)&opt->data[2];
@@ -446,7 +454,8 @@ bool ra_process(void)
 					if (entry->auxlen == 0)
 						continue;
 
-					changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry, 0, true);
+					changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry,
+									0, ra_holdoff_interval);
 					entry->auxlen = 0;
 				}
 			}

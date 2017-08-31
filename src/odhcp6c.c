@@ -57,7 +57,6 @@ static bool bound = false, release = true, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
 
-static unsigned int min_update_interval = DEFAULT_MIN_UPDATE_INTERVAL;
 static unsigned int script_sync_delay = 10;
 static unsigned int script_accu_delay = 1;
 
@@ -82,6 +81,7 @@ int main(_unused int argc, char* const argv[])
 	int c;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
+	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
 	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
@@ -195,7 +195,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'm':
-			min_update_interval = atoi(optarg);
+			ra_holdoff_interval = atoi(optarg);
 			break;
 
 		case 'L':
@@ -253,7 +253,7 @@ int main(_unused int argc, char* const argv[])
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
 			init_dhcpv6(ifname, client_options, sol_timeout) ||
-			ra_init(ifname, &ifid, ra_options) ||
+			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 		return 3;
@@ -456,7 +456,7 @@ static int usage(void)
 	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
-	"	-m <seconds>	Minimum time between accepting updates (30)\n"
+	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
@@ -597,7 +597,7 @@ static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const 
 }
 
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
-		uint32_t safe, bool filterexcess)
+		uint32_t safe, unsigned int holdoff_interval)
 {
 	size_t len;
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
@@ -608,12 +608,12 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 
 	if (new->valid > 0) {
 		if (x) {
-			if (filterexcess && new->valid >= x->valid &&
+			if (holdoff_interval && new->valid >= x->valid &&
 					new->valid != UINT32_MAX &&
-					new->valid - x->valid < min_update_interval &&
+					new->valid - x->valid < holdoff_interval &&
 					new->preferred >= x->preferred &&
 					new->preferred != UINT32_MAX &&
-					new->preferred - x->preferred < min_update_interval)
+					new->preferred - x->preferred < holdoff_interval)
 				return false;
 
 			x->valid = new->valid;

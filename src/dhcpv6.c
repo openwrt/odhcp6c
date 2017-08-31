@@ -1277,7 +1277,7 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 			}
 
 			if (ok) {
-				odhcp6c_update_entry(STATE_IA_PD, &entry, 0, false);
+				odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0);
 				parsed_ia++;
 			}
 
@@ -1302,7 +1302,7 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 			entry.length = 128;
 			entry.target = addr->addr;
 
-			odhcp6c_update_entry(STATE_IA_NA, &entry, 0, false);
+			odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0);
 			parsed_ia++;
 		}
 	}

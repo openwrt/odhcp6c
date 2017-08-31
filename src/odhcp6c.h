@@ -32,7 +32,7 @@
 #define DHCPV6_REB_MAX_RT 600
 #define DHCPV6_INF_MAX_RT 120
 
-#define DEFAULT_MIN_UPDATE_INTERVAL 30
+#define RA_MIN_ADV_INTERVAL 3   /* RFC 4861 paragraph 6.2.1 */
 
 enum dhcvp6_opt {
 	DHCPV6_OPT_CLIENTID = 1,
@@ -356,7 +356,8 @@ void* odhcp6c_move_state(enum odhcp6c_state state, size_t *len);
 void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 
 // Entry manipulation
-bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new, uint32_t safe, bool filterexcess);
+bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
+				uint32_t safe, unsigned int holdoff_interval);
 
 void odhcp6c_expire(void);
 uint32_t odhcp6c_elapsed(void);
