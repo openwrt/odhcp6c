@@ -255,15 +255,14 @@ int main(_unused int argc, char* const argv[])
 			init_dhcpv6(ifname, client_options, sol_timeout) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
-		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+		syslog(LOG_ERR, "failed to initialize: %m");
 		return 3;
 	}
 
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
 		if (daemon(0, 0)) {
-			syslog(LOG_ERR, "Failed to daemonize: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Failed to daemonize: %m");
 			return 4;
 		}
 

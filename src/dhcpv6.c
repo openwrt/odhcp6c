@@ -522,9 +522,9 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	if (sendmsg(sock, &msg, 0) < 0) {
 		char in6_str[INET6_ADDRSTRLEN];
 
-		syslog(LOG_ERR, "Failed to send DHCPV6 message to %s (%s)",
+		syslog(LOG_ERR, "Failed to send DHCPV6 message to %s (%m)",
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
-				in6_str, sizeof(in6_str)), strerror(errno));
+				in6_str, sizeof(in6_str)));
 	}
 }
 
