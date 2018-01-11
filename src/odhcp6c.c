@@ -17,6 +17,8 @@
 #include <errno.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <resolv.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -40,9 +42,15 @@
 	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
 	 == htonl (0xfc000000))
 #endif
+#define ARRAY_SEP " ,\t"
 
 static void sighandler(int signal);
 static int usage(void);
+static int add_opt(const uint16_t code, const uint8_t *data,
+		const uint16_t len);
+static int parse_opt_data(const char *data, uint8_t **dst,
+		const unsigned int type, const bool array);
+static int parse_opt(const char *opt);
 
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
@@ -59,6 +67,53 @@ static char *ifname = NULL;
 
 static unsigned int script_sync_delay = 10;
 static unsigned int script_accu_delay = 1;
+
+static struct odhcp6c_opt opts[] = {
+	{ .code = DHCPV6_OPT_CLIENTID, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_SERVERID, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_IA_NA, .flags = OPT_INTERNAL, .str= NULL },
+	{ .code = DHCPV6_OPT_IA_TA, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_IA_ADDR, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_ORO, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_PREF, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_ELAPSED, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_RELAY_MSG, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_AUTH, .flags = OPT_U8, .str = "authentication" },
+	{ .code = DHCPV6_OPT_UNICAST, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_STATUS, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_RAPID_COMMIT, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_USER_CLASS, .flags = OPT_USER_CLASS | OPT_ARRAY, .str = "userclass" },
+	{ .code = DHCPV6_OPT_VENDOR_CLASS, .flags = OPT_U8, .str = "vendorclass" },
+	{ .code = DHCPV6_OPT_INTERFACE_ID, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_RECONF_MESSAGE, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_RECONF_ACCEPT, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_RECONF_ACCEPT, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_DNS_SERVERS, .flags = OPT_IP6 | OPT_ARRAY, .str = "dns" },
+	{ .code = DHCPV6_OPT_DNS_DOMAIN, .flags = OPT_DNS_STR, .str = "search" },
+	{ .code = DHCPV6_OPT_IA_PD, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_IA_PREFIX, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_SNTP_SERVERS, .flags = OPT_IP6 | OPT_ARRAY, .str = "sntpservers" },
+	{ .code = DHCPV6_OPT_INFO_REFRESH, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_NTP_SERVER, .flags = OPT_U8, .str = "ntpserver" },
+	{ .code = DHCPV6_OPT_SIP_SERVER_D, .flags = OPT_DNS_STR, .str = "sipserver_d" },
+	{ .code = DHCPV6_OPT_SIP_SERVER_A, .flags = OPT_IP6 | OPT_ARRAY, .str = "sipserver_a" },
+	{ .code = DHCPV6_OPT_AFTR_NAME, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_PD_EXCLUDE, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_SOL_MAX_RT, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_INF_MAX_RT, .flags = OPT_INTERNAL, .str = NULL },
+#ifdef EXT_CER_ID
+	{ .code = DHCPV6_OPT_CER_ID, .flags = OPT_INTERNAL, .str = NULL },
+#endif
+	{ .code = DHCPV6_OPT_S46_RULE, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_BR, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_DMR, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_V4V6BIND, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_PORTPARAMS, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_CONT_MAPE, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_CONT_MAPT, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = DHCPV6_OPT_S46_CONT_LW, .flags = OPT_INTERNAL, .str = NULL },
+	{ .code = 0, .flags = 0, .str = NULL },
+};
 
 int main(_unused int argc, char* const argv[])
 {
@@ -78,12 +133,12 @@ int main(_unused int argc, char* const argv[])
 	int verbosity = 0;
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
-	int c;
+	int c, res;
 	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:s:kt:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:x:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -241,6 +296,16 @@ int main(_unused int argc, char* const argv[])
 			++verbosity;
 			break;
 
+		case 'x':
+			res = parse_opt(optarg);
+			if (res) {
+				if (res > 0)
+					return res;
+
+				help = true;
+			}
+			break;
+
 		default:
 			help = true;
 			break;
@@ -321,7 +386,7 @@ int main(_unused int argc, char* const argv[])
 			continue;
 
 		do {
-			int res = dhcpv6_request(mode == DHCPV6_STATELESS ?
+			res = dhcpv6_request(mode == DHCPV6_STATELESS ?
 					DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST);
 			bool signalled = odhcp6c_signal_process();
 
@@ -347,7 +412,7 @@ int main(_unused int argc, char* const argv[])
 				signal_usr1 = false;
 				script_call("informed", script_sync_delay, true);
 
-				int res = dhcpv6_poll_reconfigure();
+				res = dhcpv6_poll_reconfigure();
 				odhcp6c_signal_process();
 
 				if (res > 0)
@@ -379,7 +444,7 @@ int main(_unused int argc, char* const argv[])
 			while (!signal_usr2 && !signal_term) {
 				// Renew Cycle
 				// Wait for T1 to expire or until we get a reconfigure
-				int res = dhcpv6_poll_reconfigure();
+				res = dhcpv6_poll_reconfigure();
 				odhcp6c_signal_process();
 				if (res > 0) {
 					script_call("updated", 0, false);
@@ -462,6 +527,11 @@ static int usage(void)
 	"	-F		Force IPv6-Prefix\n"
 	"	-V <class>	Set vendor-class option (base-16 encoded)\n"
 	"	-u <user-class> Set user-class option string\n"
+	"	-x <opt>:<val>	Add option opt (with value val) in sent packets (cumulative)\n"
+	"			Examples of IPv6 address, string and base-16 encoded options:\n"
+	"			-x dns:2001:2001::1,2001:2001::2 - option 23\n"
+	"			-x 15:office - option 15 (userclass)\n"
+	"			-x 0x1f4:ABBA - option 500\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded 16-bit type + value)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
@@ -685,6 +755,20 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 	}
 }
 
+static uint8_t *odhcp6c_state_find_opt(const uint16_t code)
+{
+	size_t opts_len;
+	uint8_t *odata, *opts = odhcp6c_get_state(STATE_OPTS, &opts_len);
+	uint16_t otype, olen;
+
+	dhcpv6_for_each_option(opts, &opts[opts_len], otype, olen, odata) {
+		if (otype == code)
+			return &odata[-4];
+	}
+
+	return NULL;
+}
+
 void odhcp6c_expire(void)
 {
 	time_t now = odhcp6c_get_milli_time() / 1000;
@@ -777,4 +861,271 @@ static void sighandler(int signal)
 		signal_io = true;
 	else
 		signal_term = true;
+}
+
+static int add_opt(const uint16_t code, const uint8_t *data, const uint16_t len)
+{
+	struct {
+		uint16_t code;
+		uint16_t len;
+	} opt_hdr = { htons(code), htons(len) };
+
+	if (odhcp6c_state_find_opt(code))
+		return -1;
+
+	if (odhcp6c_add_state(STATE_OPTS, &opt_hdr, sizeof(opt_hdr)) ||
+			odhcp6c_add_state(STATE_OPTS, data, len)) {
+		syslog(LOG_ERR, "Failed to add option %hu", code);
+		return 1;
+	}
+
+	return 0;
+}
+
+struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code)
+{
+	struct odhcp6c_opt *opt = opts;
+
+	while (opt->code) {
+		if (opt->code == code)
+			return opt;
+
+		opt++;
+	}
+
+	return NULL;
+}
+
+static struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name)
+{
+	struct odhcp6c_opt *opt = opts;
+
+	if (!name || !strlen(name))
+		return NULL;
+
+	while (opt->code && (!opt->str || strcmp(opt->str, name)))
+		opt++;
+
+	return (opt->code > 0 ? opt : NULL);
+}
+
+/* Find first occurrence of any character in the string <needles>
+ * within the string <haystack>
+ * */
+static char *get_sep_pos(const char *haystack, const char *needles)
+{
+	unsigned int i;
+	char *first = NULL;
+
+	for (i = 0; i < strlen(needles); i++) {
+		char *found = strchr(haystack, needles[i]);
+		if (found && ((found < first) || (first == NULL)))
+			first = found;
+	}
+
+	return first;
+}
+
+static int parse_opt_u8(const char *src, uint8_t **dst)
+{
+	int len = strlen(src);
+
+	*dst = realloc(*dst, len/2);
+	if (!*dst)
+		return -1;
+
+	return script_unhexlify(*dst, len, src);
+}
+
+static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
+{
+	int i_len = strlen(src);
+	int o_len = 0;
+	char *sep = get_sep_pos(src, ARRAY_SEP);
+
+	if (sep && !array)
+		return -1;
+
+	do {
+		uint8_t tmp[256];
+
+		if (sep) {
+			*sep = 0;
+			sep++;
+		}
+
+		int len = dn_comp(src, tmp, sizeof(tmp), NULL, NULL);
+		if (len < 0)
+			return -1;
+
+		*dst = realloc(*dst, o_len + len);
+		if (!*dst)
+			return -1;
+
+		memcpy(&((*dst)[o_len]), tmp, len);
+
+		o_len += len;
+		i_len -= strlen(src) + (sep ? 1 : 0);
+		src = sep;
+
+		if (src)
+			sep = get_sep_pos(src, ARRAY_SEP);
+	} while (i_len);
+
+	return o_len;
+}
+
+static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
+{
+	int i_len = strlen(src);
+	int o_len = 0;
+	char *sep = get_sep_pos(src, ARRAY_SEP);
+
+	if (sep && !array)
+		return -1;
+
+	do {
+		int len = sizeof(struct in6_addr);
+
+		if (sep) {
+			*sep = 0;
+			sep++;
+		}
+
+		*dst = realloc(*dst, o_len + len);
+		if (!*dst)
+			return -1;
+
+		if (inet_pton(AF_INET6, src, &((*dst)[o_len])) < 1)
+			return -1;
+
+		o_len += len;
+		i_len -= strlen(src) + (sep ? 1 : 0);
+		src = sep;
+
+		if (src)
+			sep = get_sep_pos(src, ARRAY_SEP);
+	} while (i_len);
+
+	return o_len;
+}
+
+static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
+{
+	int i_len = strlen(src);
+	int o_len = 0;
+	char *sep = get_sep_pos(src, ARRAY_SEP);
+
+	if (sep && !array)
+		return -1;
+
+	do {
+		if (sep) {
+			*sep = 0;
+			sep++;
+		}
+		uint16_t str_len = strlen(src);
+
+		*dst = realloc(*dst, o_len + str_len + 2);
+		if (!*dst)
+			return -1;
+
+		struct user_class {
+			uint16_t len;
+			uint8_t data[];
+		} *e = (struct user_class *)&((*dst)[o_len]);
+
+		e->len = ntohs(str_len);
+		memcpy(e->data, src, str_len);
+
+		o_len += str_len + 2;
+		i_len -= str_len + (sep ? 1 : 0);
+		src = sep;
+
+		if (src)
+			sep = get_sep_pos(src, ARRAY_SEP);
+	} while (i_len);
+
+	return o_len;
+}
+
+static int parse_opt_data(const char *data, uint8_t **dst, const unsigned int type,
+		const bool array)
+{
+	int ret = 0;
+
+	switch (type) {
+	case OPT_U8:
+		ret = parse_opt_u8(data, dst);
+		break;
+
+	case OPT_DNS_STR:
+		ret = parse_opt_dns_string(data, dst, array);
+		break;
+
+	case OPT_IP6:
+		ret = parse_opt_ip6(data, dst, array);
+		break;
+
+	case OPT_USER_CLASS:
+		ret = parse_opt_user_class(data, dst,array);
+		break;
+
+	default:
+		ret = -1;
+		break;
+	}
+
+	return ret;
+}
+
+static int parse_opt(const char *opt)
+{
+	uint32_t optn;
+	char *data;
+	uint8_t *payload = NULL;
+	int payload_len;
+	unsigned int type = OPT_U8;
+	bool array = false;
+	struct odhcp6c_opt *dopt = NULL;
+	int ret = -1;
+
+	data = get_sep_pos(opt, ":");
+	if (!data)
+		return -1;
+
+	*data = '\0';
+	data++;
+
+	if (strlen(opt) == 0 || strlen(data) == 0)
+		return -1;
+
+	dopt = odhcp6c_find_opt_by_name(opt);
+	if (!dopt) {
+		char *e;
+		optn = strtoul(opt, &e, 0);
+		if (*e || e == opt || optn > USHRT_MAX)
+			return -1;
+
+		dopt = odhcp6c_find_opt(optn);
+	} else
+		optn = dopt->code;
+
+	/* Check if the type for the content is well-known */
+	if (dopt) {
+		/* Refuse internal options */
+		if (dopt->flags & OPT_INTERNAL)
+			return -1;
+
+		type = dopt->flags & OPT_MASK_SIZE;
+		array = ((dopt->flags & OPT_ARRAY) == OPT_ARRAY) ? true : false;
+	}
+
+	payload_len = parse_opt_data(data, &payload, type, array);
+	if (payload_len > 0)
+		ret = add_opt(optn, payload, payload_len);
+
+	free(payload);
+
+	return ret;
 }

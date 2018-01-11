@@ -225,6 +225,7 @@ enum {
 	IOV_VENDOR_CLASS,
 	IOV_USER_CLASS_HDR,
 	IOV_USER_CLASS,
+	IOV_OPTS,
 	IOV_RECONF_ACCEPT,
 	IOV_FQDN,
 	IOV_HDR_IA_NA,
@@ -426,6 +427,10 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	// Request Information Refresh
 	uint16_t oro_refresh = htons(DHCPV6_OPT_INFO_REFRESH);
 
+	// Option list
+	size_t opts_len;
+	void *opts = odhcp6c_get_state(STATE_OPTS, &opts_len);
+
 	// Build vendor-class option
 	size_t vendor_class_len, user_class_len;
 	struct dhcpv6_vendorclass *vendor_class = odhcp6c_get_state(STATE_VENDORCLASS, &vendor_class_len);
@@ -469,6 +474,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		[IOV_VENDOR_CLASS] = {vendor_class, vendor_class_len},
 		[IOV_USER_CLASS_HDR] = {&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
 		[IOV_USER_CLASS] = {user_class, user_class_len},
+		[IOV_OPTS] = { opts, opts_len },
 		[IOV_RECONF_ACCEPT] = {&reconf_accept, sizeof(reconf_accept)},
 		[IOV_FQDN] = {&fqdn, fqdn_len},
 		[IOV_HDR_IA_NA] = {&hdr_ia_na, sizeof(hdr_ia_na)},

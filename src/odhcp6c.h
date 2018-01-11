@@ -51,6 +51,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_RAPID_COMMIT = 14,
 	DHCPV6_OPT_USER_CLASS = 15,
 	DHCPV6_OPT_VENDOR_CLASS = 16,
+	DHCPV6_OPT_INTERFACE_ID = 18,
 	DHCPV6_OPT_RECONF_MESSAGE = 19,
 	DHCPV6_OPT_RECONF_ACCEPT = 20,
 	DHCPV6_OPT_DNS_SERVERS = 23,
@@ -262,6 +263,7 @@ enum odhcp6c_state {
 	STATE_AFTR_NAME,
 	STATE_VENDORCLASS,
 	STATE_USERCLASS,
+	STATE_OPTS,
 	STATE_CER,
 	STATE_S46_MAPT,
 	STATE_S46_MAPE,
@@ -322,6 +324,22 @@ struct odhcp6c_request_prefix {
 	uint16_t length;
 };
 
+enum odhcp6c_opt_flags {
+	OPT_U8 = 0,
+	OPT_IP6,
+	OPT_DNS_STR,
+	OPT_USER_CLASS,
+	OPT_MASK_SIZE = 0x0F,
+	OPT_ARRAY = 0x10,
+	OPT_INTERNAL = 0x20,
+};
+
+struct odhcp6c_opt {
+	uint16_t code;
+	uint8_t flags;
+	const char *str;
+};
+
 int init_dhcpv6(const char *ifname, unsigned int client_options, int sol_timeout);
 int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd);
 int dhcpv6_request(enum dhcpv6_msg type);
@@ -362,3 +380,4 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 
 void odhcp6c_expire(void);
 uint32_t odhcp6c_elapsed(void);
+struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code);
