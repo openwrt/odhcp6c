@@ -103,10 +103,13 @@ int main(_unused int argc, char* const argv[])
 
 		case 'V':
 			l = script_unhexlify(buf, sizeof(buf), optarg);
-			if (!l)
+			if (l) {
+				if (odhcp6c_add_state(STATE_VENDORCLASS, buf, l)) {
+					syslog(LOG_ERR, "Failed to set vendor-class option");
+					return 1;
+				}
+			} else
 				help = true;
-
-			odhcp6c_add_state(STATE_VENDORCLASS, buf, l);
 			break;
 
 		case 'P':
@@ -134,7 +137,10 @@ int main(_unused int argc, char* const argv[])
 			else
 				prefix.iaid = htonl(++ia_pd_iaid_index);
 
-			odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix));
+			if (odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix))) {
+				syslog(LOG_ERR, "Failed to set request IPv6-Prefix");
+				return 1;
+			}
 			break;
 
 		case 'F':
@@ -149,7 +155,10 @@ int main(_unused int argc, char* const argv[])
 				buf[1] = DHCPV6_OPT_CLIENTID;
 				buf[2] = 0;
 				buf[3] = l;
-				odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4);
+				if (odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4)) {
+					syslog(LOG_ERR, "Failed to override client-ID");
+					return 1;
+				}
 			} else
 				help = true;
 			break;
@@ -168,7 +177,10 @@ int main(_unused int argc, char* const argv[])
 				else if (optpos[0])
 					optarg = &optpos[1];
 
-				odhcp6c_add_state(STATE_ORO, &opttype, 2);
+				if (odhcp6c_add_state(STATE_ORO, &opttype, 2)) {
+					syslog(LOG_ERR, "Failed to add requested option");
+					return 1;
+				}
 			}
 			break;
 
@@ -178,8 +190,11 @@ int main(_unused int argc, char* const argv[])
 
 		case 'u':
 			optlen = htons(strlen(optarg));
-			odhcp6c_add_state(STATE_USERCLASS, &optlen, 2);
-			odhcp6c_add_state(STATE_USERCLASS, optarg, strlen(optarg));
+			if (odhcp6c_add_state(STATE_USERCLASS, &optlen, 2) ||
+					odhcp6c_add_state(STATE_USERCLASS, optarg, strlen(optarg))) {
+				syslog(LOG_ERR, "Failed to set user-class option");
+				return 1;
+			}
 			break;
 
 		case 's':
@@ -523,12 +538,16 @@ void odhcp6c_clear_state(enum odhcp6c_state state)
 	state_len[state] = 0;
 }
 
-void odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
+int odhcp6c_add_state(enum odhcp6c_state state, const void *data, size_t len)
 {
 	uint8_t *n = odhcp6c_resize_state(state, len);
 
-	if (n)
-		memcpy(n, data, len);
+	if (!n)
+		return -1;
+
+	memcpy(n, data, len);
+
+	return 0;
 }
 
 int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *data, size_t len)
@@ -621,8 +640,8 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 			x->t1 = new->t1;
 			x->t2 = new->t2;
 			x->iaid = new->iaid;
-		} else
-			odhcp6c_add_state(state, new, odhcp6c_entry_size(new));
+		} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new)))
+			return false;
 	} else if (x)
 		odhcp6c_remove_state(state, ((uint8_t*)x) - start, odhcp6c_entry_size(x));
 
