@@ -988,7 +988,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 
 		// Parse and find all matching IAs
 		dhcpv6_for_each_option(opt, end, otype, olen, odata) {
-			bool passthru = true;
+			struct odhcp6c_opt *dopt = odhcp6c_find_opt(otype);
 
 			if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)
 					&& olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
@@ -1031,17 +1031,14 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 					continue;
 
 				dhcpv6_parse_ia(ia_hdr, odata + olen);
-				passthru = false;
-			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr)) {
+			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr))
 				server_addr = *(struct in6_addr *)odata;
-				passthru = false;
-			} else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
+			else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
 				uint8_t *mdata = (olen > 2) ? &odata[2] : NULL;
 				uint16_t mlen = (olen > 2) ? olen - 2 : 0;
 				uint16_t code = ((int)odata[0]) << 8 | ((int)odata[1]);
 
 				dhcpv6_handle_status_code(orig, code, mdata, mlen, &ret);
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_DNS_SERVERS) {
 				if (olen % 16 == 0)
 					odhcp6c_add_state(STATE_DNS, odata, olen);
@@ -1071,7 +1068,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_add_state(STATE_SIP_FQDN, odata, olen);
 			else if (otype == DHCPV6_OPT_INFO_REFRESH && olen >= 4) {
 				refresh = ntohl_unaligned(odata);
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_AUTH) {
 				if (olen == -4 + sizeof(struct dhcpv6_auth_reconfigure)) {
 					struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
@@ -1079,25 +1075,21 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 							r->reconf_type == 1)
 						memcpy(reconf_key, r->key, sizeof(r->key));
 				}
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_AFTR_NAME && olen > 3) {
 				size_t cur_len;
 				odhcp6c_get_state(STATE_AFTR_NAME, &cur_len);
 				if (cur_len == 0)
 					odhcp6c_add_state(STATE_AFTR_NAME, odata, olen);
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_SOL_MAX_RT && olen == 4) {
 				uint32_t sol_max_rt = ntohl_unaligned(odata);
 				if (sol_max_rt >= DHCPV6_SOL_MAX_RT_MIN &&
 						sol_max_rt <= DHCPV6_SOL_MAX_RT_MAX)
 					dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_max_rt;
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_INF_MAX_RT && olen == 4) {
 				uint32_t inf_max_rt = ntohl_unaligned(odata);
 				if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
 						inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
 					dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = inf_max_rt;
-				passthru = false;
 	#ifdef EXT_CER_ID
 			} else if (otype == DHCPV6_OPT_CER_ID && olen == -4 +
 					sizeof(struct dhcpv6_cer_id)) {
@@ -1105,32 +1097,20 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				struct in6_addr any = IN6ADDR_ANY_INIT;
 				if (memcmp(&cer_id->addr, &any, sizeof(any)))
 					odhcp6c_add_state(STATE_CER, &cer_id->addr, sizeof(any));
-				passthru = false;
 	#endif
 			} else if (otype == DHCPV6_OPT_S46_CONT_MAPT) {
 				odhcp6c_add_state(STATE_S46_MAPT, odata, olen);
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_S46_CONT_MAPE) {
 				size_t mape_len;
 				odhcp6c_get_state(STATE_S46_MAPE, &mape_len);
 				if (mape_len == 0)
 					odhcp6c_add_state(STATE_S46_MAPE, odata, olen);
-				passthru = false;
 			} else if (otype == DHCPV6_OPT_S46_CONT_LW) {
 				odhcp6c_add_state(STATE_S46_LW, odata, olen);
-				passthru = false;
-			} else if (otype == DHCPV6_OPT_CLIENTID ||
-					otype == DHCPV6_OPT_SERVERID ||
-					otype == DHCPV6_OPT_IA_TA ||
-					otype == DHCPV6_OPT_PREF ||
-					otype == DHCPV6_OPT_UNICAST ||
-					otype == DHCPV6_OPT_FQDN ||
-					otype == DHCPV6_OPT_RECONF_ACCEPT)
-				passthru = false;
-			else
+			} else
 				odhcp6c_add_state(STATE_CUSTOM_OPTS, &odata[-4], olen + 4);
 
-			if (passthru)
+			if (!dopt || !(dopt->flags & OPT_NO_PASSTHRU))
 				odhcp6c_add_state(STATE_PASSTHRU, &odata[-4], olen + 4);
 		}
 	}

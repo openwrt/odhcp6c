@@ -330,6 +330,7 @@ enum odhcp6c_opt_flags {
 	OPT_MASK_SIZE = 0x0F,
 	OPT_ARRAY = 0x10,
 	OPT_INTERNAL = 0x20,
+	OPT_NO_PASSTHRU = 0x40,
 };
 
 struct odhcp6c_opt {
