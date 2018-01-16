@@ -122,12 +122,12 @@ int main(_unused int argc, char* const argv[])
 	const char *pidfile = NULL;
 	const char *script = "/usr/sbin/odhcp6c-update";
 	ssize_t l;
-	uint8_t buf[134];
+	uint8_t buf[134], *o_data;
 	char *optpos;
 	uint16_t opttype;
-	uint16_t optlen;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
+	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
 	int verbosity = 0;
@@ -157,14 +157,27 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'V':
-			l = script_unhexlify(buf, sizeof(buf), optarg);
-			if (l) {
-				if (odhcp6c_add_state(STATE_VENDORCLASS, buf, l)) {
-					syslog(LOG_ERR, "Failed to set vendor-class option");
-					return 1;
+			opt = odhcp6c_find_opt(DHCPV6_OPT_VENDOR_CLASS);
+			if (!opt) {
+				syslog(LOG_ERR, "Failed to set vendor-class option");
+				return 1;
+			}
+
+			o_data = NULL;
+			res = parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
+						(opt->flags & OPT_ARRAY) == OPT_ARRAY);
+			if (res > 0) {
+				res = add_opt(opt->code, o_data, res);
+				if (res) {
+					if (res > 0)
+						return 1;
+
+					help = true;
 				}
 			} else
 				help = true;
+
+			free(o_data);
 			break;
 
 		case 'P':
@@ -244,12 +257,27 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'u':
-			optlen = htons(strlen(optarg));
-			if (odhcp6c_add_state(STATE_USERCLASS, &optlen, 2) ||
-					odhcp6c_add_state(STATE_USERCLASS, optarg, strlen(optarg))) {
+			opt = odhcp6c_find_opt(DHCPV6_OPT_USER_CLASS);
+			if (!opt) {
 				syslog(LOG_ERR, "Failed to set user-class option");
 				return 1;
 			}
+
+			o_data = NULL;
+			res = parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
+						(opt->flags & OPT_ARRAY) == OPT_ARRAY);
+			if (res > 0) {
+				res = add_opt(opt->code, o_data, res);
+				if (res) {
+					if (res > 0)
+						return 1;
+
+					help = true;
+				}
+			} else
+				help = true;
+
+			free(o_data);
 			break;
 
 		case 's':

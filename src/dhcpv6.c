@@ -221,10 +221,6 @@ enum {
 	IOV_ORO_REFRESH,
 	IOV_CL_ID,
 	IOV_SRV_ID,
-	IOV_VENDOR_CLASS_HDR,
-	IOV_VENDOR_CLASS,
-	IOV_USER_CLASS_HDR,
-	IOV_USER_CLASS,
 	IOV_OPTS,
 	IOV_RECONF_ACCEPT,
 	IOV_FQDN,
@@ -431,21 +427,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	size_t opts_len;
 	void *opts = odhcp6c_get_state(STATE_OPTS, &opts_len);
 
-	// Build vendor-class option
-	size_t vendor_class_len, user_class_len;
-	struct dhcpv6_vendorclass *vendor_class = odhcp6c_get_state(STATE_VENDORCLASS, &vendor_class_len);
-	void *user_class = odhcp6c_get_state(STATE_USERCLASS, &user_class_len);
-
-	struct {
-		uint16_t type;
-		uint16_t length;
-	} vendor_class_hdr = {htons(DHCPV6_OPT_VENDOR_CLASS), htons(vendor_class_len)};
-
-	struct {
-		uint16_t type;
-		uint16_t length;
-	} user_class_hdr = {htons(DHCPV6_OPT_USER_CLASS), htons(user_class_len)};
-
 	// Prepare Header
 	size_t oro_len;
 	void *oro = odhcp6c_get_state(STATE_ORO, &oro_len);
@@ -470,10 +451,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		[IOV_ORO_REFRESH] = {&oro_refresh, 0},
 		[IOV_CL_ID] = {cl_id, cl_id_len},
 		[IOV_SRV_ID] = {srv_id, srv_id_len},
-		[IOV_VENDOR_CLASS_HDR] = {&vendor_class_hdr, vendor_class_len ? sizeof(vendor_class_hdr) : 0},
-		[IOV_VENDOR_CLASS] = {vendor_class, vendor_class_len},
-		[IOV_USER_CLASS_HDR] = {&user_class_hdr, user_class_len ? sizeof(user_class_hdr) : 0},
-		[IOV_USER_CLASS] = {user_class, user_class_len},
 		[IOV_OPTS] = { opts, opts_len },
 		[IOV_RECONF_ACCEPT] = {&reconf_accept, sizeof(reconf_accept)},
 		[IOV_FQDN] = {&fqdn, fqdn_len},
