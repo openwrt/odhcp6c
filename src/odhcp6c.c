@@ -831,6 +831,7 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 {
 	FILE *fd = fopen("/proc/net/if_inet6", "r");
 	int len;
+	bool ret = false;
 	char buf[256];
 
 	if (fd == NULL)
@@ -845,13 +846,13 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 		len = strlen(buf);
 
 		if ((len <= 0) || buf[len - 1] != '\n')
-			return false;
+			break;
 
 		buf[--len] = '\0';
 
 		if (sscanf(buf, "%s %x %x %x %x %s",
 				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
-			return false;
+			break;
 
 		if (strcmp(name, ifname) ||
 			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
@@ -859,7 +860,7 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 
 		for (i = 0; i < strlen(addr_buf); i++) {
 			if (!isxdigit(addr_buf[i]) || isupper(addr_buf[i]))
-				return false;
+				break;
 		}
 
 		memset(&inet6_addr, 0, sizeof(inet6_addr));
@@ -872,11 +873,14 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 		}
 
 		if ((IN6_IS_ADDR_LINKLOCAL(&inet6_addr) == IN6_IS_ADDR_LINKLOCAL(addr)) &&
-			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr)))
-			return true;
+			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr))) {
+			ret = true;
+			break;
+		}
 	}
 
-	return false;
+	fclose(fd);
+	return ret;
 }
 
 static void sighandler(int signal)
