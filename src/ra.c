@@ -301,11 +301,13 @@ bool ra_process(void)
 		socklen_t alen = sizeof(addr);
 		int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 
-		if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
-				!getsockname(sock, (struct sockaddr*)&addr, &alen))
-			lladdr = addr.sin6_addr;
+		if (sock >= 0) {
+			if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
+					!getsockname(sock, (struct sockaddr*)&addr, &alen))
+				lladdr = addr.sin6_addr;
 
-		close(sock);
+			close(sock);
+		}
 	}
 
 	while (true) {
