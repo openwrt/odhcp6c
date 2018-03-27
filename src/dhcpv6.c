@@ -130,14 +130,14 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (sock < 0)
-		return -1;
+		goto failure;
 
 	// Detect interface
 	struct ifreq ifr;
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
-		return -1;
+		goto failure;
 
 	ifindex = ifr.ifr_ifindex;
 
@@ -202,18 +202,31 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 
 	// Configure IPv6-options
 	int val = 1;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
-	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
-	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
+	if (setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val)) < 0)
+		goto failure;
+
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0)
+		goto failure;
+
+	if (setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val)) < 0)
+		goto failure;
+
+	if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname)) < 0)
+		goto failure;
 
 	struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
 		.sin6_port = htons(DHCPV6_CLIENT_PORT), .sin6_flowinfo = 0 };
 
 	if (bind(sock, (struct sockaddr*)&client_addr, sizeof(client_addr)) < 0)
-		return -1;
+		goto failure;
 
 	return 0;
+
+failure:
+	if (sock >= 0)
+		close(sock);
+
+	return -1;
 }
 
 enum {
@@ -616,8 +629,10 @@ int dhcpv6_request(enum dhcpv6_msg type)
 			// Set timeout for receiving
 			uint64_t t = round_end - round_start;
 			struct timeval tv = {t / 1000, (t % 1000) * 1000};
-			setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
-					&tv, sizeof(tv));
+			if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+					&tv, sizeof(tv)) < 0)
+				syslog(LOG_ERR, "setsockopt SO_RCVTIMEO failed (%s)",
+						strerror(errno));
 
 			// Receive cycle
 			len = recvmsg(sock, &msg, 0);

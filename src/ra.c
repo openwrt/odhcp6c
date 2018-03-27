@@ -13,6 +13,7 @@
  *
  */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <signal.h>
@@ -77,27 +78,32 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (sock < 0)
-		return -1;
+		goto failure;
 
 	if_index = if_nametoindex(ifname);
 	if (!if_index)
-		return -1;
+		goto failure;
 
 	strncpy(if_name, ifname, sizeof(if_name) - 1);
 	lladdr = *ifid;
 
 	rtnl = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_ROUTE);
 	if (rtnl < 0)
-		return -1;
+		goto failure;
 
 	struct sockaddr_nl rtnl_kernel = { .nl_family = AF_NETLINK };
 	if (connect(rtnl, (const struct sockaddr*)&rtnl_kernel, sizeof(rtnl_kernel)) < 0)
-		return -1;
+		goto failure;
 
 	int val = RTNLGRP_LINK;
-	setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val));
-	fcntl(rtnl, F_SETOWN, ourpid);
-	fcntl(rtnl, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
+	if (setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val)) < 0)
+		goto failure;
+
+	if (fcntl(rtnl, F_SETOWN, ourpid) < 0)
+		goto failure;
+
+	if (fcntl(rtnl, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC) < 0)
+		goto failure;
 
 	struct {
 		struct nlmsghdr hdr;
@@ -106,43 +112,67 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 		.hdr = {sizeof(req), RTM_GETLINK, NLM_F_REQUEST, 1, 0},
 		.ifi = {.ifi_index = if_index}
 	};
-	send(rtnl, &req, sizeof(req), 0);
+	if (send(rtnl, &req, sizeof(req), 0) < 0)
+		goto failure;
+
 	ra_link_up();
 
 	// Filter ICMPv6 package types
 	struct icmp6_filter filt;
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
-	setsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt));
+	if (setsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt)) < 0)
+		goto failure;
 
 	// Bind to all-nodes
 	struct ipv6_mreq an = {ALL_IPV6_NODES, if_index};
-	setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &an, sizeof(an));
+	if (setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &an, sizeof(an)) < 0)
+		goto failure;
 
 	// Let the kernel compute our checksums
 	val = 2;
-	setsockopt(sock, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
+	if (setsockopt(sock, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val)) < 0)
+		goto failure;
 
 	// This is required by RFC 4861
 	val = 255;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
+	if (setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val)) < 0)
+		goto failure;
 
 	// Receive multicast hops
 	val = 1;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val, sizeof(val));
+	if (setsockopt(sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val, sizeof(val)) < 0)
+		goto failure;
 
 	// Bind to one device
-	setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname));
+	if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname)) < 0)
+		goto failure;
 
 	// Add async-mode
-	fcntl(sock, F_SETOWN, ourpid);
-	fcntl(sock, F_SETFL, fcntl(sock, F_GETFL) | O_ASYNC);
+	if (fcntl(sock, F_SETOWN, ourpid) < 0)
+		goto failure;
+
+	val = fcntl(sock, F_GETFL);
+	if (val < 0)
+		goto failure;
+
+	if (fcntl(sock, F_SETFL, val | O_ASYNC) < 0)
+		goto failure;
 
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
 	ra_send_rs(SIGALRM);
 
 	return 0;
+
+failure:
+	if (sock >= 0)
+		close(sock);
+
+	if (rtnl >= 0)
+		close(rtnl);
+
+	return -1;
 }
 
 static void ra_send_rs(int signal __attribute__((unused)))
@@ -156,7 +186,8 @@ static void ra_send_rs(int signal __attribute__((unused)))
 	else
 		len = sizeof(struct icmp6_hdr);
 
-	sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+	if (sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
+		syslog(LOG_ERR, "Failed to send RS (%s)",  strerror(errno));
 
 	if (++rs_attempt <= 3)
 		alarm(4);
