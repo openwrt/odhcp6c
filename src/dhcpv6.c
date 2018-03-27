@@ -134,6 +134,7 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 
 	// Detect interface
 	struct ifreq ifr;
+	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name));
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		return -1;
