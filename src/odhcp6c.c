@@ -1000,7 +1000,7 @@ static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array
 		i_len -= strlen(src) + (sep ? 1 : 0);
 		src = sep;
 
-		if (src)
+		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
 	} while (i_len);
 
@@ -1035,7 +1035,7 @@ static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 		i_len -= strlen(src) + (sep ? 1 : 0);
 		src = sep;
 
-		if (src)
+		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
 	} while (i_len);
 
@@ -1074,7 +1074,7 @@ static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array
 		i_len -= str_len + (sep ? 1 : 0);
 		src = sep;
 
-		if (src)
+		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
 	} while (i_len);
 
