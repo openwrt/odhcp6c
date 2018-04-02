@@ -26,6 +26,15 @@ struct icmpv6_opt {
 	uint8_t data[6];
 };
 
+struct icmpv6_opt_route_info {
+	uint8_t type;
+	uint8_t len;
+	uint8_t prefix_len;
+	uint8_t flags;
+	uint32_t lifetime;
+	uint8_t prefix[];
+};
+
 #define ND_OPT_ROUTE_INFORMATION 24
 
 

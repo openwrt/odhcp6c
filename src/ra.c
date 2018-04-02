@@ -410,15 +410,26 @@ bool ra_process(void)
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
 				ra_conf_mtu(ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
+				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
+
+				if (ri->prefix_len > 128) {
+					continue;
+				} else if (ri->prefix_len > 64) {
+					if (ri->len < 2)
+						continue;
+				} else if (ri->prefix_len > 0) {
+					if (ri->len < 1)
+						continue;
+				}
+
 				entry->router = from.sin6_addr;
 				entry->target = any;
-				entry->priority = pref_to_priority(opt->data[1]);
-				entry->length = opt->data[0];
-				uint32_t *valid = (uint32_t*)&opt->data[2];
-				entry->valid = ntohl(*valid);
-				memcpy(&entry->target, &opt->data[6], (opt->len - 1) * 8);
+				entry->priority = pref_to_priority(ri->flags);
+				entry->length = ri->prefix_len;
+				entry->valid = ntohl(ri->lifetime);
+				memcpy(&entry->target, ri->prefix, (ri->len - 1) * 8);
 
-				if (entry->length > 128 || IN6_IS_ADDR_LINKLOCAL(&entry->target)
+				if (IN6_IS_ADDR_LINKLOCAL(&entry->target)
 						|| IN6_IS_ADDR_LOOPBACK(&entry->target)
 						|| IN6_IS_ADDR_MULTICAST(&entry->target))
 					continue;
