@@ -59,7 +59,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
 		const struct in6_addr *daddr);
 
-static int dhcpv6_parse_ia(void *opt, void *end);
+static unsigned int dhcpv6_parse_ia(void *opt, void *end);
 
 static int dhcpv6_calc_refresh_timers(void);
 static void dhcpv6_handle_status_code(_unused const enum dhcpv6_msg orig,
@@ -950,6 +950,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	uint16_t otype, olen;
 	uint32_t refresh = 86400;
 	int ret = 1;
+	unsigned int updated_IAs = 0;
 	bool handled_status_codes[_DHCPV6_Status_Max] = { false, };
 
 	odhcp6c_expire();
@@ -1046,7 +1047,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				if (code != DHCPV6_Success)
 					continue;
 
-				dhcpv6_parse_ia(ia_hdr, odata + olen);
+				updated_IAs += dhcpv6_parse_ia(ia_hdr, odata + olen);
 			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr))
 				server_addr = *(struct in6_addr *)odata;
 			else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
@@ -1145,14 +1146,26 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				odhcp6c_clear_state(STATE_SERVER_ADDR);
 				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
 			} else if (orig == DHCPV6_MSG_RENEW) {
-				// Send further renews if T1 is not set
-				if (!t1)
-					ret = -1;
+				// Send further renews if T1 is not set and
+				// no updated IAs
+				if (!t1) {
+					if (!updated_IAs)
+						ret = -1;
+					else if ((t2 - t1) > 1)
+						// Grace period of 1 second
+						t1 = 1;
+				}
 
 			} else if (orig == DHCPV6_MSG_REBIND) {
-				// Send further rebinds if T1 and T2 is not set
-				if (!t1 && !t2)
-					ret = -1;
+				// Send further rebinds if T1 and T2 is not set and
+				// no updated IAs
+				if (!t1 && !t2) {
+					if (!updated_IAs)
+						ret = -1;
+					else if ((t3 - t2) > 1)
+						// Grace period of 1 second
+						t2 = 1;
+				}
 
 				odhcp6c_clear_state(STATE_SERVER_ADDR);
 				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
@@ -1177,10 +1190,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	return ret;
 }
 
-static int dhcpv6_parse_ia(void *opt, void *end)
+static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 {
 	struct dhcpv6_ia_hdr *ia_hdr = (struct dhcpv6_ia_hdr *)opt;
-	int parsed_ia = 0;
+	unsigned int updated_IAs = 0;
 	uint32_t t1, t2;
 	uint16_t otype, olen;
 	uint8_t *odata;
@@ -1256,8 +1269,8 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 			}
 
 			if (ok) {
-				odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0);
-				parsed_ia++;
+				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0))
+					updated_IAs++;
 			}
 
 			entry.priority = 0;
@@ -1281,11 +1294,11 @@ static int dhcpv6_parse_ia(void *opt, void *end)
 			entry.length = 128;
 			entry.target = addr->addr;
 
-			odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0);
-			parsed_ia++;
+			if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0))
+				updated_IAs++;
 		}
 	}
-	return parsed_ia;
+	return updated_IAs;
 }
 
 static int dhcpv6_calc_refresh_timers(void)
