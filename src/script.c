@@ -393,8 +393,15 @@ void script_call(const char *status, int delay, bool resume)
 	bool running_script = false;
 
 	if (running) {
+		time_t diff = now - started;
+
 		kill(running, SIGTERM);
-		delay -= now - started;
+
+		if (diff > delay)
+			delay -= diff;
+		else
+			delay = 0;
+
 		running_script = true;
 	}
 
