@@ -478,10 +478,10 @@ void script_call(const char *status, int delay, bool resume)
 		entry_to_env("RA_DNS", ra_dns, ra_dns_len, ENTRY_HOST);
 		search_to_env("RA_DOMAINS", ra_search, ra_search_len);
 
-		int_to_env("RA_HOPLIMIT", ra_conf_hoplimit(0));
-		int_to_env("RA_MTU", ra_conf_mtu(0));
-		int_to_env("RA_REACHABLE", ra_conf_reachable(0));
-		int_to_env("RA_RETRANSMIT", ra_conf_retransmit(0));
+		int_to_env("RA_HOPLIMIT", ra_get_hoplimit());
+		int_to_env("RA_MTU", ra_get_mtu());
+		int_to_env("RA_REACHABLE", ra_get_reachable());
+		int_to_env("RA_RETRANSMIT", ra_get_retransmit());
 
 		char *buf = malloc(10 + passthru_len * 2);
 		strncpy(buf, "PASSTHRU=", 10);

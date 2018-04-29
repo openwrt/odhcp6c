@@ -58,6 +58,10 @@ static volatile int rs_attempt = 0;
 static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
 static unsigned int ra_options = 0;
 static unsigned int ra_holdoff_interval = 0;
+static int ra_hoplimit = 0;
+static int ra_mtu = 0;
+static int ra_reachable = 0;
+static int ra_retransmit = 0;
 
 struct {
 	struct icmp6_hdr hdr;
@@ -272,44 +276,64 @@ static bool ra_icmpv6_valid(struct sockaddr_in6 *source, int hlim, uint8_t *data
 	return opt == end;
 }
 
-int ra_conf_hoplimit(int newvalue)
+static bool ra_set_hoplimit(int val)
 {
-	static int value = 0;
+	if (val > 0 && val != ra_hoplimit) {
+		ra_hoplimit = val;
+		return true;
+	}
 
-	if (newvalue > 0)
-		value = newvalue;
-
-	return value;
+	return false;
 }
 
-int ra_conf_mtu(int newvalue)
+static bool ra_set_mtu(int val)
 {
-	static int value = 0;
+	if (val >= 1280 && val <= 65535 && ra_mtu != val) {
+		ra_mtu = val;
+		return true;
+	}
 
-	if (newvalue >= 1280 && newvalue <= 65535)
-		value = newvalue;
-
-	return value;
+	return false;
 }
 
-int ra_conf_reachable(int newvalue)
+static bool ra_set_reachable(int val)
 {
-	static int value = 0;
+	if (val > 0 && val <= 3600000 && ra_reachable != val) {
+		ra_reachable = val;
+		return true;
+	}
 
-	if (newvalue > 0 && newvalue <= 3600000)
-		value = newvalue;
-
-	return value;
+	return false;
 }
 
-int ra_conf_retransmit(int newvalue)
+static bool ra_set_retransmit(int val)
 {
-	static int value = 0;
+	if (val > 0 && val <= 60000 && ra_retransmit != val) {
+		ra_retransmit = val;
+		return true;
+	}
 
-	if (newvalue > 0 && newvalue <= 60000)
-		value = newvalue;
+	return false;
+}
 
-	return value;
+int ra_get_hoplimit(void)
+{
+	return ra_hoplimit;
+}
+
+int ra_get_mtu(void)
+{
+	return ra_mtu;
+}
+
+int ra_get_reachable(void)
+{
+	return ra_reachable;
+}
+
+int ra_get_retransmit(void)
+{
+	return ra_retransmit;
 }
 
 bool ra_process(void)
@@ -397,18 +421,18 @@ bool ra_process(void)
 						0, ra_holdoff_interval);
 
 		// Parse hoplimit
-		ra_conf_hoplimit(adv->nd_ra_curhoplimit);
+		changed |= ra_set_hoplimit(adv->nd_ra_curhoplimit);
 
 		// Parse ND parameters
-		ra_conf_reachable(ntohl(adv->nd_ra_reachable));
-		ra_conf_retransmit(ntohl(adv->nd_ra_retransmit));
+		changed |= ra_set_reachable(ntohl(adv->nd_ra_reachable));
+		changed |= ra_set_retransmit(ntohl(adv->nd_ra_retransmit));
 
 		// Evaluate options
 		struct icmpv6_opt *opt;
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
-				ra_conf_mtu(ntohl(*mtu));
+				changed |= ra_set_mtu(ntohl(*mtu));
 			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
 				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
 

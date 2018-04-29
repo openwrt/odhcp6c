@@ -349,10 +349,10 @@ int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
 		uint32_t pref, uint32_t valid);
 
-int ra_conf_hoplimit(int newvalue);
-int ra_conf_mtu(int newvalue);
-int ra_conf_reachable(int newvalue);
-int ra_conf_retransmit(int newvalue);
+int ra_get_hoplimit(void);
+int ra_get_mtu(void);
+int ra_get_reachable(void);
+int ra_get_retransmit(void);
 
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
