@@ -325,6 +325,7 @@ struct odhcp6c_request_prefix {
 enum odhcp6c_opt_flags {
 	OPT_U8 = 0,
 	OPT_IP6,
+	OPT_STR,
 	OPT_DNS_STR,
 	OPT_USER_CLASS,
 	OPT_MASK_SIZE = 0x0F,

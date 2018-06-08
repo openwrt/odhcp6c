@@ -560,6 +560,7 @@ static int usage(void)
 	"			-x dns:2001:2001::1,2001:2001::2 - option 23\n"
 	"			-x 15:office - option 15 (userclass)\n"
 	"			-x 0x1f4:ABBA - option 500\n"
+	"			-x 202:'\"file\"' - option 202\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded 16-bit type + value)\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
@@ -969,6 +970,40 @@ static int parse_opt_u8(const char *src, uint8_t **dst)
 	return script_unhexlify(*dst, len, src);
 }
 
+static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
+{
+	int i_len = strlen(src);
+	int o_len = 0;
+	char *sep = get_sep_pos(src, ARRAY_SEP);
+
+	if (sep && !array)
+		return -1;
+
+	do {
+		if (sep) {
+			*sep = 0;
+			sep++;
+		}
+
+		int len = strlen(src);
+
+		*dst = realloc(*dst, o_len + len);
+		if (!*dst)
+			return -1;
+
+		memcpy(&((*dst)[o_len]), src, len);
+
+		o_len += len;
+		i_len -= strlen(src) + (sep ? 1 : 0);
+		src = sep;
+
+		if (sep)
+			sep = get_sep_pos(src, ARRAY_SEP);
+	} while (i_len);
+
+	return o_len;
+}
+
 static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
 {
 	int i_len = strlen(src);
@@ -1091,6 +1126,10 @@ static int parse_opt_data(const char *data, uint8_t **dst, const unsigned int ty
 		ret = parse_opt_u8(data, dst);
 		break;
 
+	case OPT_STR:
+		ret = parse_opt_string(data, dst, array);
+		break;
+
 	case OPT_DNS_STR:
 		ret = parse_opt_dns_string(data, dst, array);
 		break;
@@ -1151,6 +1190,16 @@ static int parse_opt(const char *opt)
 
 		type = dopt->flags & OPT_MASK_SIZE;
 		array = ((dopt->flags & OPT_ARRAY) == OPT_ARRAY) ? true : false;
+	} else if (data[0] == '"' || data[0] == '\'') {
+		char *end = strrchr(data + 1, data[0]);
+
+		if (end && (end == (data + strlen(data) - 1))) {
+			/* Raw option is specified as a string */
+			type = OPT_STR;
+			data++;
+			*end = '\0';
+		}
+
 	}
 
 	payload_len = parse_opt_data(data, &payload, type, array);
