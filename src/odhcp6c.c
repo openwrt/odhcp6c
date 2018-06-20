@@ -972,7 +972,6 @@ static int parse_opt_u8(const char *src, uint8_t **dst)
 
 static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
 {
-	int i_len = strlen(src);
 	int o_len = 0;
 	char *sep = get_sep_pos(src, ARRAY_SEP);
 
@@ -994,19 +993,17 @@ static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
 		memcpy(&((*dst)[o_len]), src, len);
 
 		o_len += len;
-		i_len -= strlen(src) + (sep ? 1 : 0);
 		src = sep;
 
 		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
-	} while (i_len);
+	} while (src);
 
 	return o_len;
 }
 
 static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
 {
-	int i_len = strlen(src);
 	int o_len = 0;
 	char *sep = get_sep_pos(src, ARRAY_SEP);
 
@@ -1032,19 +1029,17 @@ static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array
 		memcpy(&((*dst)[o_len]), tmp, len);
 
 		o_len += len;
-		i_len -= strlen(src) + (sep ? 1 : 0);
 		src = sep;
 
 		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
-	} while (i_len);
+	} while (src);
 
 	return o_len;
 }
 
 static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 {
-	int i_len = strlen(src);
 	int o_len = 0;
 	char *sep = get_sep_pos(src, ARRAY_SEP);
 
@@ -1067,19 +1062,17 @@ static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 			return -1;
 
 		o_len += len;
-		i_len -= strlen(src) + (sep ? 1 : 0);
 		src = sep;
 
 		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
-	} while (i_len);
+	} while (src);
 
 	return o_len;
 }
 
 static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
 {
-	int i_len = strlen(src);
 	int o_len = 0;
 	char *sep = get_sep_pos(src, ARRAY_SEP);
 
@@ -1106,12 +1099,11 @@ static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array
 		memcpy(e->data, src, str_len);
 
 		o_len += str_len + 2;
-		i_len -= str_len + (sep ? 1 : 0);
 		src = sep;
 
 		if (sep)
 			sep = get_sep_pos(src, ARRAY_SEP);
-	} while (i_len);
+	} while (src);
 
 	return o_len;
 }
@@ -1139,7 +1131,7 @@ static int parse_opt_data(const char *data, uint8_t **dst, const unsigned int ty
 		break;
 
 	case OPT_USER_CLASS:
-		ret = parse_opt_user_class(data, dst,array);
+		ret = parse_opt_user_class(data, dst, array);
 		break;
 
 	default:
