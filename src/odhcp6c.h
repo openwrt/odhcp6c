@@ -119,6 +119,7 @@ enum dhcpv6_config {
 	DHCPV6_STRICT_OPTIONS = 1,
 	DHCPV6_CLIENT_FQDN = 2,
 	DHCPV6_ACCEPT_RECONFIGURE = 4,
+	DHCPV6_IGNORE_OPT_UNICAST = 8,
 };
 
 typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,

@@ -183,7 +183,6 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 			htons(DHCPV6_OPT_SIP_SERVER_A),
 			htons(DHCPV6_OPT_DNS_SERVERS),
 			htons(DHCPV6_OPT_DNS_DOMAIN),
-			htons(DHCPV6_OPT_UNICAST),
 			htons(DHCPV6_OPT_SNTP_SERVERS),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_AFTR_NAME),
@@ -198,6 +197,12 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 			htons(DHCPV6_OPT_S46_CONT_LW),
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
+
+		if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST)) {
+			uint16_t otype = htons(DHCPV6_OPT_UNICAST);
+
+			odhcp6c_add_state(STATE_ORO, &otype, sizeof(otype));
+		}
 	}
 
 	// Configure IPv6-options
@@ -856,7 +861,9 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 				cand.preference >= 0) {
 			cand.preference = pref = odata[0];
 		} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(cand.server_addr)) {
-			cand.server_addr = *(struct in6_addr *)odata;
+			if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST))
+				cand.server_addr = *(struct in6_addr *)odata;
+
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			cand.wants_reconfigure = true;
 		} else if (otype == DHCPV6_OPT_SOL_MAX_RT && olen == 4) {
@@ -1048,8 +1055,11 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 					continue;
 
 				updated_IAs += dhcpv6_parse_ia(ia_hdr, odata + olen);
-			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr))
-				server_addr = *(struct in6_addr *)odata;
+			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr)) {
+				if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST))
+					server_addr = *(struct in6_addr *)odata;
+
+			}
 			else if (otype == DHCPV6_OPT_STATUS && olen >= 2) {
 				uint8_t *mdata = (olen > 2) ? &odata[2] : NULL;
 				uint16_t mlen = (olen > 2) ? olen - 2 : 0;
