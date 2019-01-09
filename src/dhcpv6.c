@@ -197,13 +197,14 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 			htons(DHCPV6_OPT_S46_CONT_LW),
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
-
-		if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST)) {
-			uint16_t otype = htons(DHCPV6_OPT_UNICAST);
-
-			odhcp6c_add_state(STATE_ORO, &otype, sizeof(otype));
-		}
 	}
+	// Required oro
+	uint16_t req_oro[] = {
+		htons(DHCPV6_OPT_INF_MAX_RT),
+		htons(DHCPV6_OPT_SOL_MAX_RT),
+		htons(DHCPV6_OPT_INFO_REFRESH),
+	};
+	odhcp6c_add_state(STATE_ORO, req_oro, sizeof(req_oro));
 
 	// Configure IPv6-options
 	int val = 1;
@@ -237,7 +238,6 @@ failure:
 enum {
 	IOV_HDR=0,
 	IOV_ORO,
-	IOV_ORO_REFRESH,
 	IOV_CL_ID,
 	IOV_SRV_ID,
 	IOV_OPTS,
@@ -439,16 +439,39 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		uint16_t length;
 	} reconf_accept = {htons(DHCPV6_OPT_RECONF_ACCEPT), 0};
 
-	// Request Information Refresh
-	uint16_t oro_refresh = htons(DHCPV6_OPT_INFO_REFRESH);
-
 	// Option list
 	size_t opts_len;
 	void *opts = odhcp6c_get_state(STATE_OPTS, &opts_len);
 
+	// Option Request List
+	size_t oro_entries, oro_len = 0;
+	uint16_t *oro, *s_oro = odhcp6c_get_state(STATE_ORO, &oro_entries);
+
+	oro_entries /= sizeof(*s_oro);
+	oro = alloca(oro_entries * sizeof(*oro));
+
+	for (size_t i = 0; i < oro_entries; i++) {
+		struct odhcp6c_opt *opt = odhcp6c_find_opt(htons(s_oro[i]));
+
+		if (opt) {
+			if (!(opt->flags & OPT_ORO))
+				continue;
+
+			if ((opt->flags & OPT_ORO_SOLICIT) && type != DHCPV6_MSG_SOLICIT)
+				continue;
+
+			if ((opt->flags & OPT_ORO_STATELESS) && type != DHCPV6_MSG_INFO_REQ)
+				continue;
+
+			if ((opt->flags & OPT_ORO_STATEFUL) && type == DHCPV6_MSG_INFO_REQ)
+				continue;
+		}
+
+		oro[oro_len++] = s_oro[i];
+	}
+	oro_len *= sizeof(*oro);
+
 	// Prepare Header
-	size_t oro_len;
-	void *oro = odhcp6c_get_state(STATE_ORO, &oro_len);
 	struct {
 		uint8_t type;
 		uint8_t trid[3];
@@ -467,7 +490,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HDR] = {&hdr, sizeof(hdr)},
 		[IOV_ORO] = {oro, oro_len},
-		[IOV_ORO_REFRESH] = {&oro_refresh, 0},
 		[IOV_CL_ID] = {cl_id, cl_id_len},
 		[IOV_SRV_ID] = {srv_id, srv_id_len},
 		[IOV_OPTS] = { opts, opts_len },
@@ -479,12 +501,10 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	};
 
 	size_t cnt = IOV_TOTAL;
-	if (type == DHCPV6_MSG_INFO_REQ) {
-		cnt = 9;
-		iov[IOV_ORO_REFRESH].iov_len = sizeof(oro_refresh);
-		hdr.oro_len = htons(oro_len + sizeof(oro_refresh));
-	} else if (!request_prefix)
-		cnt = 13;
+	if (type == DHCPV6_MSG_INFO_REQ)
+		cnt = 8;
+	else if (!request_prefix)
+		cnt = 12;
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT && ia_na_len == 0)
