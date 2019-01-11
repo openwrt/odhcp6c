@@ -103,7 +103,6 @@ static int ifindex = -1;
 static int64_t t1 = 0, t2 = 0, t3 = 0;
 
 // IA states
-static int request_prefix = -1;
 static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE, pd_mode = IA_MODE_NONE;
 static bool accept_reconfig = false;
 // Server unicast address
@@ -399,9 +398,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		}
 	}
 
-	if (ia_pd_entries > 0)
-		request_prefix = 1;
-
 	// Build IA_NAs
 	size_t ia_na_entries, ia_na_len = 0;
 	void *ia_na = NULL;
@@ -503,8 +499,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	size_t cnt = IOV_TOTAL;
 	if (type == DHCPV6_MSG_INFO_REQ)
 		cnt = 8;
-	else if (!request_prefix)
-		cnt = 12;
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT && ia_na_len == 0)
@@ -898,7 +892,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
 				cand.inf_max_rt = inf_max_rt;
 
-		} else if (otype == DHCPV6_OPT_IA_PD && request_prefix &&
+		} else if (otype == DHCPV6_OPT_IA_PD &&
 					olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
 			uint8_t *oend = odata + olen, *d;
@@ -1545,7 +1539,7 @@ int dhcpv6_promote_server_cand(void)
 	if (cand->ia_pd_len) {
 		odhcp6c_add_state(STATE_IA_PD, cand->ia_pd, cand->ia_pd_len);
 		free(cand->ia_pd);
-		if (request_prefix)
+		if (pd_mode != IA_MODE_NONE)
 			ret = DHCPV6_STATEFUL;
 	}
 
