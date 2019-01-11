@@ -862,7 +862,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (orig == DHCPV6_MSG_SOLICIT &&
-				(otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA) &&
+				((otype == DHCPV6_OPT_IA_PD && pd_mode != IA_MODE_NONE) ||
+				 (otype == DHCPV6_OPT_IA_NA && na_mode != IA_MODE_NONE)) &&
 				olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
 			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
