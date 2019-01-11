@@ -498,7 +498,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 
 	size_t cnt = IOV_TOTAL;
 	if (type == DHCPV6_MSG_INFO_REQ)
-		cnt = 8;
+		cnt = IOV_HDR_IA_NA;
 
 	// Disable IAs if not used
 	if (type != DHCPV6_MSG_SOLICIT && ia_na_len == 0)
