@@ -639,8 +639,9 @@ static int usage(void)
 // Don't want to pull-in librt and libpthread just for a monotonic clock...
 uint64_t odhcp6c_get_milli_time(void)
 {
-	struct timespec t = {0, 0};
-	syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &t);
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
 
 	return ((uint64_t)t.tv_sec) * 1000 + ((uint64_t)t.tv_nsec) / 1000000;
 }
