@@ -377,6 +377,9 @@ bool ra_process(void)
 			.msg_controllen = sizeof(cmsg_buf),
 			.msg_flags = 0
 		};
+		struct icmpv6_opt *opt;
+		uint32_t router_valid;
+		int hlim = 0;
 
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
 		if (len <= 0)
@@ -385,7 +388,6 @@ bool ra_process(void)
 		if (IN6_IS_ADDR_UNSPECIFIED(&lladdr))
 			continue;
 
-		int hlim = 0;
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
 				ch = CMSG_NXTHDR(&msg, ch))
 			if (ch->cmsg_level == IPPROTO_IPV6 &&
@@ -395,17 +397,24 @@ bool ra_process(void)
 		if (!ra_icmpv6_valid(&from, hlim, buf, len))
 			continue;
 
-		// Stop sending solicits
-		if (rs_attempt > 0) {
-			alarm(0);
-			rs_attempt = 0;
-		}
-
 		if (!found) {
 			odhcp6c_expire();
 			found = true;
 		}
-		uint32_t router_valid = ntohs(adv->nd_ra_router_lifetime);
+
+		router_valid = ntohs(adv->nd_ra_router_lifetime);
+
+		/* RFC4861 §6.3.7
+		 * Once the host sends a Router Solicitation, and receives a valid
+		 * Router Advertisement with a non-zero Router Lifetime, the host MUST
+		 * desist from sending additional solicitations on that interface
+		 * Moreover, a host SHOULD send at least one solicitation in the case
+		 * where an advertisement is received prior to having sent a solicitation.
+		 */
+		if (rs_attempt > 0 && router_valid > 0) {
+			alarm(0);
+			rs_attempt = 0;
+		}
 
 		// Parse default route
 		entry->target = any;
@@ -428,7 +437,6 @@ bool ra_process(void)
 		changed |= ra_set_retransmit(ntohl(adv->nd_ra_retransmit));
 
 		// Evaluate options
-		struct icmpv6_opt *opt;
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			if (opt->type == ND_OPT_MTU) {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
