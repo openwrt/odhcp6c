@@ -122,6 +122,27 @@ static uint32_t ntohl_unaligned(const uint8_t *data)
 	return ntohl(buf);
 }
 
+static char *dhcpv6_msg_to_str(enum dhcpv6_msg msg)
+{
+	static char *dhcpv6_msg_str[] = {
+		"UNKNOWN",
+		"SOLICIT",
+		"ADVERTISE",
+		"REQUEST",
+		"RENEW",
+		"REBIND",
+		"REPLY",
+		"DECLINE",
+		"RECONFIGURE",
+		"INFORMATION REQUEST",
+	};
+
+	if (msg < _DHCPV6_MSG_MAX)
+		return dhcpv6_msg_str[msg];
+
+	return "Unknown";
+}
+
 int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 {
 	client_options = options;
@@ -536,7 +557,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	if (sendmsg(sock, &msg, 0) < 0) {
 		char in6_str[INET6_ADDRSTRLEN];
 
-		syslog(LOG_ERR, "Failed to send DHCPV6 message to %s (%s)",
+		syslog(LOG_ERR, "Failed to send %s message to %s (%s)",
+			dhcpv6_msg_to_str(type),
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
 				in6_str, sizeof(in6_str)), strerror(errno));
 	}
@@ -833,6 +855,9 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 			// Fall through
 			case DHCPV6_MSG_INFO_REQ:
 				msg = odata[0];
+				syslog(LOG_NOTICE, "Got a %s (msg-type %s)",
+						dhcpv6_msg_to_str(otype),
+						dhcpv6_msg_to_str(msg));
 				break;
 
 			default:
@@ -1220,12 +1245,15 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	uint32_t t1, t2;
 	uint16_t otype, olen;
 	uint8_t *odata;
+	char buf[INET6_ADDRSTRLEN];
 
 	t1 = ntohl(ia_hdr->t1);
 	t2 = ntohl(ia_hdr->t2);
 
 	if (t1 > t2)
 		return 0;
+
+	syslog(LOG_INFO, "IAID %04x T1 %d T2 %d", ia_hdr->iaid, t1, t2);
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
@@ -1294,6 +1322,10 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			if (ok) {
 				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0))
 					updated_IAs++;
+
+				syslog(LOG_INFO, "%s/%d preferred %d valid %d",
+				       inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
+				       entry.length, entry.preferred , entry.valid);
 			}
 
 			entry.priority = 0;
@@ -1319,8 +1351,13 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 
 			if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0))
 				updated_IAs++;
+
+			syslog(LOG_INFO, "%s preferred %d valid %d",
+			       inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
+			       entry.preferred , entry.valid);
 		}
 	}
+
 	return updated_IAs;
 }
 
@@ -1362,6 +1399,8 @@ static int dhcpv6_calc_refresh_timers(void)
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;
+
+		syslog(LOG_INFO, "T1 %"PRId64"s, T2 %"PRId64"s, T3 %"PRId64"s", t1, t2, t3);
 	}
 
 	return (int)(ia_pd_entries + ia_na_entries);
