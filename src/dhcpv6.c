@@ -61,7 +61,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 
 static unsigned int dhcpv6_parse_ia(void *opt, void *end);
 
-static int dhcpv6_calc_refresh_timers(void);
+static unsigned int dhcpv6_calc_refresh_timers(void);
 static void dhcpv6_handle_status_code(_unused const enum dhcpv6_msg orig,
 		const uint16_t code, const void *status_msg, const int len,
 		int *ret);
@@ -995,6 +995,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	uint16_t otype, olen;
 	uint32_t refresh = 86400;
 	int ret = 1;
+	unsigned int state_IAs;
 	unsigned int updated_IAs = 0;
 	bool handled_status_codes[_DHCPV6_Status_Max] = { false, };
 
@@ -1180,55 +1181,83 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		}
 	}
 
+	// Bail out if fatal status code was received
+	if (ret <= 0)
+		return ret;
+
 	switch (orig) {
 	case DHCPV6_MSG_REQUEST:
 	case DHCPV6_MSG_REBIND:
 	case DHCPV6_MSG_RENEW:
-		// Update refresh timers if no fatal status code was received
-		if ((ret > 0) && (ret = dhcpv6_calc_refresh_timers())) {
-			if (orig == DHCPV6_MSG_REQUEST) {
-				// All server candidates can be cleared if not yet bound
-				if (!odhcp6c_is_bound())
-					dhcpv6_clear_all_server_cand();
+		state_IAs = dhcpv6_calc_refresh_timers();
+		// In case there're no state IA entries
+		// keep sending request/renew/rebind messages
+		if (state_IAs == 0) {
+			ret = 0;
+			break;
+		}
 
-				odhcp6c_clear_state(STATE_SERVER_ADDR);
-				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
-			} else if (orig == DHCPV6_MSG_RENEW) {
-				// Send further renews if T1 is not set and
-				// no updated IAs
-				if (!t1) {
-					if (!updated_IAs)
-						ret = -1;
-					else if ((t2 - t1) > 1)
-						// Grace period of 1 second
-						t1 = 1;
-				}
+		if (orig == DHCPV6_MSG_REQUEST) {
+			// All server candidates can be cleared if not yet bound
+			if (!odhcp6c_is_bound())
+				dhcpv6_clear_all_server_cand();
 
-			} else if (orig == DHCPV6_MSG_REBIND) {
-				// Send further rebinds if T1 and T2 is not set and
-				// no updated IAs
-				if (!t1 && !t2) {
-					if (!updated_IAs)
-						ret = -1;
-					else if ((t3 - t2) > 1)
-						// Grace period of 1 second
-						t2 = 1;
-				}
+			odhcp6c_clear_state(STATE_SERVER_ADDR);
+			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+		} else if (orig == DHCPV6_MSG_RENEW) {
+			// Send further renews if T1 is not set and if
+			// there're IAs which were not in the Reply message
+			if (!t1 && state_IAs != updated_IAs) {
+				if (updated_IAs)
+					// Publish updates
+					script_call("updated", 0, false);
 
-				odhcp6c_clear_state(STATE_SERVER_ADDR);
-				odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+				/*
+				 * RFC8415 states following in §18.2.10.1 :
+				 * Sends a Renew/Rebind if any of the IAs are not in the Reply
+				 * message, but as this likely indicates that the server that
+				 * responded does not support that IA type, sending immediately is
+				 * unlikely to produce a different result.  Therefore, the client
+				 * MUST rate-limit its transmissions (see Section 14.1) and MAY just
+				 * wait for the normal retransmission time (as if the Reply message
+				 * had not been received).  The client continues to use other
+				 * bindings for which the server did return information
+				 */
+				ret = -1;
+			}
+		} else if (orig == DHCPV6_MSG_REBIND) {
+			odhcp6c_clear_state(STATE_SERVER_ADDR);
+			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+
+			// Send further rebinds if T1 and T2 is not set and if
+			// there're IAs which were not in the Reply message
+			if (!t1 && !t2 && state_IAs != updated_IAs) {
+				if (updated_IAs)
+					// Publish updates
+					script_call("updated", 0, false);
+
+				/*
+				 * RFC8415 states following in §18.2.10.1 :
+				 * Sends a Renew/Rebind if any of the IAs are not in the Reply
+				 * message, but as this likely indicates that the server that
+				 * responded does not support that IA type, sending immediately is
+				 * unlikely to produce a different result.  Therefore, the client
+				 * MUST rate-limit its transmissions (see Section 14.1) and MAY just
+				 * wait for the normal retransmission time (as if the Reply message
+				 * had not been received).  The client continues to use other
+				 * bindings for which the server did return information
+				 */
+				ret = -1;
 			}
 		}
 		break;
 
 	case DHCPV6_MSG_INFO_REQ:
-		if (ret > 0) {
-			// All server candidates can be cleared if not yet bound
-			if (!odhcp6c_is_bound())
-				dhcpv6_clear_all_server_cand();
+		// All server candidates can be cleared if not yet bound
+		if (!odhcp6c_is_bound())
+			dhcpv6_clear_all_server_cand();
 
-			t1 = refresh;
-		}
+		t1 = refresh;
 		break;
 
 	default:
@@ -1361,7 +1390,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	return updated_IAs;
 }
 
-static int dhcpv6_calc_refresh_timers(void)
+static unsigned int dhcpv6_calc_refresh_timers(void)
 {
 	struct odhcp6c_entry *e;
 	size_t ia_na_entries, ia_pd_entries, i;
@@ -1403,7 +1432,7 @@ static int dhcpv6_calc_refresh_timers(void)
 		syslog(LOG_INFO, "T1 %"PRId64"s, T2 %"PRId64"s, T3 %"PRId64"s", t1, t2, t3);
 	}
 
-	return (int)(ia_pd_entries + ia_na_entries);
+	return (unsigned int)(ia_pd_entries + ia_na_entries);
 }
 
 static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
