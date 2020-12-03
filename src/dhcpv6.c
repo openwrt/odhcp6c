@@ -840,7 +840,7 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 {
 	uint16_t otype, olen;
 	uint8_t *odata;
-	int msg = -1;
+	enum dhcpv6_msg msg = DHCPV6_MSG_UNKNOWN;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
@@ -866,9 +866,10 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 		}
 	}
 
-	dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
+	if (msg != DHCPV6_MSG_UNKNOWN)
+		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
 
-	return msg;
+	return (msg == DHCPV6_MSG_UNKNOWN? -1: 1);
 }
 
 // Collect all advertised servers
