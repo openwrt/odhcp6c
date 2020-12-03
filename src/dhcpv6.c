@@ -1282,7 +1282,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	if (t1 > t2)
 		return 0;
 
-	syslog(LOG_INFO, "IAID %04x T1 %d T2 %d", ia_hdr->iaid, t1, t2);
+	syslog(LOG_INFO, "IAID %04x T1 %d T2 %d", htonl(ia_hdr->iaid), t1, t2);
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
