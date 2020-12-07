@@ -869,7 +869,7 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 	if (msg != DHCPV6_MSG_UNKNOWN)
 		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
 
-	return (msg == DHCPV6_MSG_UNKNOWN? -1: 1);
+	return (msg == DHCPV6_MSG_UNKNOWN? -1: (int)msg);
 }
 
 // Collect all advertised servers
