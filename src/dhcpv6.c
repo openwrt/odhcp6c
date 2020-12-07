@@ -660,6 +660,7 @@ int dhcpv6_request(enum dhcpv6_msg type)
 					.msg_iov = &iov, .msg_iovlen = 1, .msg_control = cmsg_buf.buf,
 					.msg_controllen = sizeof(cmsg_buf)};
 			struct in6_pktinfo *pktinfo = NULL;
+			const struct dhcpv6_header *hdr = (const struct dhcpv6_header *)buf;
 
 			// Check for pending signal
 			if (odhcp6c_signal_process())
@@ -703,8 +704,8 @@ int dhcpv6_request(enum dhcpv6_msg type)
 
 			round_start = odhcp6c_get_milli_time();
 			elapsed = round_start - start;
-			syslog(LOG_NOTICE, "Got a valid reply after %"PRIu64"ms",
-					elapsed);
+			syslog(LOG_NOTICE, "Got a valid %s after %"PRIu64"ms",
+			       dhcpv6_msg_to_str(hdr->msg_type), elapsed);
 
 			if (retx->handler_reply)
 				len = retx->handler_reply(type, rc, opt, opt_end, &addr);
@@ -855,9 +856,8 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 			// Fall through
 			case DHCPV6_MSG_INFO_REQ:
 				msg = odata[0];
-				syslog(LOG_NOTICE, "Got a %s (msg-type %s)",
-						dhcpv6_msg_to_str(otype),
-						dhcpv6_msg_to_str(msg));
+				syslog(LOG_NOTICE, "Need to respond with %s in reply to %s",
+				       dhcpv6_msg_to_str(msg), dhcpv6_msg_to_str(DHCPV6_MSG_RECONF));
 				break;
 
 			default:
