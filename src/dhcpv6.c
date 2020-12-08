@@ -849,8 +849,21 @@ int dhcpv6_poll_reconfigure(void)
 {
 	int ret = dhcpv6_request(DHCPV6_MSG_UNKNOWN);
 
-	if (ret != -1)
+	switch (ret) {
+	/*
+	 * Only RENEW/REBIND/INFORMATION REQUEST
+	 * messaage transmission can be requested
+	 * by a RECONFIGURE
+	 */
+	case DHCPV6_MSG_RENEW:
+	case DHCPV6_MSG_REBIND:
+	case DHCPV6_MSG_INFO_REQ:
 		ret = dhcpv6_request(ret);
+		break;
+
+	default:
+		break;
+	}
 
 	return ret;
 }
