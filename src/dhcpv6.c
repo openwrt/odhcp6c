@@ -124,23 +124,42 @@ static uint32_t ntohl_unaligned(const uint8_t *data)
 
 static char *dhcpv6_msg_to_str(enum dhcpv6_msg msg)
 {
-	static char *dhcpv6_msg_str[] = {
-		"UNKNOWN",
-		"SOLICIT",
-		"ADVERTISE",
-		"REQUEST",
-		"RENEW",
-		"REBIND",
-		"REPLY",
-		"DECLINE",
-		"RECONFIGURE",
-		"INFORMATION REQUEST",
-	};
+	switch (msg) {
+	case DHCPV6_MSG_SOLICIT:
+		return "SOLICIT";
 
-	if (msg < _DHCPV6_MSG_MAX)
-		return dhcpv6_msg_str[msg];
+	case DHCPV6_MSG_ADVERT:
+		return "ADVERTISE";
 
-	return "Unknown";
+	case DHCPV6_MSG_REQUEST:
+		return "REQUEST";
+
+	case DHCPV6_MSG_RENEW:
+		return "RENEW";
+
+	case DHCPV6_MSG_REBIND:
+		return "REBIND";
+
+	case DHCPV6_MSG_REPLY:
+		return "REPLY";
+
+	case DHCPV6_MSG_RELEASE:
+		return "RELEASE";
+
+	case DHCPV6_MSG_DECLINE:
+		return "DECLINE";
+
+	case DHCPV6_MSG_RECONF:
+		return "RECONFIGURE";
+
+	case DHCPV6_MSG_INFO_REQ:
+		return "INFORMATION REQUEST";
+
+	default:
+		break;
+	}
+
+	return "UNKNOWN";
 }
 
 int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
