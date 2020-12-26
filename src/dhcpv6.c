@@ -162,6 +162,37 @@ static char *dhcpv6_msg_to_str(enum dhcpv6_msg msg)
 	return "UNKNOWN";
 }
 
+static char *dhcpv6_status_code_to_str(uint16_t code)
+{
+	switch (code) {
+	case DHCPV6_Success:
+		return "Success";
+
+	case DHCPV6_UnspecFail:
+		return "Unspecified Failure";
+
+	case DHCPV6_NoAddrsAvail:
+		return "No Address Available";
+
+	case DHCPV6_NoBinding:
+		return "No Binding";
+
+	case DHCPV6_NotOnLink:
+		return "Not On Link";
+
+	case DHCPV6_UseMulticast:
+		return "Use Multicast";
+
+	case DHCPV6_NoPrefixAvail:
+		return "No Prefix Available";
+
+	default:
+		break;
+	}
+
+	return "Unknown";
+}
+
 int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 {
 	client_options = options;
@@ -1487,8 +1518,8 @@ static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
 
 	*dst = 0;
 
-	syslog(LOG_WARNING, "Server returned %s status %i %s",
-		scope, code, buf);
+	syslog(LOG_WARNING, "Server returned %s status '%s %s'",
+		scope, dhcpv6_status_code_to_str(code), buf);
 }
 
 static void dhcpv6_handle_status_code(const enum dhcpv6_msg orig,
