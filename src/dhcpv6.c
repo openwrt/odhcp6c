@@ -883,7 +883,7 @@ int dhcpv6_poll_reconfigure(void)
 	switch (ret) {
 	/*
 	 * Only RENEW/REBIND/INFORMATION REQUEST
-	 * messaage transmission can be requested
+	 * message transmission can be requested
 	 * by a RECONFIGURE
 	 */
 	case DHCPV6_MSG_RENEW:
@@ -1346,7 +1346,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	if (t1 > t2)
 		return 0;
 
-	syslog(LOG_INFO, "IAID %04x T1 %d T2 %d", htonl(ia_hdr->iaid), t1, t2);
+	syslog(LOG_INFO, "%s %04x T1 %d T2 %d", ntohs(ia_hdr->type) == DHCPV6_OPT_IA_PD ? "IA_PD" : "IA_NA", ntohl(ia_hdr->iaid), t1, t2);
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
