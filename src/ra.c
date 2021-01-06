@@ -27,6 +27,7 @@
 
 #include <net/if.h>
 #include <arpa/inet.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -76,6 +77,8 @@ static void ra_send_rs(int signal __attribute__((unused)));
 int ra_init(const char *ifname, const struct in6_addr *ifid,
 		unsigned int options, unsigned int holdoff_interval)
 {
+	struct ifreq ifr;
+
 	ra_options = options;
 	ra_holdoff_interval = holdoff_interval;
 
@@ -84,11 +87,12 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	if (sock < 0)
 		goto failure;
 
-	if_index = if_nametoindex(ifname);
-	if (!if_index)
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name) - 1);
+	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		goto failure;
 
-	strncpy(if_name, ifname, sizeof(if_name) - 1);
+	if_index = ifr.ifr_ifindex;
 	lladdr = *ifid;
 
 	rtnl = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_ROUTE);
