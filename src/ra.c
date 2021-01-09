@@ -51,6 +51,7 @@
 #include "ra.h"
 
 static bool nocarrier = false;
+static bool ptp_link = false;
 
 static int sock = -1, rtnl = -1;
 static int if_index = 0;
@@ -86,6 +87,13 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (sock < 0)
 		goto failure;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name) - 1);
+	if (ioctl(sock, SIOCGIFFLAGS, &ifr) < 0)
+		goto failure;
+
+	ptp_link = !!(ifr.ifr_flags & IFF_POINTOPOINT);
 
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name) - 1);
@@ -480,7 +488,8 @@ bool ra_process(void)
 						|| entry->valid < entry->preferred)
 					continue;
 
-				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
+				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) &&
+				    !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 									7200, ra_holdoff_interval);
 
