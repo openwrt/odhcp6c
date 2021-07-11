@@ -996,23 +996,6 @@ static struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name)
 	return (opt->code > 0 ? opt : NULL);
 }
 
-/* Find first occurrence of any character in the string <needles>
- * within the string <haystack>
- * */
-static char *get_sep_pos(const char *haystack, const char *needles)
-{
-	unsigned int i;
-	char *first = NULL;
-
-	for (i = 0; i < strlen(needles); i++) {
-		char *found = strchr(haystack, needles[i]);
-		if (found && ((found < first) || (first == NULL)))
-			first = found;
-	}
-
-	return first;
-}
-
 static int parse_opt_u8(const char *src, uint8_t **dst)
 {
 	int len = strlen(src);
@@ -1027,7 +1010,7 @@ static int parse_opt_u8(const char *src, uint8_t **dst)
 static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = get_sep_pos(src, ARRAY_SEP);
+	char *sep = strpbrk(src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -1050,7 +1033,7 @@ static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
 		src = sep;
 
 		if (sep)
-			sep = get_sep_pos(src, ARRAY_SEP);
+			sep = strpbrk(src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -1059,7 +1042,7 @@ static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
 static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = get_sep_pos(src, ARRAY_SEP);
+	char *sep = strpbrk(src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -1086,7 +1069,7 @@ static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array
 		src = sep;
 
 		if (sep)
-			sep = get_sep_pos(src, ARRAY_SEP);
+			sep = strpbrk(src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -1095,7 +1078,7 @@ static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array
 static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = get_sep_pos(src, ARRAY_SEP);
+	char *sep = strpbrk(src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -1119,7 +1102,7 @@ static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 		src = sep;
 
 		if (sep)
-			sep = get_sep_pos(src, ARRAY_SEP);
+			sep = strpbrk(src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -1128,7 +1111,7 @@ static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = get_sep_pos(src, ARRAY_SEP);
+	char *sep = strpbrk(src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -1156,7 +1139,7 @@ static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array
 		src = sep;
 
 		if (sep)
-			sep = get_sep_pos(src, ARRAY_SEP);
+			sep = strpbrk(src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -1207,7 +1190,7 @@ static int parse_opt(const char *opt)
 	struct odhcp6c_opt *dopt = NULL;
 	int ret = -1;
 
-	data = get_sep_pos(opt, ":");
+	data = strpbrk(opt, ":");
 	if (!data)
 		return -1;
 
