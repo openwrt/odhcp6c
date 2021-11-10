@@ -580,7 +580,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 		}
 
-		odhcp6c_expire();
+		odhcp6c_expire(false);
 
 		size_t ia_pd_len, ia_na_len, server_id_len;
 		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
@@ -779,37 +779,32 @@ static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const 
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 		uint32_t safe, unsigned int holdoff_interval)
 {
-	size_t len;
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
-	uint8_t *start = odhcp6c_get_state(state, &len);
 
 	if (x && x->valid > new->valid && new->valid < safe)
 		new->valid = safe;
 
-	if (new->valid > 0) {
-		if (x) {
-			if (holdoff_interval && new->valid >= x->valid &&
-					new->valid != UINT32_MAX &&
-					new->valid - x->valid < holdoff_interval &&
-					new->preferred >= x->preferred &&
-					new->preferred != UINT32_MAX &&
-					new->preferred - x->preferred < holdoff_interval)
-				return false;
-
-			x->valid = new->valid;
-			x->preferred = new->preferred;
-			x->t1 = new->t1;
-			x->t2 = new->t2;
-			x->iaid = new->iaid;
-		} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new)))
+	if (x) {
+		if (holdoff_interval && new->valid >= x->valid &&
+				new->valid != UINT32_MAX &&
+				new->valid - x->valid < holdoff_interval &&
+				new->preferred >= x->preferred &&
+				new->preferred != UINT32_MAX &&
+				new->preferred - x->preferred < holdoff_interval)
 			return false;
-	} else if (x)
-		odhcp6c_remove_state(state, ((uint8_t*)x) - start, odhcp6c_entry_size(x));
+
+		x->valid = new->valid;
+		x->preferred = new->preferred;
+		x->t1 = new->t1;
+		x->t2 = new->t2;
+		x->iaid = new->iaid;
+	} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new)))
+		return false;
 
 	return true;
 }
 
-static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
+static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed, bool remove_expired)
 {
 	size_t len;
 	uint8_t *start = odhcp6c_get_state(state, &len);
@@ -838,7 +833,7 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed)
 		else if (c->valid != UINT32_MAX)
 			c->valid -= elapsed;
 
-		if (!c->valid) {
+		if (!c->valid && remove_expired) {
 			odhcp6c_remove_state(state, ((uint8_t*)c) - start, odhcp6c_entry_size(c));
 			start = odhcp6c_get_state(state, &len);
 		} else
@@ -860,19 +855,19 @@ static uint8_t *odhcp6c_state_find_opt(const uint16_t code)
 	return NULL;
 }
 
-void odhcp6c_expire(void)
+void odhcp6c_expire(bool expire_ia_pd)
 {
 	time_t now = odhcp6c_get_milli_time() / 1000;
 	uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
 
 	last_update = now;
 
-	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed);
-	odhcp6c_expire_list(STATE_RA_ROUTE, elapsed);
-	odhcp6c_expire_list(STATE_RA_DNS, elapsed);
-	odhcp6c_expire_list(STATE_RA_SEARCH, elapsed);
-	odhcp6c_expire_list(STATE_IA_NA, elapsed);
-	odhcp6c_expire_list(STATE_IA_PD, elapsed);
+	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed, true);
+	odhcp6c_expire_list(STATE_RA_ROUTE, elapsed, true);
+	odhcp6c_expire_list(STATE_RA_DNS, elapsed, true);
+	odhcp6c_expire_list(STATE_RA_SEARCH, elapsed, true);
+	odhcp6c_expire_list(STATE_IA_NA, elapsed, true);
+	odhcp6c_expire_list(STATE_IA_PD, elapsed, expire_ia_pd);
 }
 
 uint32_t odhcp6c_elapsed(void)

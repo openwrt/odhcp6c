@@ -1067,7 +1067,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	unsigned int updated_IAs = 0;
 	bool handled_status_codes[_DHCPV6_Status_Max] = { false, };
 
-	odhcp6c_expire();
+	odhcp6c_expire(true);
 
 	if (orig == DHCPV6_MSG_UNKNOWN) {
 		static time_t last_update = 0;
@@ -1462,12 +1462,19 @@ static unsigned int dhcpv6_calc_refresh_timers(void)
 {
 	struct odhcp6c_entry *e;
 	size_t ia_na_entries, ia_pd_entries, i;
+	size_t invalid_entries = 0;
 	int64_t l_t1 = UINT32_MAX, l_t2 = UINT32_MAX, l_t3 = 0;
 
 	e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
 	ia_na_entries /= sizeof(*e);
 
 	for (i = 0; i < ia_na_entries; i++) {
+		/* Exclude invalid IA_NA entries */
+		if (!e[i].valid) {
+			invalid_entries++;
+			continue;
+		}
+
 		if (e[i].t1 < l_t1)
 			l_t1 = e[i].t1;
 
@@ -1482,6 +1489,12 @@ static unsigned int dhcpv6_calc_refresh_timers(void)
 	ia_pd_entries /= sizeof(*e);
 
 	for (i = 0; i < ia_pd_entries; i++) {
+		/* Exclude invalid IA_PD entries */
+		if (!e[i].valid) {
+			invalid_entries++;
+			continue;
+		}
+
 		if (e[i].t1 < l_t1)
 			l_t1 = e[i].t1;
 
@@ -1492,7 +1505,7 @@ static unsigned int dhcpv6_calc_refresh_timers(void)
 			l_t3 = e[i].valid;
 	}
 
-	if (ia_pd_entries || ia_na_entries) {
+	if (ia_pd_entries + ia_na_entries - invalid_entries) {
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;

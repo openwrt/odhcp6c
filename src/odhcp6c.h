@@ -319,7 +319,6 @@ enum odhcp6c_state {
 	_STATE_MAX
 };
 
-
 struct icmp6_opt {
 	uint8_t type;
 	uint8_t len;
@@ -431,6 +430,6 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 				uint32_t safe, unsigned int holdoff_interval);
 
-void odhcp6c_expire(void);
+void odhcp6c_expire(bool expire_ia_pd);
 uint32_t odhcp6c_elapsed(void);
 struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code);

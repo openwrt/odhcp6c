@@ -410,7 +410,7 @@ bool ra_process(void)
 			continue;
 
 		if (!found) {
-			odhcp6c_expire();
+			odhcp6c_expire(false);
 			found = true;
 		}
 
@@ -570,7 +570,7 @@ bool ra_process(void)
 	}
 
 	if (found)
-		odhcp6c_expire();
+		odhcp6c_expire(false);
 
 	return found && changed;
 }

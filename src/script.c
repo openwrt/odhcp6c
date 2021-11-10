@@ -179,6 +179,14 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	buf[buf_len++] = '=';
 
 	for (size_t i = 0; i < len / sizeof(*e); ++i) {
+		/*
+		 * The only invalid entries allowed to be passed to the script are prefix entries.
+		 * This will allow immediate removal of the old ipv6-prefix-assignment that might
+		 * otherwise be kept for up to 2 hours (see L-13 requirement of RFC 7084).
+		 */
+		if (!e[i].valid && type != ENTRY_PREFIX)
+			continue;
+
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
 
@@ -238,6 +246,8 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 				(uint8_t*)e < &start[len] &&
 				(uint8_t*)odhcp6c_next_entry(e) <= &start[len];
 				e = odhcp6c_next_entry(e)) {
+		if (!e->valid)
+			continue;
 		c = mempcpy(c, e->auxtarget, e->auxlen);
 		*c++ = ' ';
 	}
@@ -425,7 +435,7 @@ void script_call(const char *status, int delay, bool resume)
 		signal(SIGTERM, SIG_DFL);
 		if (delay > 0) {
 			sleep(delay);
-			odhcp6c_expire();
+			odhcp6c_expire(false);
 		}
 
 		struct in6_addr *addr = odhcp6c_get_state(STATE_SERVER_ADDR, &addr_len);
