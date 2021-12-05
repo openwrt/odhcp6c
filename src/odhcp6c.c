@@ -178,7 +178,6 @@ int main(_unused int argc, char* const argv[])
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
-	unsigned int ia_pd_safe_valid = 5;
 	int verbosity = 0;
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
@@ -187,7 +186,7 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:Ux:s:kt:m:D:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -349,12 +348,6 @@ int main(_unused int argc, char* const argv[])
 			ra_holdoff_interval = atoi(optarg);
 			break;
 
-		case 'D':
-			ia_pd_safe_valid = atoi(optarg);
-			if (ia_pd_safe_valid > 60)
-				ia_pd_safe_valid = 60;
-			break;
-
 		case 'L':
 			ra_options &= ~RA_RDNSS_DEFAULT_LIFETIME;
 			break;
@@ -419,7 +412,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sol_timeout, ia_pd_safe_valid) ||
+			init_dhcpv6(ifname, client_options, sol_timeout) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
@@ -630,7 +623,6 @@ static int usage(void)
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
-	"	-D <seconds>	Minimum valid lifetime for IA_PD updates (5)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"	-U		Ignore Server Unicast option\n"
 	"\nInvocation options:\n"

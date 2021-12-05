@@ -114,9 +114,6 @@ static uint8_t reconf_key[16];
 // client options
 static unsigned int client_options = 0;
 
-// Minimum valid lifetime for IA_PD updates
-static unsigned int pd_safe_valid = 0;
-
 static uint32_t ntohl_unaligned(const uint8_t *data)
 {
 	uint32_t buf;
@@ -196,11 +193,10 @@ static char *dhcpv6_status_code_to_str(uint16_t code)
 	return "Unknown";
 }
 
-int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout, unsigned int ia_pd_safe_valid)
+int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 {
 	client_options = options;
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
-	pd_safe_valid = ia_pd_safe_valid;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (sock < 0)
@@ -1417,7 +1413,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			}
 
 			if (ok) {
-				if (odhcp6c_update_entry(STATE_IA_PD, &entry, pd_safe_valid, 0))
+				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0))
 					updated_IAs++;
 
 				syslog(LOG_INFO, "%s/%d preferred %d valid %d",
