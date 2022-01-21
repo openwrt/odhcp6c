@@ -104,6 +104,7 @@ static int64_t t1 = 0, t2 = 0, t3 = 0;
 
 // IA states
 static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE, pd_mode = IA_MODE_NONE;
+static bool stateful_only_mode = false;
 static bool accept_reconfig = false;
 // Server unicast address
 static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
@@ -317,12 +318,13 @@ enum {
 	IOV_TOTAL
 };
 
-int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd)
+int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only)
 {
 	int mode = DHCPV6_UNKNOWN;
 
 	na_mode = na;
 	pd_mode = pd;
+	stateful_only_mode = stateful_only;
 
 	if (na_mode == IA_MODE_NONE && pd_mode == IA_MODE_NONE)
 		mode = DHCPV6_STATELESS;
@@ -1004,7 +1006,8 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 		}
 	}
 
-	if ((!have_na && na_mode == IA_MODE_FORCE) ||
+	if ((stateful_only_mode && !have_na && !have_pd) ||
+			(!have_na && na_mode == IA_MODE_FORCE) ||
 			(!have_pd && pd_mode == IA_MODE_FORCE)) {
 		/*
 		 * RFC7083 states to process the SOL_MAX_RT and
