@@ -175,6 +175,7 @@ int main(_unused int argc, char* const argv[])
 	uint16_t opttype;
 	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
 	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
+	bool stateful_only_mode = 0;
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
@@ -186,10 +187,14 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
+			break;
+
+		case 'D':
+			stateful_only_mode = 1;
 			break;
 
 		case 'N':
@@ -456,7 +461,7 @@ int main(_unused int argc, char* const argv[])
 		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 		signal_usr1 = signal_usr2 = false;
-		int mode = dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode);
+		int mode = dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode, stateful_only_mode);
 		if (mode != DHCPV6_STATELESS)
 			mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 
@@ -602,6 +607,7 @@ static int usage(void)
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
 	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
+	"	-D		Discard advertisements without any address or prefix proposed\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
