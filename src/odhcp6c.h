@@ -334,6 +334,7 @@ enum dhcpv6_mode {
 
 enum ra_config {
 	RA_RDNSS_DEFAULT_LIFETIME = 1,
+	RA_3GPP_WORKAROUNDS = 2,
 };
 
 enum odhcp6c_ia_mode {

@@ -43,6 +43,9 @@
 #define NETLINK_ADD_MEMBERSHIP 1
 #endif
 
+#define RTR_SOLICITATION_INTERVAL 4
+#define MAX_RTR_SOLICITATIONS 3
+
 #ifndef IFF_LOWER_UP
 #define IFF_LOWER_UP 0x10000
 #endif
@@ -205,8 +208,8 @@ static void ra_send_rs(int signal __attribute__((unused)))
 	if (sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send RS (%s)",  strerror(errno));
 
-	if (++rs_attempt <= 3)
-		alarm(4);
+	if (++rs_attempt <= MAX_RTR_SOLICITATIONS)
+		alarm(RTR_SOLICITATION_INTERVAL);
 }
 
 static int16_t pref_to_priority(uint8_t flags)
@@ -426,6 +429,25 @@ bool ra_process(void)
 		if (rs_attempt > 0 && router_valid > 0) {
 			alarm(0);
 			rs_attempt = 0;
+		}
+
+		if (ra_options & RA_3GPP_WORKAROUNDS) {
+			/* Some 3GPP modules assume IPv6 hosts will reset setup
+			 * learned from previous RA the moment another RA is received.
+			 */
+			odhcp6c_clear_state(STATE_RA_ROUTE);
+			odhcp6c_clear_state(STATE_RA_PREFIX);
+			odhcp6c_clear_state(STATE_RA_DNS);
+			odhcp6c_clear_state(STATE_RA_SEARCH);
+
+			/* Also, these modules do not send periodic RAs.
+			 * This alarm is set to trigger RS when default route is about
+			 * to become obsolete.
+			 */
+			if (router_valid >= 2*MAX_RTR_SOLICITATIONS*RTR_SOLICITATION_INTERVAL) {
+				alarm(router_valid - MAX_RTR_SOLICITATIONS*RTR_SOLICITATION_INTERVAL);
+				rs_attempt = 0;
+			}
 		}
 
 		// Parse default route

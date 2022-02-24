@@ -186,7 +186,7 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::N:V:P:FB:c:i:r:Ru:Ux:s:kt:m:L3hedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -350,6 +350,10 @@ int main(_unused int argc, char* const argv[])
 
 		case 'L':
 			ra_options &= ~RA_RDNSS_DEFAULT_LIFETIME;
+			break;
+
+		case '3':
+			ra_options |= RA_3GPP_WORKAROUNDS;
 			break;
 
 		case 'e':
@@ -625,6 +629,7 @@ static int usage(void)
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"	-U		Ignore Server Unicast option\n"
+	"	-3		Enable 3GPP workarounds\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
