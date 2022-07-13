@@ -1343,7 +1343,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	t1 = ntohl(ia_hdr->t1);
 	t2 = ntohl(ia_hdr->t2);
 
-	if (t1 > t2)
+	if (t1 > t2 && t1 > 0 && t2 > 0)
 		return 0;
 
 	syslog(LOG_INFO, "%s %04x T1 %d T2 %d", ntohs(ia_hdr->type) == DHCPV6_OPT_IA_PD ? "IA_PD" : "IA_NA", ntohl(ia_hdr->iaid), t1, t2);
