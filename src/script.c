@@ -84,7 +84,7 @@ ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src)
 	return c;
 }
 
-static void script_hexlify(char *dst, const uint8_t *src, size_t len)
+void script_hexlify(char *dst, const uint8_t *src, size_t len)
 {
 	for (size_t i = 0; i < len; ++i) {
 		*dst++ = hexdigits[src[i] >> 4];
