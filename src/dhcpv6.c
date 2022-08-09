@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <syslog.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <ctype.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
@@ -194,7 +195,7 @@ static char *dhcpv6_status_code_to_str(uint16_t code)
 	return "Unknown";
 }
 
-int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
+int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout, const char *duid_path)
 {
 	client_options = options;
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
@@ -245,6 +246,29 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 		}
 
 		odhcp6c_add_state(STATE_CLIENT_ID, duid, sizeof(duid));
+	}
+
+	// Write duid to path
+	if (duid_path) {
+		// read duid
+		size_t duid_len;
+		void *duid = odhcp6c_get_state(STATE_CLIENT_ID, &duid_len);
+		char duid_buf[duid_len * 2 + 1];
+		script_hexlify(duid_buf, &((uint8_t *) duid)[4], duid_len - 4);
+		duid_buf[duid_len * 2] = 0;
+
+		// generate path
+		char file_path[strlen(duid_path) + strlen(ifname) + 2];
+		sprintf(file_path, "%s.%s", duid_path, ifname);
+
+		// write to file
+		FILE *fp = fopen(file_path, "w");
+		if (fp) {
+			fprintf(fp, "%s\n", duid_buf);
+			fclose(fp);
+		} else {
+			syslog(LOG_ERR, "Failed to write DUID '%s' into file '%s'!", duid_buf, file_path);
+		};
 	}
 
 	// Create ORO

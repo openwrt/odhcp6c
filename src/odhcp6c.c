@@ -169,6 +169,7 @@ int main(_unused int argc, char* const argv[])
 	// Allocate resources
 	const char *pidfile = NULL;
 	const char *script = "/usr/sbin/odhcp6c-update";
+	const char *duid_path = "/var/run/odhcp6c-duid";
 	ssize_t l;
 	uint8_t buf[134], *o_data;
 	char *optpos;
@@ -187,7 +188,7 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:C:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -282,6 +283,10 @@ int main(_unused int argc, char* const argv[])
 				}
 			} else
 				help = true;
+			break;
+
+		case 'C':
+			duid_path = optarg;
 			break;
 
 		case 'i':
@@ -417,7 +422,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sol_timeout) ||
+			init_dhcpv6(ifname, client_options, sol_timeout, duid_path) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
@@ -620,6 +625,7 @@ static int usage(void)
 	"			-x 0x1f4:ABBA - option 500\n"
 	"			-x 202:'\"file\"' - option 202\n"
 	"	-c <clientid>	Override client-ID (base-16 encoded 16-bit type + value)\n"
+	"	-C <path>	Export used client-ID to specified path\n"
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-R		Do not request any options except those specified with -r\n"
