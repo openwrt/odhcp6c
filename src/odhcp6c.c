@@ -178,6 +178,7 @@ int main(_unused int argc, char* const argv[])
 	bool stateful_only_mode = 0;
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
+	int sk_prio = 0;
 	int sol_timeout = DHCPV6_SOL_MAX_RT;
 	int verbosity = 0;
 	bool help = false, daemonize = false;
@@ -187,7 +188,7 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kt:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kK:t:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -345,6 +346,10 @@ int main(_unused int argc, char* const argv[])
 			release = false;
 			break;
 
+		case 'K':
+			sk_prio = atoi(optarg);
+			break;
+
 		case 't':
 			sol_timeout = atoi(optarg);
 			break;
@@ -417,7 +422,7 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sol_timeout) ||
+			init_dhcpv6(ifname, client_options, sk_prio, sol_timeout) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
@@ -627,6 +632,7 @@ static int usage(void)
 	"	-a		Don't send Accept Reconfigure option\n"
 	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"
+	"	-K <sk-prio>	Set packet kernel priority (0)\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
