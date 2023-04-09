@@ -194,7 +194,7 @@ static char *dhcpv6_status_code_to_str(uint16_t code)
 	return "Unknown";
 }
 
-int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
+int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_timeout)
 {
 	client_options = options;
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
@@ -287,6 +287,9 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sol_timeout)
 		goto failure;
 
 	if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname)) < 0)
+		goto failure;
+
+	if (setsockopt(sock, SOL_SOCKET, SO_PRIORITY, &sk_prio, sizeof(sk_prio)) < 0)
 		goto failure;
 
 	struct sockaddr_in6 client_addr = { .sin6_family = AF_INET6,
