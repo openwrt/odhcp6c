@@ -1660,10 +1660,19 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
-		struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0,
-				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0, 0};
-
-		entry.iaid = ia_hdr->iaid;
+		struct odhcp6c_entry entry = {
+			.router = IN6ADDR_ANY_INIT,
+			.auxlen = 0,
+			.length = 0,
+			.target = IN6ADDR_ANY_INIT,
+			.flags = 0,
+			.priority = 0,
+			.valid = 0,
+			.preferred = 0,
+			.t1 = 0,
+			.t2 = 0,
+			.iaid = ia_hdr->iaid,
+		};
 
 		switch (otype) {
 		case DHCPV6_OPT_IA_PREFIX: {
