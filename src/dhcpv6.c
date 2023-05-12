@@ -1357,7 +1357,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
 		struct odhcp6c_entry entry = {IN6ADDR_ANY_INIT, 0, 0,
-				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0, 0};
+				IN6ADDR_ANY_INIT, 0, 0, 0, 0, 0, 0, 0};
 
 		entry.iaid = ia_hdr->iaid;
 

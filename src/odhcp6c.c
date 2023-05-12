@@ -33,6 +33,7 @@
 #include <sys/syscall.h>
 #include <arpa/inet.h>
 #include <linux/if_addr.h>
+#include <netinet/icmp6.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
@@ -470,9 +471,7 @@ int main(_unused int argc, char* const argv[])
 		if (mode != DHCPV6_STATELESS)
 			mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
 
-		odhcp6c_signal_process();
-
-		if (mode < 0)
+		if (odhcp6c_signal_process() || mode < 0)
 			continue;
 
 		do {
@@ -557,6 +556,9 @@ int main(_unused int argc, char* const argv[])
 					script_call("updated", 0, false);
 					continue; // Renew was successful
 				}
+
+				if (signal_usr2 || signal_term)
+					break; // Other signal type
 
 				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 				odhcp6c_clear_state(STATE_SERVER_ADDR);
@@ -676,16 +678,43 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 	return n;
 }
 
+static bool odhcp6c_server_advertised()
+{
+	size_t len;
+	uint8_t *start = odhcp6c_get_state(STATE_RA_ROUTE, &len);
+
+	for (struct odhcp6c_entry *c = (struct odhcp6c_entry*)start;
+			(uint8_t*)c < &start[len] &&
+			(uint8_t*)odhcp6c_next_entry(c) <= &start[len];
+			c = odhcp6c_next_entry(c)) {
+		// Only default route entries have flags
+		if (c->length != 0 || IN6_IS_ADDR_UNSPECIFIED(&c->router))
+			continue;
+
+		if (c->flags & (ND_RA_FLAG_MANAGED | ND_RA_FLAG_OTHER))
+			return true;
+	}
+
+	return false;
+}
+
 bool odhcp6c_signal_process(void)
 {
 	while (signal_io) {
 		signal_io = false;
 
+		size_t old_ra_prefix_size = state_len[STATE_RA_PREFIX];
 		bool ra_updated = ra_process();
 
 		if (ra_link_up()) {
 			signal_usr2 = true;
 			ra = false;
+		} else if (old_ra_prefix_size != state_len[STATE_RA_PREFIX] &&
+				odhcp6c_server_advertised()) {
+			// Restart DHCPv6 transaction when router advertisement flags
+			// show presence of a DHCPv6 server and new prefixes were
+			// added to STATE_RA_PREFIX state
+			signal_usr2 = true;
 		}
 
 		if (ra_updated && (bound || allow_slaac_only >= 0)) {
@@ -797,6 +826,8 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 				new->preferred - x->preferred < holdoff_interval)
 			return false;
 
+		x->flags = new->flags;
+		x->priority = new->priority;
 		x->valid = new->valid;
 		x->preferred = new->preferred;
 		x->t1 = new->t1;
