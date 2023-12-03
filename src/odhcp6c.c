@@ -421,20 +421,12 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR1, sighandler);
 	signal(SIGUSR2, sighandler);
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sk_prio, sol_timeout) ||
-			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
-			script_init(script, ifname)) {
-		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
-		return 3;
-	}
-
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
 		if (daemon(0, 0)) {
 			syslog(LOG_ERR, "Failed to daemonize: %s",
 					strerror(errno));
-			return 4;
+			return 3;
 		}
 
 		if (!pidfile) {
@@ -449,7 +441,15 @@ int main(_unused int argc, char* const argv[])
 		}
 	}
 
-	script_call("started", 0, false);
+    if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
+            init_dhcpv6(ifname, client_options, sk_prio, sol_timeout) ||
+            ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
+            script_init(script, ifname)) {
+        syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+        return 4;
+     }
+
+    script_call("started", 0, false);
 
 	while (!signal_term) { // Main logic
 		odhcp6c_clear_state(STATE_SERVER_ID);
