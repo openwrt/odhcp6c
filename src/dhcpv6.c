@@ -261,12 +261,20 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_t
 #ifdef EXT_CER_ID
 			htons(DHCPV6_OPT_CER_ID),
 #endif
-			htons(DHCPV6_OPT_S46_CONT_MAPE),
-			htons(DHCPV6_OPT_S46_CONT_MAPT),
-			htons(DHCPV6_OPT_S46_CONT_LW),
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
+
+		// Add Softwire46 (RFC7598) options if the req'd kernel module exists
+		if (access("/sys/module/nat46", F_OK) == 0) {
+			uint16_t sw46_oro[] = {
+				htons(DHCPV6_OPT_S46_CONT_MAPE),
+				htons(DHCPV6_OPT_S46_CONT_MAPT),
+				htons(DHCPV6_OPT_S46_CONT_LW),
+			};
+			odhcp6c_add_state(STATE_ORO, sw46_oro, sizeof(sw46_oro));
+		}
 	}
+
 	// Required oro
 	uint16_t req_oro[] = {
 		htons(DHCPV6_OPT_INF_MAX_RT),
