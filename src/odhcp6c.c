@@ -500,7 +500,7 @@ int main(_unused int argc, char* const argv[])
 
 			while (!signal_usr2 && !signal_term) {
 				signal_usr1 = false;
-				script_call("informed", script_sync_delay, true);
+				script_call("informed", ra ? script_accu_delay : script_sync_delay, true);
 
 				res = dhcpv6_poll_reconfigure();
 				odhcp6c_signal_process();
@@ -528,7 +528,7 @@ int main(_unused int argc, char* const argv[])
 
 		case DHCPV6_STATEFUL:
 			bound = true;
-			script_call("bound", script_sync_delay, true);
+			script_call("bound", ra ? script_accu_delay : script_sync_delay, true);
 			syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 
 			while (!signal_usr2 && !signal_term) {
