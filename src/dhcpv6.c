@@ -1327,6 +1327,9 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		if (!odhcp6c_is_bound())
 			dhcpv6_clear_all_server_cand();
 
+		odhcp6c_clear_state(STATE_SERVER_ADDR);
+		odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+
 		t1 = refresh;
 		break;
 
