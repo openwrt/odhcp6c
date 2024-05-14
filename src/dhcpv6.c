@@ -1744,7 +1744,7 @@ int dhcpv6_promote_server_cand(void)
 	if (!cand_len)
 		return -1;
 
-	if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
+	if (!cand->ia_pd_len && cand->has_noaddravail && na_mode == IA_MODE_TRY) {
 		na_mode = IA_MODE_NONE;
 
 		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
