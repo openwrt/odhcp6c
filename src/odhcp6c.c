@@ -241,16 +241,28 @@ int main(_unused int argc, char* const argv[])
 			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
 				allow_slaac_only = 10;
 
+			struct odhcp6c_request_prefix prefix = { 0 };
+
+			optpos = strchr(optarg, '/');
+			if (optpos) {
+				strncpy((char *)buf, optarg, optpos - optarg);
+				buf[optpos - optarg] = '\0';
+				if (inet_pton(AF_INET6, (char *)buf, &prefix.addr) <= 0) {
+					syslog(LOG_ERR, "invalid argument: '%s'", optarg);
+					return 1;
+				}
+				optpos++;
+			} else
+				optpos = optarg;
+
 			char *iaid_begin;
 			int iaid_len = 0;
-			int prefix_length = strtoul(optarg, &iaid_begin, 10);
+			prefix.length = strtoul(optpos, &iaid_begin, 10);
 
 			if (*iaid_begin != '\0' && *iaid_begin != ',' && *iaid_begin != ':') {
 				syslog(LOG_ERR, "invalid argument: '%s'", optarg);
 				return 1;
 			}
-
-			struct odhcp6c_request_prefix prefix = { 0, prefix_length };
 
 			if (*iaid_begin == ',' && (iaid_len = strlen(iaid_begin)) > 1)
 				memcpy(&prefix.iaid, iaid_begin + 1, iaid_len > 4 ? 4 : iaid_len);
@@ -614,7 +626,7 @@ static int usage(void)
 	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
 	"	-D		Discard advertisements without any address or prefix proposed\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
-	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
+	"	-P <[pfx/]len>	Request IPv6-Prefix (0 = auto)\n"
 	"	-F		Force IPv6-Prefix\n"
 	"	-V <class>	Set vendor-class option (base-16 encoded)\n"
 	"	-u <user-class> Set user-class option string\n"
