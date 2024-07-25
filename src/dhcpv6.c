@@ -384,7 +384,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			struct dhcpv6_ia_prefix pref = {
 				.type = htons(DHCPV6_OPT_IA_PREFIX),
 				.len = htons(sizeof(pref) - 4),
-				.prefix = request_prefixes[i].length
+				.prefix = request_prefixes[i].length,
+				.addr = request_prefixes[i].addr
 			};
 			memcpy(ia_pd + ia_pd_len, &hdr_ia_pd, sizeof(hdr_ia_pd));
 			ia_pd_len += sizeof(hdr_ia_pd);
