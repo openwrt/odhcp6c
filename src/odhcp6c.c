@@ -188,7 +188,7 @@ int main(_unused int argc, char* const argv[])
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kK:t:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:I:P:FB:c:i:r:Ru:Ux:s:kK:t:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
@@ -234,6 +234,9 @@ int main(_unused int argc, char* const argv[])
 			free(o_data);
 			break;
 
+		case 'I':
+			dhcpv6_set_pd_request_prefix(optarg);
+		break;
 		case 'P':
 			if (ia_pd_mode == IA_MODE_NONE)
 				ia_pd_mode = IA_MODE_TRY;
@@ -615,6 +618,7 @@ static int usage(void)
 	"	-D		Discard advertisements without any address or prefix proposed\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <length>	Request IPv6-Prefix (0 = auto)\n"
+	"	-I <prefix>	Request IPv6-Prefix (-P must be >0)\n"
 	"	-F		Force IPv6-Prefix\n"
 	"	-V <class>	Set vendor-class option (base-16 encoded)\n"
 	"	-u <user-class> Set user-class option string\n"

@@ -393,6 +393,7 @@ struct odhcp6c_opt {
 };
 
 int init_dhcpv6(const char *ifname, unsigned int client_options, int sk_prio, int sol_timeout);
+void dhcpv6_set_pd_request_prefix(const char *pd_request_prefix);
 int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only);
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);

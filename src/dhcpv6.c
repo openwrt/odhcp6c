@@ -105,6 +105,7 @@ static int64_t t1 = 0, t2 = 0, t3 = 0;
 // IA states
 static enum odhcp6c_ia_mode na_mode = IA_MODE_NONE, pd_mode = IA_MODE_NONE;
 static bool stateful_only_mode = false;
+static struct in6_addr pd_prefix_request;
 static bool accept_reconfig = false;
 // Server unicast address
 static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
@@ -321,6 +322,10 @@ enum {
 	IOV_TOTAL
 };
 
+void dhcpv6_set_pd_request_prefix(const char *pd_request_prefix)
+{
+	inet_pton(AF_INET6, pd_request_prefix, &pd_prefix_request);
+}
 int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only)
 {
 	int mode = DHCPV6_UNKNOWN;
@@ -384,7 +389,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			struct dhcpv6_ia_prefix pref = {
 				.type = htons(DHCPV6_OPT_IA_PREFIX),
 				.len = htons(sizeof(pref) - 4),
-				.prefix = request_prefixes[i].length
+				.prefix = request_prefixes[i].length,
+				.addr = pd_prefix_request
 			};
 			memcpy(ia_pd + ia_pd_len, &hdr_ia_pd, sizeof(hdr_ia_pd));
 			ia_pd_len += sizeof(hdr_ia_pd);
