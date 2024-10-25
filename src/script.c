@@ -171,7 +171,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	size_t buf_len = strlen(name);
 	const struct odhcp6c_entry *e = data;
 	// Worst case: ENTRY_PREFIX with iaid != 1 and exclusion
-	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 22 + 15 + 10 +
+	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 44 + 15 + 10 +
 				      INET6_ADDRSTRLEN-1 + 11 + 1);
 	char *buf = realloc(NULL, buf_len + 2 + (len / sizeof(*e)) * max_entry_len);
 
@@ -205,7 +205,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].valid, e[i].priority);
 				buf_len += strlen(&buf[buf_len]);
 			} else {
-				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].preferred, e[i].valid);
+				snprintf(&buf[buf_len], 45, ",%u,%u,%u,%u", e[i].preferred, e[i].valid, e[i].t1, e[i].t2);
 				buf_len += strlen(&buf[buf_len]);
 			}
 
