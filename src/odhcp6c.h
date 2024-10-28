@@ -182,6 +182,15 @@ struct dhcpv6_retx {
 	char name[8];
 	reply_handler *handler_reply;
 	int(*handler_finish)(void);
+	bool is_retransmit;
+	uint64_t timeout;
+	uint8_t rc;
+	uint64_t start;
+	uint8_t tr_id[3];
+	int64_t rto;
+	uint64_t round_start;
+	uint64_t round_end;
+	int reply_ret;
 };
 
 // DHCPv6 Protocol Headers
@@ -398,6 +407,8 @@ int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool st
 int dhcpv6_request(enum dhcpv6_msg type);
 int dhcpv6_poll_reconfigure(void);
 int dhcpv6_promote_server_cand(void);
+int dhcpv6_send_request(enum dhcpv6_msg type);
+int dhcpv6_receive_response(enum dhcpv6_msg type);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,

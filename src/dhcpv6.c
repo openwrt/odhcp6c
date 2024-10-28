@@ -81,19 +81,19 @@ static int dhcpv6_commit_advert(void);
 // RFC 3315 - 5.5 Timeout and Delay values
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, 0, "<POLL>",
-			dhcpv6_handle_reconfigure, NULL},
+			dhcpv6_handle_reconfigure, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
 	[DHCPV6_MSG_SOLICIT] = {true, 1, DHCPV6_SOL_MAX_RT, 0, "SOLICIT",
-			dhcpv6_handle_advert, dhcpv6_commit_advert},
+			dhcpv6_handle_advert, dhcpv6_commit_advert, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
 	[DHCPV6_MSG_REQUEST] = {true, 1, DHCPV6_REQ_MAX_RT, 10, "REQUEST",
-			dhcpv6_handle_reply, NULL},
+			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
 	[DHCPV6_MSG_RENEW] = {false, 10, DHCPV6_REN_MAX_RT, 0, "RENEW",
-			dhcpv6_handle_reply, NULL},
+			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
 	[DHCPV6_MSG_REBIND] = {false, 10, DHCPV6_REB_MAX_RT, 0, "REBIND",
-			dhcpv6_handle_rebind_reply, NULL},
-	[DHCPV6_MSG_RELEASE] = {false, 1, 0, 5, "RELEASE", NULL, NULL},
-	[DHCPV6_MSG_DECLINE] = {false, 1, 0, 5, "DECLINE", NULL, NULL},
+			dhcpv6_handle_rebind_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
+	[DHCPV6_MSG_RELEASE] = {false, 1, 0, 5, "RELEASE", NULL, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
+	[DHCPV6_MSG_DECLINE] = {false, 1, 0, 5, "DECLINE", NULL, NULL, false, 0, 0, 0,{0, 0, 0}, 0, 0, 0, -1},
 	[DHCPV6_MSG_INFO_REQ] = {true, 1, DHCPV6_INF_MAX_RT, 0, "INFOREQ",
-			dhcpv6_handle_reply, NULL},
+			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1},
 };
 
 // Sockets
@@ -1784,4 +1784,146 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_remove_state(STATE_SERVER_CAND, 0, sizeof(*cand));
 
 	return ret;
+}
+
+int dhcpv6_send_request(enum dhcpv6_msg type)
+{
+	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
+
+	if (!retx->is_retransmit) {
+		retx->is_retransmit = true;
+		retx->rc = 0;
+		retx->timeout = UINT32_MAX;
+
+		if (retx->delay) {
+			struct timespec ts = {0, 0};
+			ts.tv_nsec = (dhcpv6_rand_delay((10000 * DHCPV6_REQ_DELAY) / 2) + (1000 * DHCPV6_REQ_DELAY) / 2) * 1000000;
+			while (nanosleep(&ts, &ts) < 0 && errno == EINTR);
+		}
+
+		if (type == DHCPV6_MSG_UNKNOWN)
+			retx->timeout = t1;
+		else if (type == DHCPV6_MSG_RENEW)
+			retx->timeout = (t2 > t1) ? t2 - t1 : ((t1 == UINT32_MAX) ? UINT32_MAX : 0);
+		else if (type == DHCPV6_MSG_REBIND)
+			retx->timeout = (t3 > t2) ? t3 - t2 : ((t2 == UINT32_MAX) ? UINT32_MAX : 0);
+
+		if (retx->timeout == 0)
+			return -1;
+
+		syslog(LOG_NOTICE, "Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
+			retx->name, retx->timeout, retx->max_rc);
+
+		// Generate transaction ID
+		if (type != DHCPV6_MSG_UNKNOWN) {
+			odhcp6c_random(retx->tr_id, sizeof(retx->tr_id));
+		}
+
+		retx->start = odhcp6c_get_milli_time();
+		retx->round_start = retx->start;
+		retx->rto = 0;
+	}
+
+	if (retx->rto == 0) {
+		int64_t delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
+
+		// First RT MUST be strictly greater than IRT for solicit messages (RFC3313 17.1.2)
+		while (type == DHCPV6_MSG_SOLICIT && delay <= 0)
+			delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
+
+		retx->rto = (retx->init_timeo * 1000 + delay);
+	} else
+		retx->rto = (2 * retx->rto + dhcpv6_rand_delay(retx->rto));
+
+	if (retx->max_timeo && (retx->rto >= retx->max_timeo * 1000)) {
+		retx->rto = retx->max_timeo * 1000 +
+			dhcpv6_rand_delay(retx->max_timeo * 1000);
+	}
+
+	// Calculate end for this round and elapsed time
+	retx->round_end = retx->round_start + retx->rto;
+	uint64_t elapsed = retx->round_start - retx->start;
+
+	// Don't wait too long if timeout differs from infinite
+	if ((retx->timeout != UINT32_MAX) && (retx->round_end - retx->start > retx->timeout * 1000))
+		retx->round_end = retx->timeout * 1000 + retx->start;
+
+	// Built and send package
+	switch (type) {
+	case DHCPV6_MSG_UNKNOWN:
+		break;
+	default:
+		syslog(LOG_NOTICE, "Send %s message (elapsed %"PRIu64"ms, rc %d)",
+				retx->name, elapsed, retx->rc);
+	// Fall through
+	case DHCPV6_MSG_SOLICIT:
+	case DHCPV6_MSG_INFO_REQ:
+		dhcpv6_send(type, retx->tr_id, elapsed / 10);
+		retx->rc++;
+	}
+	return 0;
+}
+
+int dhcpv6_receive_response(enum dhcpv6_msg type)
+{
+	ssize_t len = -1;
+	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
+
+	uint8_t buf[1536];
+	union {
+		struct cmsghdr hdr;
+		uint8_t buf[CMSG_SPACE(sizeof(struct in6_pktinfo))];
+	} cmsg_buf;
+
+	struct iovec iov = {buf, sizeof(buf)};
+	struct sockaddr_in6 addr;
+	struct msghdr msg = {.msg_name = &addr, .msg_namelen = sizeof(addr),
+			.msg_iov = &iov, .msg_iovlen = 1, .msg_control = cmsg_buf.buf,
+			.msg_controllen = sizeof(cmsg_buf)};
+	struct in6_pktinfo *pktinfo = NULL;
+	const struct dhcpv6_header *hdr = (const struct dhcpv6_header *)buf;
+
+	// Receive cycle
+	len = recvmsg(sock, &msg, 0);
+	if (len < 0) {
+		syslog(LOG_ERR, "Error occured when reading the response of (%s) error(%s)",
+			retx->name, strerror(errno));
+		return -1;
+	}
+
+	for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
+		ch = CMSG_NXTHDR(&msg, ch)) {
+		if (ch->cmsg_level == SOL_IPV6 &&
+			ch->cmsg_type == IPV6_PKTINFO) {
+			pktinfo = (struct in6_pktinfo *)CMSG_DATA(ch);
+			break;
+		}
+	}
+
+	if (pktinfo == NULL) {
+		return -1;
+	}
+
+	if (!dhcpv6_response_is_valid(buf, len, retx->tr_id, type,
+					 &pktinfo->ipi6_addr)) {
+		return -1;
+	}
+
+	uint8_t *opt = &buf[4];
+	uint8_t *opt_end = opt + len - 4;
+	retx->round_start = odhcp6c_get_milli_time();
+	uint64_t elapsed = retx->round_start - retx->start;
+
+	syslog(LOG_NOTICE, "Got a valid %s after %"PRIu64"ms",
+		dhcpv6_msg_to_str(hdr->msg_type), elapsed);
+
+	if (retx->handler_reply) {
+		retx->reply_ret = retx->handler_reply(type, retx->rc, opt, opt_end, &addr);
+		len = retx->reply_ret;
+	}
+
+	if (len > 0 && retx->round_end - retx->round_start > 1000)
+		retx->round_end = 1000 + retx->round_start;
+
+	return retx->reply_ret;
 }
