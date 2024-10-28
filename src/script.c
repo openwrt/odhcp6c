@@ -225,6 +225,11 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 			}
 		}
 
+		if (type == ENTRY_HOST) {
+			snprintf(&buf[buf_len], 12, ",%u", e[i].valid);
+			buf_len += strlen(&buf[buf_len]);
+		}
+
 		buf[buf_len++] = ' ';
 	}
 
