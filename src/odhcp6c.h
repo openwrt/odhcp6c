@@ -152,6 +152,32 @@ enum dhcpv6_msg {
 	_DHCPV6_MSG_MAX
 };
 
+enum dhcpv6_state {
+	DHCPV6_INIT,
+	DHCPV6_SOLICIT,
+	DHCPV6_SOLICIT_PROCESSING,
+	DHCPV6_ADVERT,
+	DHCPV6_REQUEST,
+	DHCPV6_REQUEST_PROCESSING,
+	DHCPV6_REPLY,		
+	DHCPV6_BOUND,
+	DHCPV6_BOUND_PROCESSING,
+	DHCPV6_BOUND_REPLY,
+	DHCPV6_RECONF, 
+	DHCPV6_RECONF_PROCESSING,
+	DHCPV6_RECONF_REPLY, 
+	DHCPV6_RENEW, 
+	DHCPV6_RENEW_PROCESSING,
+	DHCPV6_RENEW_REPLY,
+	DHCPV6_REBIND,
+	DHCPV6_REBIND_PROCESSING,
+	DHCPV6_REBIND_REPLY,
+	DHCPV6_INFO,
+	DHCPV6_INFO_PROCESSING,
+	DHCPV6_INFO_REPLY,
+	DHCPV6_EXIT
+};
+
 enum dhcpv6_status {
 	DHCPV6_Success = 0,
 	DHCPV6_UnspecFail = 1,
@@ -191,6 +217,7 @@ struct dhcpv6_retx {
 	uint64_t round_start;
 	uint64_t round_end;
 	int reply_ret;
+	uint64_t delay_msec;
 };
 
 // DHCPv6 Protocol Headers
@@ -404,11 +431,16 @@ struct odhcp6c_opt {
 
 int init_dhcpv6(const char *ifname, unsigned int client_options, int sk_prio, int sol_timeout, unsigned int dscp);
 int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only);
-int dhcpv6_request(enum dhcpv6_msg type);
-int dhcpv6_poll_reconfigure(void);
 int dhcpv6_promote_server_cand(void);
 int dhcpv6_send_request(enum dhcpv6_msg type);
 int dhcpv6_receive_response(enum dhcpv6_msg type);
+enum dhcpv6_state dhcpv6_get_state(void);
+void dhcpv6_set_state(enum dhcpv6_state state);
+int dhcpv6_get_socket(void);
+int dhcpv6_state_processing(enum dhcpv6_msg type);
+int dhcpv6_get_state_timeout(void);
+void dhcpv6_set_state_timeout(int timeout);
+void dhcpv6_reset_state_timeout(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
