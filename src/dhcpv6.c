@@ -194,6 +194,23 @@ static char *dhcpv6_status_code_to_str(uint16_t code)
 	return "Unknown";
 }
 
+static int fd_set_nonblocking(int sockfd)
+{
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    if (flags == -1) {
+        syslog(LOG_ERR, "fcntl F_GETFL failed (%s)", strerror(errno));
+        return -1;
+    }
+
+    // Set the socket to non-blocking
+    if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        syslog(LOG_ERR, "fcntl F_SETFL failed (%s)", strerror(errno));
+        return -1;
+    }
+
+    return 0;
+}
+
 int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_timeout, unsigned int dscp)
 {
 	client_options = options;
@@ -211,6 +228,10 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_t
 		goto failure;
 
 	ifindex = ifr.ifr_ifindex;
+
+	//Set the socket to non-blocking mode
+	if (fd_set_nonblocking(sock) < 0)
+        	goto failure;
 
 	// Create client DUID
 	size_t client_id_len;
