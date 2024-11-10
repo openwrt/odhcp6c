@@ -256,14 +256,10 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_t
 			htons(DHCPV6_OPT_DNS_DOMAIN),
 			htons(DHCPV6_OPT_SNTP_SERVERS),
 			htons(DHCPV6_OPT_NTP_SERVER),
-			htons(DHCPV6_OPT_AFTR_NAME),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
 #ifdef EXT_CER_ID
 			htons(DHCPV6_OPT_CER_ID),
 #endif
-			htons(DHCPV6_OPT_S46_CONT_MAPE),
-			htons(DHCPV6_OPT_S46_CONT_MAPT),
-			htons(DHCPV6_OPT_S46_CONT_LW),
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}

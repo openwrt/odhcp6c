@@ -88,7 +88,7 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_CER_ID = EXT_CER_ID,
 #endif
 	DHCPV6_OPT_DHCPV4_MSG = 87,
-	/* draft-ietf-softwire-map-dhcp-08 */
+	/* RFC 7598 */
 	DHCPV6_OPT_S46_RULE = 89,
 	DHCPV6_OPT_S46_BR = 90,
 	DHCPV6_OPT_S46_DMR = 91,
