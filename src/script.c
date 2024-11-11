@@ -180,11 +180,14 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 
 	for (size_t i = 0; i < len / sizeof(*e); ++i) {
 		/*
-		 * The only invalid entries allowed to be passed to the script are prefix entries.
-		 * This will allow immediate removal of the old ipv6-prefix-assignment that might
-		 * otherwise be kept for up to 2 hours (see L-13 requirement of RFC 7084).
+		 * The only invalid entries allowed to be passed to the script are prefix and RA
+		 * entries. This will allow immediate removal of the old ipv6-prefix-assignment
+		 * that might otherwise be kept for up to 2 hours (see L-13 requirement of RFC 7084).
+		 * Similarly, a RA with router lifetime set to 0 indicates that the advertising
+		 * router "is not a default router and SHOULD NOT appear on the default router list"
+		 * (see RFC 4861, section 4.2).
 		 */
-		if (!e[i].valid && type != ENTRY_PREFIX)
+		if (!e[i].valid && type != ENTRY_PREFIX && type != ENTRY_ROUTE)
 			continue;
 
 		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
