@@ -105,9 +105,12 @@ static char ubus_name[24];
 static int ubus_handle_get_state(struct ubus_context *ctx, struct ubus_object *obj,
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
 
-static struct ubus_object_type odhcp6c_object_type = {
-	.name = "odhcp6c"
+static struct ubus_method odhcp6c_object_methods[] = {
+	UBUS_METHOD_NOARG("get_state", ubus_handle_get_state),
 };
+
+static struct ubus_object_type odhcp6c_object_type = 
+	UBUS_OBJECT_TYPE("odhcp6c", odhcp6c_object_methods);
 
 static struct ubus_object odhcp6c_object = {
 	.name = NULL,
@@ -453,13 +456,9 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 	return UBUS_STATUS_OK;
 }
 
-int ubus_dhcp_event(const char* status)
+static int states_to_blob(void)
 {
-	if (!ubus || !odhcp6c_object.has_subscribers)
-    	return UBUS_STATUS_UNKNOWN_ERROR;
-
 	char *buf = NULL;
-
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, cer_len, addr_len;
 	size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
@@ -489,6 +488,8 @@ int ubus_dhcp_event(const char* status)
 	uint8_t *ra_search = odhcp6c_get_state(STATE_RA_SEARCH, &ra_search_len);
 
  	blob_buf_init(&b, BLOBMSG_TYPE_TABLE);
+
+	blobmsg_add_string(&b, "DHCPV6_STATE", dhcpv6_state_to_str(dhcpv6_get_state()));
 
 	CHECK(ipv6_to_blob("SERVER", addr, addr_len / sizeof(*addr)));
 	CHECK(ipv6_to_blob("RDNSS", dns, dns_len / sizeof(*dns)));
@@ -524,6 +525,27 @@ int ubus_dhcp_event(const char* status)
 	CHECK_ALLOC(buf);
 	script_hexlify(buf, passthru, passthru_len);
 	blobmsg_add_string_buffer(&b);
+
+	return UBUS_STATUS_OK;
+}
+
+static int ubus_handle_get_state(struct ubus_context *ctx, _unused struct ubus_object *obj,
+		struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	CHECK(states_to_blob());
+	CHECK(ubus_send_reply(ctx, req, b.head));
+	blob_buf_free(&b);
+
+	return UBUS_STATUS_OK;
+}
+
+int ubus_dhcp_event(const char *status)
+{
+	if (!ubus || !odhcp6c_object.has_subscribers)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+
+	CHECK(states_to_blob());
 	CHECK(ubus_notify(ubus, &odhcp6c_object, status, b.head, -1));
 	blob_buf_free(&b);
 

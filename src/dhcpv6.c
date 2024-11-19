@@ -210,6 +210,83 @@ static char *dhcpv6_status_code_to_str(uint16_t code)
 	return "Unknown";
 }
 
+const char *dhcpv6_state_to_str(enum dhcpv6_state state)
+{
+	switch (state) {
+	case DHCPV6_INIT:
+		return "INIT";
+
+	case DHCPV6_SOLICIT:
+		return "SOLICIT";
+
+	case DHCPV6_SOLICIT_PROCESSING:
+		return "SOLICIT_PROCESSING";
+
+	case DHCPV6_ADVERT:
+		return "ADVERT";
+
+	case DHCPV6_REQUEST:
+		return "REQUEST";
+
+	case DHCPV6_REQUEST_PROCESSING:
+		return "REQUEST_PROCESSING";
+
+	case DHCPV6_REPLY:
+		return "REPLY";
+
+	case DHCPV6_BOUND:
+		return "BOUND";
+
+	case DHCPV6_BOUND_PROCESSING:
+		return "BOUND_PROCESSING";
+
+	case DHCPV6_BOUND_REPLY:
+		return "BOUND_REPLY";
+
+	case DHCPV6_RECONF:
+		return "RECONF";
+
+	case DHCPV6_RECONF_PROCESSING:
+		return "RECONF_PROCESSING";
+
+	case DHCPV6_RECONF_REPLY:
+		return "RECONF_REPLY";
+
+	case DHCPV6_RENEW:
+		return "RENEW";
+
+	case DHCPV6_RENEW_PROCESSING:
+		return "RENEW_PROCESSING";
+
+	case DHCPV6_RENEW_REPLY:
+		return "RENEW_REPLY";
+
+	case DHCPV6_REBIND:
+		return "REBIND";
+
+	case DHCPV6_REBIND_PROCESSING:
+		return "REBIND_PROCESSING";
+
+	case DHCPV6_REBIND_REPLY:
+		return "REBIND_REPLY";
+
+	case DHCPV6_INFO:
+		return "INFO";
+
+	case DHCPV6_INFO_PROCESSING:
+		return "INFO_PROCESSING";
+
+	case DHCPV6_INFO_REPLY:
+		return "INFO_REPLY";
+
+	case DHCPV6_EXIT:
+		return "EXIT";
+		
+	default:
+		return "INVALID_STATE";
+	}
+}
+
 static int fd_set_nonblocking(int sockfd)
 {
     int flags = fcntl(sockfd, F_GETFL, 0);
