@@ -451,8 +451,11 @@ int ra_get_mtu(void);
 int ra_get_reachable(void);
 int ra_get_retransmit(void);
 
+void notify_state_change(const char *status, int delay, bool resume);
+
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
+void script_hexlify(char *dst, const uint8_t *src, size_t len);
 void script_call(const char *status, int delay, bool resume);
 
 bool odhcp6c_signal_process(void);

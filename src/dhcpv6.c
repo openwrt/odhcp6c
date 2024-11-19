@@ -1179,7 +1179,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			if (!t1 && state_IAs != updated_IAs) {
 				if (updated_IAs)
 					// Publish updates
-					script_call("updated", 0, false);
+					notify_state_change("updated", 0, false);
 
 				/*
 				 * RFC8415 states following in §18.2.10.1 :
@@ -1203,7 +1203,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			if (!t1 && !t2 && state_IAs != updated_IAs) {
 				if (updated_IAs)
 					// Publish updates
-					script_call("updated", 0, false);
+					notify_state_change("updated", 0, false);
 
 				/*
 				 * RFC8415 states following in §18.2.10.1 :
