@@ -37,6 +37,7 @@
 
 #include "odhcp6c.h"
 #include "ra.h"
+#include "ubus.h"
 
 #ifndef IN6_IS_ADDR_UNIQUELOCAL
 #define IN6_IS_ADDR_UNIQUELOCAL(a) \
@@ -489,6 +490,24 @@ int main(_unused int argc, char* const argv[])
 	fds[nfds].events = POLLIN;
 	nfds++;
 
+#ifdef WITH_UBUS
+	char *err = ubus_init(ifname);
+	if (err) {
+		syslog(LOG_ERR, "ubus error: %s", err);
+		return 1;
+	}
+
+	struct ubus_context *ubus = ubus_get_ctx();
+	int ubus_socket = ubus->sock.fd;
+	if (ubus_socket < 0) {
+		syslog(LOG_ERR, "Invalid ubus file descriptor");
+		return 1;
+	}
+	fds[nfds].fd = ubus_socket;
+	fds[nfds].events = POLLIN;
+	nfds++;
+#endif /* WITH_UBUS */
+
 	script_call("started", 0, false);
 
 	while (!terminate) { // Main logic
@@ -715,8 +734,17 @@ int main(_unused int argc, char* const argv[])
 		if (fds[0].revents & POLLIN)
 			dhcpv6_receive_response(msg_type);
 
+#ifdef WITH_UBUS
+		if (fds[1].revents & POLLIN)
+			ubus_handle_event(ubus);
+#endif /* WITH_UBUS */
 	}
+
 	script_call("stopped", 0, true);
+
+#ifdef WITH_UBUS
+	ubus_destroy(ubus);
+#endif /* WITH_UBUS */
 
 	return 0;
 }

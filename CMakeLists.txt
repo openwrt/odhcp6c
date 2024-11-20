@@ -43,6 +43,15 @@ if (${EXT_CER_ID})
 	target_compile_definitions(${PROJECT_NAME} PRIVATE EXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
+if(${UBUS})
+	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_UBUS)
+	target_sources(${PROJECT_NAME} PRIVATE src/ubus.c)
+	find_path(ubus_include_dir libubus.h)
+	target_include_directories(${PROJECT_NAME} PRIVATE ${ubus_include_dir})
+	find_library(libubus ubus)
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${libubus})
+endif(${UBUS})
+
 
 # Installation
 install(TARGETS ${PROJECT_NAME} DESTINATION sbin/)

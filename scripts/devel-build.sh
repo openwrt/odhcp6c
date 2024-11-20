@@ -27,6 +27,7 @@ DEPSDIR="${BUILDDIR}/depends"
 cd "${DEPSDIR}"
 [ -e "json-c" ] || git clone https://github.com/json-c/json-c.git
 [ -e "libubox" ] || git clone https://github.com/openwrt/libubox.git
+[ -e "ubus" ] || git clone https://github.com/openwrt/ubus.git
 
 # Build json-c
 cd "${DEPSDIR}/json-c"
@@ -52,12 +53,25 @@ cmake							\
 make
 make install
 
+# Build ubus
+cd "${DEPSDIR}/ubus"
+cmake							\
+	-S .						\
+	-B .						\
+	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
+	-DBUILD_LUA=OFF					\
+	-DBUILD_EXAMPLES=OFF				\
+	--install-prefix "${BUILDDIR}"
+make
+make install
+
 # Build odhcp6c
 cd "${ODHCP6CDIR}"
 cmake							\
 	-S .						\
 	-B "${BUILDDIR}"				\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
+	-DUBUS=ON					\
 	${BUILD_ARGS}
 make -C "${BUILDDIR}"
 

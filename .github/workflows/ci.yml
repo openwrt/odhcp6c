@@ -25,10 +25,14 @@ jobs:
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
     outputs:
-      size-aarch64: ${{ steps.build.outputs.size_aarch64 }}
-      size-arm: ${{ steps.build.outputs.size_arm }}
-      size-mips: ${{ steps.build.outputs.size_mips }}
-      size-x86_64: ${{ steps.build.outputs.size_x86_64 }}
+      size-aarch64-without-ubus: ${{ steps.without_ubus.outputs.size_aarch64 }}
+      size-aarch64-with-ubus: ${{ steps.with_ubus.outputs.size_aarch64 }}
+      size-arm-without-ubus: ${{ steps.without_ubus.outputs.size_arm }}
+      size-arm-with-ubus: ${{ steps.with_ubus.outputs.size_arm }}
+      size-mips-without-ubus: ${{ steps.without_ubus.outputs.size_mips }}
+      size-mips-with-ubus: ${{ steps.with_ubus.outputs.size_mips }}
+      size-x86_64-without-ubus: ${{ steps.without_ubus.outputs.size_x86_64 }}
+      size-x86_64-with-ubus: ${{ steps.with_ubus.outputs.size_x86_64 }}
     steps:
       - name: Checkout odhcp6c
         uses: actions/checkout@v5
@@ -44,6 +48,12 @@ jobs:
         with:
           repository: openwrt/libubox
           path: depends/libubox
+
+      - name: Checkout ubus
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/ubus
+          path: depends/ubus
 
       - name: Install dependencies
         run: |
@@ -76,14 +86,38 @@ jobs:
           make
           make install
 
-      - id: build
-        name: Build odhcp6c
-        env:
-          BUILD_DIR: build/odhcp6c
+      - name: Build ubus
+        working-directory: depends/ubus
         run: |
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - id: without_ubus
+        name: Build odhcp6c (w/o ubus)
+        env:
+          BUILD_DIR: build/odhcp6c-without-ubus
+        run: |
+          cmake \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -B $BUILD_DIR
+          make -C $BUILD_DIR
+          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
+
+      - id: with_ubus
+        name: Build odhcp6c (with ubus)
+        env:
+          BUILD_DIR: build/odhcp6c-with-ubus
+        run: |
+          cmake \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DUBUS=ON \
             -B $BUILD_DIR
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
@@ -93,7 +127,7 @@ jobs:
         with:
           name: odhcp6c-${{ matrix.arch }}-binaries
           path: |
-            build/odhcp6c/odhcp6c
+            build/odhcp6c-*/odhcp6c
           if-no-files-found: error
 
   summary:
@@ -103,12 +137,17 @@ jobs:
     steps:
       - name: Sizes summary
         env:
-          size_aarch64: ${{needs.build.outputs.size-aarch64}}
-          size_arm: ${{needs.build.outputs.size-arm}}
-          size_mips: ${{needs.build.outputs.size-mips}}
-          size_x86_64: ${{needs.build.outputs.size-x86_64}}
+          size_aarch64_without_ubus: ${{needs.build.outputs.size-aarch64-without-ubus}}
+          size_aarch64_with_ubus: ${{needs.build.outputs.size-aarch64-with-ubus}}
+          size_arm_without_ubus: ${{needs.build.outputs.size-arm-without-ubus}}
+          size_arm_with_ubus: ${{needs.build.outputs.size-arm-with-ubus}}
+          size_mips_without_ubus: ${{needs.build.outputs.size-mips-without-ubus}}
+          size_mips_with_ubus: ${{needs.build.outputs.size-mips-with-ubus}}
+          size_x86_64_without_ubus: ${{needs.build.outputs.size-x86_64-without-ubus}}
+          size_x86_64_with_ubus: ${{needs.build.outputs.size-x86_64-with-ubus}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
           echo "| Variant | aarch64 | arm | mips | x86_64 |" >> $GITHUB_STEP_SUMMARY
           echo "| :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| odhcp6c | ${size_aarch64} | ${size_arm} | ${size_mips} | ${size_x86_64} |" >> $GITHUB_STEP_SUMMARY
+          echo "| w/o ubus | ${size_aarch64_without_ubus} | ${size_arm_without_ubus} | ${size_mips_without_ubus} | ${size_x86_64_without_ubus} |" >> $GITHUB_STEP_SUMMARY
+          echo "| with ubus | ${size_aarch64_with_ubus} | ${size_arm_with_ubus} | ${size_mips_with_ubus} | ${size_x86_64_with_ubus} |" >> $GITHUB_STEP_SUMMARY
