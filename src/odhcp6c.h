@@ -323,7 +323,22 @@ struct dhcpv6_server_cand {
 	size_t ia_pd_len;
 };
 
-
+struct dhcpv6_stats {
+	uint64_t solicit;
+	uint64_t advertise;
+	uint64_t request;
+	uint64_t confirm;
+	uint64_t renew;
+	uint64_t rebind;
+	uint64_t reply;
+	uint64_t release;
+	uint64_t decline;
+	uint64_t reconfigure;
+	uint64_t information_request;
+	uint64_t discarded_packets;
+	uint64_t transmit_failures;
+};
+	
 enum odhcp6c_state {
 	STATE_CLIENT_ID,
 	STATE_SERVER_ID,
@@ -437,6 +452,8 @@ int dhcpv6_receive_response(enum dhcpv6_msg type);
 enum dhcpv6_state dhcpv6_get_state(void);
 void dhcpv6_set_state(enum dhcpv6_state state);
 int dhcpv6_get_socket(void);
+struct dhcpv6_stats dhcpv6_get_stats(void);
+void dhcpv6_reset_stats(void);
 int dhcpv6_state_processing(enum dhcpv6_msg type);
 int dhcpv6_get_state_timeout(void);
 void dhcpv6_set_state_timeout(int timeout);

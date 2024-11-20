@@ -103,9 +103,15 @@ static char ubus_name[24];
 
 static int ubus_handle_get_state(struct ubus_context *ctx, struct ubus_object *obj,
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+static int ubus_handle_get_stats(struct ubus_context *ctx, struct ubus_object *obj,
+		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+static int ubus_handle_reset_stats(struct ubus_context *ctx, struct ubus_object *obj,
+		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
 
 static struct ubus_method odhcp6c_object_methods[] = {
 	UBUS_METHOD_NOARG("get_state", ubus_handle_get_state),
+	UBUS_METHOD_NOARG("get_statistics", ubus_handle_get_stats),
+	UBUS_METHOD_NOARG("reset_statistics", ubus_handle_reset_stats),
 };
 
 static struct ubus_object_type odhcp6c_object_type = 
@@ -527,6 +533,43 @@ static int states_to_blob(void)
 
 	return UBUS_STATUS_OK;
 }
+
+static int ubus_handle_get_stats(struct ubus_context *ctx, _unused struct ubus_object *obj,
+		struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	struct dhcpv6_stats stats = dhcpv6_get_stats();
+
+	blob_buf_init(&b, BLOBMSG_TYPE_TABLE);
+	blobmsg_add_u64(&b, "dhcp_solicit", stats.solicit);
+	blobmsg_add_u64(&b, "dhcp_advertise", stats.advertise);
+	blobmsg_add_u64(&b, "dhcp_request", stats.request);
+	blobmsg_add_u64(&b, "dhcp_confirm", stats.confirm);
+	blobmsg_add_u64(&b, "dhcp_renew", stats.renew);
+	blobmsg_add_u64(&b, "dhcp_rebind", stats.rebind);
+	blobmsg_add_u64(&b, "dhcp_reply", stats.reply);
+	blobmsg_add_u64(&b, "dhcp_release", stats.release);
+	blobmsg_add_u64(&b, "dhcp_decline", stats.decline);
+	blobmsg_add_u64(&b, "dhcp_reconfigure", stats.reconfigure);
+	blobmsg_add_u64(&b, "dhcp_information_request", stats.information_request);
+	blobmsg_add_u64(&b, "dhcp_discarded_packets", stats.discarded_packets);
+	blobmsg_add_u64(&b, "dhcp_transmit_failures", stats.transmit_failures);
+
+	CHECK(ubus_send_reply(ctx, req, b.head));
+	blob_buf_free(&b);
+
+	return UBUS_STATUS_OK;
+}
+
+static int ubus_handle_reset_stats(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	dhcpv6_reset_stats();
+
+	return UBUS_STATUS_OK;
+}
+
 
 static int ubus_handle_get_state(struct ubus_context *ctx, _unused struct ubus_object *obj,
 		struct ubus_request_data *req, _unused const char *method,

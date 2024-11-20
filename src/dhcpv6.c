@@ -118,6 +118,9 @@ static uint8_t reconf_key[16];
 // client options
 static unsigned int client_options = 0;
 
+// counters for statistics
+static struct dhcpv6_stats dhcpv6_stats = {0};
+
 static uint32_t ntohl_unaligned(const uint8_t *data)
 {
 	uint32_t buf;
@@ -136,6 +139,54 @@ static void dhcpv6_prev_state(void)
 {
 	dhcpv6_state--;
 	dhcpv6_reset_state_timeout();
+}
+
+static void dhcpv6_inc_counter(enum dhcpv6_msg type)
+{
+	switch (type) {
+	case DHCPV6_MSG_SOLICIT:
+		dhcpv6_stats.solicit++;
+		break;
+
+	case DHCPV6_MSG_ADVERT:
+		dhcpv6_stats.advertise++;
+		break;
+
+	case DHCPV6_MSG_REQUEST:
+		dhcpv6_stats.request++;
+		break;
+
+	case DHCPV6_MSG_RENEW:
+		dhcpv6_stats.renew++;
+		break;
+
+	case DHCPV6_MSG_REBIND:
+		dhcpv6_stats.rebind++;
+		break;
+
+	case DHCPV6_MSG_REPLY:
+		dhcpv6_stats.reply++;
+		break;
+
+	case DHCPV6_MSG_RELEASE:
+		dhcpv6_stats.release++;
+		break;
+
+	case DHCPV6_MSG_DECLINE:
+		dhcpv6_stats.decline++;
+		break;
+
+	case DHCPV6_MSG_RECONF:
+		dhcpv6_stats.reconfigure++;
+		break;
+
+	case DHCPV6_MSG_INFO_REQ:
+		dhcpv6_stats.information_request++;
+		break;
+
+	default:
+		break;
+	}
 }
 
 static char *dhcpv6_msg_to_str(enum dhcpv6_msg msg)
@@ -338,6 +389,16 @@ void dhcpv6_set_state_timeout(int timeout)
 void dhcpv6_reset_state_timeout(void)
 {
 	dhcpv6_state_timeout = 0;
+}
+
+struct dhcpv6_stats dhcpv6_get_stats(void)
+{
+	return dhcpv6_stats;
+}
+
+void dhcpv6_reset_stats(void)
+{
+	memset(&dhcpv6_stats, 0, sizeof(dhcpv6_stats));
 }
 
 int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_timeout, unsigned int dscp)
@@ -794,6 +855,9 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			dhcpv6_msg_to_str(type),
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
 				in6_str, sizeof(in6_str)), strerror(errno));
+		dhcpv6_stats.transmit_failures++;
+	} else {
+		dhcpv6_inc_counter(type);
 	}
 }
 
@@ -1900,13 +1964,17 @@ int dhcpv6_receive_response(enum dhcpv6_msg type)
 	}
 
 	if (pktinfo == NULL) {
+		dhcpv6_stats.discarded_packets++;
 		return -1;
 	}
 
 	if (!dhcpv6_response_is_valid(buf, len, retx->tr_id, type,
 					 &pktinfo->ipi6_addr)) {
+		dhcpv6_stats.discarded_packets++;
 		return -1;
 	}
+
+	dhcpv6_inc_counter(hdr->msg_type);
 
 	uint8_t *opt = &buf[4];
 	uint8_t *opt_end = opt + len - 4;
