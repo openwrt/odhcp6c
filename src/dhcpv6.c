@@ -80,7 +80,7 @@ static reply_handler dhcpv6_handle_reconfigure;
 static int dhcpv6_commit_advert(void);
 
 // RFC 3315 - 5.5 Timeout and Delay values
-static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
+static const struct dhcpv6_retx dhcpv6_retx_default[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, 0, "<POLL>",
 			dhcpv6_handle_reconfigure, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
 	[DHCPV6_MSG_SOLICIT] = {true, 1, DHCPV6_SOL_MAX_RT, 0, "SOLICIT",
@@ -96,6 +96,7 @@ static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {
 	[DHCPV6_MSG_INFO_REQ] = {true, 1, DHCPV6_INF_MAX_RT, 0, "INFOREQ",
 			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
 };
+static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {0};
 
 // Sockets
 static int sock = -1;
@@ -400,6 +401,7 @@ void dhcpv6_reset_stats(void)
 
 int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_timeout, unsigned int dscp)
 {
+	memcpy(dhcpv6_retx, dhcpv6_retx_default, sizeof(dhcpv6_retx));
 	client_options = options;
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
 

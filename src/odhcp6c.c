@@ -43,6 +43,8 @@
 #include "ubus.h"
 #endif
 
+#define DHCPV6_FD_INDEX 0
+#define UBUS_FD_INDEX 1
 
 #ifndef IN6_IS_ADDR_UNIQUELOCAL
 #define IN6_IS_ADDR_UNIQUELOCAL(a) \
@@ -71,6 +73,14 @@ static int urandom_fd = -1, allow_slaac_only = 0;
 static bool bound = false, release = true, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
+static unsigned int dscp = 0;
+static int sol_timeout = DHCPV6_SOL_MAX_RT;
+static int sk_prio = 0;
+bool stateful_only_mode = 0;
+static enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
+static enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
+static unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
+static unsigned int oro_user_cnt = 0;
 
 static unsigned int script_sync_delay = 10;
 static unsigned int script_accu_delay = 1;
@@ -180,22 +190,15 @@ int main(_unused int argc, char* const argv[])
 	uint8_t buf[134], *o_data;
 	char *optpos;
 	uint16_t opttype;
-	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
-	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
-	bool stateful_only_mode = 0;
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
-	int sk_prio = 0;
-	int sol_timeout = DHCPV6_SOL_MAX_RT;
 	int verbosity = 0;
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c;
 	int res = -1;
-	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
-	unsigned int dscp = 0;
 	bool terminate = false;
 
 	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kK:t:C:m:Lhedp:fav")) != -1) {
@@ -452,7 +455,6 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sk_prio, sol_timeout, dscp) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
@@ -482,17 +484,11 @@ int main(_unused int argc, char* const argv[])
 	struct pollfd fds[2] = {0};
 	int nfds = 0;
 
-	int dhcpv6_socket = dhcpv6_get_socket();
 	int mode = DHCPV6_UNKNOWN;
 	enum dhcpv6_msg msg_type = DHCPV6_MSG_UNKNOWN;
 
-	if (dhcpv6_socket < 0) {
-		syslog(LOG_ERR, "Invalid dhcpv6 file descriptor");
-		return 1;
-	}
-	
-	fds[nfds].fd = dhcpv6_socket;
-	fds[nfds].events = POLLIN;
+	fds[DHCPV6_FD_INDEX].fd = -1;
+	fds[DHCPV6_FD_INDEX].events = POLLIN;
 	nfds++;
 
 #ifdef HAVE_UBUS
@@ -508,8 +504,8 @@ int main(_unused int argc, char* const argv[])
 		syslog(LOG_ERR, "Invalid ubus file descriptor");
 		return 1;
 	}
-	fds[nfds].fd = ubus_socket;
-	fds[nfds].events = POLLIN;
+	fds[UBUS_FD_INDEX].fd = ubus_socket;
+	fds[UBUS_FD_INDEX].events = POLLIN;
 	nfds++;
 #endif
 
@@ -532,6 +528,19 @@ int main(_unused int argc, char* const argv[])
 			odhcp6c_clear_state(STATE_SIP_FQDN);
 			bound = false;
 
+			size_t oro_len = 0;
+			odhcp6c_get_state(STATE_ORO, &oro_len);
+			oro_user_cnt = oro_len / sizeof(uint16_t);
+
+			syslog(LOG_NOTICE, "number of user requested options %u", oro_user_cnt);
+
+			if(init_dhcpv6(ifname, client_options, sk_prio, sol_timeout, dscp)) {
+				syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+				return 1;
+			}
+
+			fds[DHCPV6_FD_INDEX].fd = dhcpv6_get_socket();
+
 			syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 			signal_usr1 = signal_usr2 = false;
@@ -544,7 +553,7 @@ int main(_unused int argc, char* const argv[])
 				dhcpv6_set_state(DHCPV6_REQUEST);
 				break;
 			}
-			
+
 			msg_type = DHCPV6_MSG_SOLICIT;
 			dhcpv6_send_request(msg_type);		
 			break;
@@ -722,8 +731,22 @@ int main(_unused int argc, char* const argv[])
 				terminate = true;
 			} else {
 				signal_usr2 = false;
-				dhcpv6_set_state(DHCPV6_INIT);
+				dhcpv6_set_state(DHCPV6_RESET);
 			}
+			break;
+
+		case DHCPV6_RESET:
+			odhcp6c_clear_state(STATE_CLIENT_ID);
+
+			size_t oro_user_len, oro_total_len;
+			odhcp6c_get_state(STATE_ORO, &oro_total_len);
+			oro_user_len = oro_user_cnt * sizeof(uint16_t);
+			odhcp6c_remove_state(STATE_ORO, oro_user_len, oro_total_len - oro_user_len);
+
+			close(dhcpv6_get_socket());
+			fds[DHCPV6_FD_INDEX].fd = -1;
+
+			dhcpv6_set_state(DHCPV6_INIT);
 			break;
 
 		default:
@@ -1403,4 +1426,106 @@ void notify_state_change(const char *status, int delay, bool resume)
 #ifdef HAVE_UBUS
 	ubus_dhcp_event(status);
 #endif
+}
+
+void config_set_release(bool enable) {
+	release = enable;
+}
+
+bool config_set_dscp(unsigned int value) {
+	if(value > 63)
+		return false;
+	dscp = value;
+	return true;
+}
+
+bool config_set_solicit_timeout(unsigned int timeout) {
+	if(timeout > INT32_MAX)
+		return false;
+
+	sol_timeout = timeout;
+	return true;
+}
+
+bool config_set_sk_priority(unsigned int priority) {
+	if(priority > 6)
+		return false;
+
+	sk_prio = priority;
+	return true;
+}
+
+void config_set_client_options(enum dhcpv6_config option, bool enable) {
+	if(enable) {
+		client_options |= option;
+	} else {
+		client_options &= ~option;
+	}
+}
+
+bool config_set_request_addresses(char* mode) {
+	if (!strcmp(mode, "force")) {
+		ia_na_mode = IA_MODE_FORCE;
+		allow_slaac_only = -1;
+	} else if (!strcmp(mode, "none"))
+		ia_na_mode = IA_MODE_NONE;
+	else if (!strcmp(mode, "try"))
+		ia_na_mode = IA_MODE_TRY;
+	else
+		return false;
+
+	return true;
+}
+
+bool config_set_request_prefix(unsigned int length, unsigned int id) {
+	struct odhcp6c_request_prefix prefix = {0};
+
+	odhcp6c_clear_state(STATE_IA_PD_INIT);
+
+	if (ia_pd_mode != IA_MODE_FORCE)
+		ia_pd_mode = length > 128 ? IA_MODE_NONE : IA_MODE_TRY;
+
+	if(length <= 128) {
+		if (allow_slaac_only >= 0 && allow_slaac_only < 10)
+			allow_slaac_only = 10;
+
+		prefix.length = length;
+		prefix.iaid = htonl(id);
+
+		if (odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix))) {
+			syslog(LOG_ERR, "Failed to set request IPv6-Prefix");
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void config_set_stateful_only(bool enable) {
+	stateful_only_mode = enable;
+}
+
+void config_clear_requested_options(void) {
+	oro_user_cnt = 0;
+}
+
+bool config_add_requested_options(unsigned int option) {
+	if(option > UINT16_MAX)
+		return false;
+
+	option = htons(option);
+	if (odhcp6c_insert_state(STATE_ORO, 0, &option, 2)) {
+		syslog(LOG_ERR, "Failed to add requested option");
+		return false;
+	}
+	oro_user_cnt++;
+	return true;
+}
+
+void config_clear_send_options(void) {
+	odhcp6c_clear_state(STATE_OPTS);
+}
+
+bool config_add_send_options(char* option) {
+	return (parse_opt(option) == 0);
 }
