@@ -97,6 +97,23 @@ enum entry_type {
 	ENTRY_PREFIX
 };
 
+enum {
+	RECONFIGURE_DHCP_ATTR_DSCP,
+	RECONFIGURE_DHCP_ATTR_RELEASE,
+	RECONFIGURE_DHCP_ATTR_SOL_TIMEOUT,
+	RECONFIGURE_DHCP_ATTR_SK_PRIORITY,
+	RECONFIGURE_DHCP_ATTR_OPT_REQUESTED,
+	RECONFIGURE_DHCP_ATTR_OPT_STRICT,
+	RECONFIGURE_DHCP_ATTR_OPT_RECONFIGURE,
+	RECONFIGURE_DHCP_ATTR_OPT_FQDN,
+	RECONFIGURE_DHCP_ATTR_OPT_UNICAST,
+	RECONFIGURE_DHCP_ATTR_OPT_SEND,
+	RECONFIGURE_DHCP_ATTR_REQ_ADDRESSES,
+	RECONFIGURE_DHCP_ATTR_REQ_PREFIXES,
+	RECONFIGURE_DHCP_ATTR_STATEFUL,
+	RECONFIGURE_DHCP_ATTR_MAX,
+};
+
 struct ubus_context *ubus = NULL;
 static struct blob_buf b;
 static char ubus_name[24];
@@ -107,11 +124,30 @@ static int ubus_handle_get_stats(struct ubus_context *ctx, struct ubus_object *o
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
 static int ubus_handle_reset_stats(struct ubus_context *ctx, struct ubus_object *obj,
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+static int ubus_handle_reconfigure_dhcp(struct ubus_context *ctx, struct ubus_object *obj,
+		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+
+static const struct blobmsg_policy reconfigure_dhcp_policy[RECONFIGURE_DHCP_ATTR_MAX] = {
+	[RECONFIGURE_DHCP_ATTR_DSCP] = { .name = "dscp", .type = BLOBMSG_TYPE_INT32},
+	[RECONFIGURE_DHCP_ATTR_RELEASE] = { .name = "release", .type = BLOBMSG_TYPE_BOOL},
+	[RECONFIGURE_DHCP_ATTR_SOL_TIMEOUT] = { .name = "sol_timeout", .type = BLOBMSG_TYPE_INT32},
+	[RECONFIGURE_DHCP_ATTR_SK_PRIORITY] = { .name = "sk_prio", .type = BLOBMSG_TYPE_INT32},
+	[RECONFIGURE_DHCP_ATTR_OPT_REQUESTED] = { .name = "opt_requested", .type = BLOBMSG_TYPE_ARRAY},
+	[RECONFIGURE_DHCP_ATTR_OPT_STRICT] = { .name = "opt_strict", .type = BLOBMSG_TYPE_BOOL},
+	[RECONFIGURE_DHCP_ATTR_OPT_RECONFIGURE] = { .name = "opt_reconfigure", .type = BLOBMSG_TYPE_BOOL},
+	[RECONFIGURE_DHCP_ATTR_OPT_FQDN] = { .name = "opt_fqdn", .type = BLOBMSG_TYPE_BOOL},
+	[RECONFIGURE_DHCP_ATTR_OPT_UNICAST] = { .name = "opt_unicast", .type = BLOBMSG_TYPE_BOOL},
+	[RECONFIGURE_DHCP_ATTR_OPT_SEND] = { .name = "opt_send", .type = BLOBMSG_TYPE_ARRAY},
+	[RECONFIGURE_DHCP_ATTR_REQ_ADDRESSES] = { .name = "req_addresses", .type = BLOBMSG_TYPE_STRING},
+	[RECONFIGURE_DHCP_ATTR_REQ_PREFIXES] = { .name = "req_prefixes", .type = BLOBMSG_TYPE_INT32},
+	[RECONFIGURE_DHCP_ATTR_STATEFUL] = { .name = "stateful_only", .type = BLOBMSG_TYPE_BOOL},
+};
 
 static struct ubus_method odhcp6c_object_methods[] = {
 	UBUS_METHOD_NOARG("get_state", ubus_handle_get_state),
 	UBUS_METHOD_NOARG("get_statistics", ubus_handle_get_stats),
 	UBUS_METHOD_NOARG("reset_statistics", ubus_handle_reset_stats),
+	UBUS_METHOD("reconfigure_dhcp", ubus_handle_reconfigure_dhcp, reconfigure_dhcp_policy),
 };
 
 static struct ubus_object_type odhcp6c_object_type = 
@@ -580,6 +616,149 @@ static int ubus_handle_get_state(struct ubus_context *ctx, _unused struct ubus_o
 	blob_buf_free(&b);
 
 	return UBUS_STATUS_OK;
+}
+
+static int ubus_handle_reconfigure_dhcp(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		struct blob_attr *msg)
+{
+	const struct blobmsg_policy *policy = reconfigure_dhcp_policy;
+	struct blob_attr *tb[RECONFIGURE_DHCP_ATTR_MAX];
+	struct blob_attr *cur = NULL;
+	struct blob_attr *elem = NULL;
+	char *string = NULL;
+	uint32_t value = 0;
+	uint32_t index = 0;
+	bool enabled = false;
+	bool valid_args = false;
+	bool need_reinit = false;
+
+	if (blobmsg_parse(policy, RECONFIGURE_DHCP_ATTR_MAX, tb, blob_data(msg), blob_len(msg)))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_DSCP])) {
+		value = blobmsg_get_u32(cur);
+		if (!config_set_dscp(value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_RELEASE])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_release(enabled);
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_SOL_TIMEOUT])) {
+		value = blobmsg_get_u32(cur);
+		if (!config_set_solicit_timeout(value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_SK_PRIORITY])) {
+		value = blobmsg_get_u32(cur);
+		if (!config_set_sk_priority(value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_REQUESTED])) {
+		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, false))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		config_clear_requested_options();
+
+		blobmsg_for_each_attr(elem, cur, index) {
+			if (blobmsg_type(elem) != BLOBMSG_TYPE_INT32)
+				return UBUS_STATUS_INVALID_ARGUMENT;
+
+			value = blobmsg_get_u32(elem);
+			if (!config_add_requested_options(value))
+				return UBUS_STATUS_INVALID_ARGUMENT;
+		}
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_STRICT])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_client_options(DHCPV6_STRICT_OPTIONS, enabled);
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_RECONFIGURE])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_client_options(DHCPV6_ACCEPT_RECONFIGURE, enabled);
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_FQDN])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_client_options(DHCPV6_CLIENT_FQDN, enabled);
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_UNICAST])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_client_options(DHCPV6_IGNORE_OPT_UNICAST, enabled);
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_OPT_SEND])) {
+		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, false))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		config_clear_send_options();
+
+		blobmsg_for_each_attr(elem, cur, index) {
+			string = blobmsg_get_string(elem);
+			if (string == NULL || !config_add_send_options(string))
+				return UBUS_STATUS_INVALID_ARGUMENT;
+		}
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_REQ_ADDRESSES])) {
+		string = blobmsg_get_string(cur);
+		if (string == NULL || !config_set_request_addresses(string))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_REQ_PREFIXES])) {
+		value = blobmsg_get_u32(cur);
+
+		if (!config_set_request_prefix(value, 1))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_STATEFUL])) {
+		enabled = blobmsg_get_bool(cur);
+		config_set_stateful_only(enabled);
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if (need_reinit)
+		raise(SIGUSR2);
+
+	return valid_args ? UBUS_STATUS_OK : UBUS_STATUS_INVALID_ARGUMENT;
 }
 
 int ubus_dhcp_event(const char *status)

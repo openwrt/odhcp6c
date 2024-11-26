@@ -175,7 +175,8 @@ enum dhcpv6_state {
 	DHCPV6_INFO,
 	DHCPV6_INFO_PROCESSING,
 	DHCPV6_INFO_REPLY,
-	DHCPV6_EXIT
+	DHCPV6_EXIT,
+	DHCPV6_RESET
 };
 
 enum dhcpv6_status {
@@ -470,6 +471,19 @@ int ra_get_reachable(void);
 int ra_get_retransmit(void);
 
 void notify_state_change(const char *status, int delay, bool resume);
+
+void config_set_release(bool enable);
+bool config_set_dscp(unsigned int value);
+bool config_set_solicit_timeout(unsigned int timeout);
+bool config_set_sk_priority(unsigned int value);
+void config_set_client_options(enum dhcpv6_config option, bool enable);
+bool config_set_request_addresses(char* mode);
+bool config_set_request_prefix(unsigned int length, unsigned int id);
+void config_set_stateful_only(bool enable);
+void config_clear_requested_options(void);
+bool config_add_requested_options(unsigned int option);
+void config_clear_send_options(void);
+bool config_add_send_options(char* option);
 
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
