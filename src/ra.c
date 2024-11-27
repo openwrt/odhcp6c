@@ -499,7 +499,7 @@ bool ra_process(void)
 				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) &&
 				    !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
-									7200, ra_holdoff_interval);
+									0, ra_holdoff_interval);
 
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
 						pinfo->nd_opt_pi_prefix_len != 64)

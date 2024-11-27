@@ -797,8 +797,9 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 {
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
 
+	/* update Address lifetime (RFC2462 5.5.3 e) */
 	if (x && x->valid > new->valid && new->valid < safe)
-		new->valid = safe;
+		new->valid = (x->valid < safe) ? x->valid : safe;
 
 	if (x) {
 		if (holdoff_interval && new->valid >= x->valid &&
