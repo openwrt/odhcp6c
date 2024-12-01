@@ -573,6 +573,9 @@ int main(_unused int argc, char* const argv[])
 				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
 				odhcp6c_clear_state(STATE_SERVER_ADDR);
 
+				// Remove any state invalidated by RENEW reply
+				odhcp6c_expire(true);
+
 				size_t ia_pd_len, ia_na_len;
 				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
 				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);

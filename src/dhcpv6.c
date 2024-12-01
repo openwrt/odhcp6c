@@ -59,7 +59,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
 		const struct in6_addr *daddr);
 
-static unsigned int dhcpv6_parse_ia(void *opt, void *end);
+static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret);
 
 static unsigned int dhcpv6_calc_refresh_timers(void);
 static void dhcpv6_handle_status_code(_unused const enum dhcpv6_msg orig,
@@ -72,6 +72,9 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		int *ret);
 static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand);
 static void dhcpv6_clear_all_server_cand(void);
+
+static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
+		const void *status_msg, int len);
 
 static reply_handler dhcpv6_handle_reply;
 static reply_handler dhcpv6_handle_advert;
@@ -959,7 +962,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 				 (otype == DHCPV6_OPT_IA_NA && na_mode != IA_MODE_NONE)) &&
 				olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
-			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
+			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr), NULL);
 		}
 
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
@@ -1164,7 +1167,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				if (code != DHCPV6_Success)
 					continue;
 
-				updated_IAs += dhcpv6_parse_ia(ia_hdr, odata + olen);
+				updated_IAs += dhcpv6_parse_ia(ia_hdr, odata + olen, &ret);
 			} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr)) {
 				if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST))
 					server_addr = *(struct in6_addr *)odata;
@@ -1338,7 +1341,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	return ret;
 }
 
-static unsigned int dhcpv6_parse_ia(void *opt, void *end)
+static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 {
 	struct dhcpv6_ia_hdr *ia_hdr = (struct dhcpv6_ia_hdr *)opt;
 	unsigned int updated_IAs = 0;
@@ -1383,43 +1386,52 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			uint16_t stype, slen;
 			uint8_t *sdata;
 
-			// Parse PD-exclude
-			bool ok = true;
+			// Parse sub-options for PD-exclude or error status code
+			bool update_state = true;
 			dhcpv6_for_each_option(odata + sizeof(*prefix) - 4U,
 					odata + olen, stype, slen, sdata) {
-				if (stype != DHCPV6_OPT_PD_EXCLUDE || slen < 2)
-					continue;
+				if (stype == DHCPV6_OPT_STATUS && slen > 2) {
+					uint8_t *status_msg = (slen > 2) ? &sdata[2] : NULL;
+					uint16_t msg_len = (slen > 2) ? slen - 2 : 0;
+					uint16_t code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
-				uint8_t elen = sdata[0];
-				if (elen > 64)
-					elen = 64;
+					if (code == DHCPV6_Success)
+						continue;
 
-				if (entry.length < 32 || elen <= entry.length) {
-					ok = false;
-					continue;
+					dhcpv6_log_status_code(code, "IA_PREFIX", status_msg, msg_len);
+					if (ret) *ret = 0; // renewal failed
+				} else if (stype == DHCPV6_OPT_PD_EXCLUDE && slen > 2) {
+					uint8_t elen = sdata[0];
+					if (elen > 64)
+						elen = 64;
+
+					if (entry.length < 32 || elen <= entry.length) {
+						update_state = false;
+						continue;
+					}
+
+					uint8_t bytes = ((elen - entry.length - 1) / 8) + 1;
+					if (slen <= bytes) {
+						update_state = false;
+						continue;
+					}
+
+					uint32_t exclude = 0;
+					do {
+						exclude = exclude << 8 | sdata[bytes];
+					} while (--bytes);
+
+					exclude >>= 8 - ((elen - entry.length) % 8);
+					exclude <<= 64 - elen;
+
+					// Abusing router & priority fields for exclusion
+					entry.router = entry.target;
+					entry.router.s6_addr32[1] |= htonl(exclude);
+					entry.priority = elen;
 				}
-
-				uint8_t bytes = ((elen - entry.length - 1) / 8) + 1;
-				if (slen <= bytes) {
-					ok = false;
-					continue;
-				}
-
-				uint32_t exclude = 0;
-				do {
-					exclude = exclude << 8 | sdata[bytes];
-				} while (--bytes);
-
-				exclude >>= 8 - ((elen - entry.length) % 8);
-				exclude <<= 64 - elen;
-
-				// Abusing router & priority fields for exclusion
-				entry.router = entry.target;
-				entry.router.s6_addr32[1] |= htonl(exclude);
-				entry.priority = elen;
 			}
 
-			if (ok) {
+			if (update_state) {
 				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0))
 					updated_IAs++;
 
