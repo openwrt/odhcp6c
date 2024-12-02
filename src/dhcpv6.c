@@ -68,7 +68,6 @@ static void dhcpv6_handle_status_code(_unused const enum dhcpv6_msg orig,
 static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		const struct dhcpv6_ia_hdr *ia_hdr, const uint16_t code,
 		const void *status_msg, const int len,
-		bool handled_status_codes[_DHCPV6_Status_Max],
 		int *ret);
 static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand);
 static void dhcpv6_clear_all_server_cand(void);
@@ -1068,7 +1067,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 	int ret = 1;
 	unsigned int state_IAs;
 	unsigned int updated_IAs = 0;
-	bool handled_status_codes[_DHCPV6_Status_Max] = { false, };
 
 	odhcp6c_expire(true);
 
@@ -1152,7 +1150,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 							continue;
 
 						dhcpv6_handle_ia_status_code(orig, ia_hdr,
-							code, mdata, mlen, handled_status_codes, &ret);
+							code, mdata, mlen, &ret);
 
 						if (ret > 0)
 							return ret;
@@ -1582,8 +1580,7 @@ static void dhcpv6_handle_status_code(const enum dhcpv6_msg orig,
 
 static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		const struct dhcpv6_ia_hdr *ia_hdr, const uint16_t code,
-		const void *status_msg, const int len,
-		bool handled_status_codes[_DHCPV6_Status_Max], int *ret)
+		const void *status_msg, const int len, int *ret)
 {
 	dhcpv6_log_status_code(code, ia_hdr->type == DHCPV6_OPT_IA_NA ?
 		"IA_NA" : "IA_PD", status_msg, len);
@@ -1593,7 +1590,7 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		switch (orig) {
 		case DHCPV6_MSG_RENEW:
 		case DHCPV6_MSG_REBIND:
-			if ((*ret > 0) && !handled_status_codes[code])
+			if (*ret > 0)
 				*ret = dhcpv6_request(DHCPV6_MSG_REQUEST);
 			break;
 
