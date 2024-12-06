@@ -477,13 +477,13 @@ bool config_set_dscp(unsigned int value);
 bool config_set_solicit_timeout(unsigned int timeout);
 bool config_set_sk_priority(unsigned int value);
 void config_set_client_options(enum dhcpv6_config option, bool enable);
-bool config_set_request_addresses(char* mode);
+bool config_set_request_addresses(char *mode);
 bool config_set_request_prefix(unsigned int length, unsigned int id);
 void config_set_stateful_only(bool enable);
 void config_clear_requested_options(void);
 bool config_add_requested_options(unsigned int option);
 void config_clear_send_options(void);
-bool config_add_send_options(char* option);
+bool config_add_send_options(char *option);
 
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
@@ -512,3 +512,4 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 void odhcp6c_expire(bool expire_ia_pd);
 uint32_t odhcp6c_elapsed(void);
 struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code);
+struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name);

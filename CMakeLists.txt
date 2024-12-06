@@ -20,7 +20,7 @@ if(${EXT_CER_ID})
 	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
-set(SOURCES src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c)
+set(SOURCES src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c src/config.c)
 
 set(LIBRARIES resolv)
 
