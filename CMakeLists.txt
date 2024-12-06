@@ -6,8 +6,9 @@ cmake_policy(SET CMP0015 NEW)
 project(odhcp6c LANGUAGES C)
 add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE
-	src/odhcp6c.c
+	src/config.c
 	src/dhcpv6.c
+	src/odhcp6c.c
 	src/ra.c
 	src/script.c
 )
