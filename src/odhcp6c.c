@@ -191,7 +191,7 @@ int main(_unused int argc, char* const argv[])
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kK:t:C:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
 			config_set_allow_slaac_only((optarg) ? atoi(optarg) : -1);
@@ -346,7 +346,12 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 's':
-			script = optarg;
+			if (script)
+				script = optarg;
+			break;
+
+		case 'E':
+			script = NULL;
 			break;
 
 		case 'k':
@@ -779,6 +784,7 @@ static int usage(void)
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-R		Do not request any options except those specified with -r\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
+	"	-E		Only use UBUS event and disable status update script\n"
 	"	-a		Don't send Accept Reconfigure option\n"
 	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"

@@ -402,6 +402,9 @@ void script_call(const char *status, int delay, bool resume)
 	time_t now = odhcp6c_get_milli_time() / 1000;
 	bool running_script = false;
 
+	if (!argv[0])
+		return;
+
 	if (running) {
 		time_t diff = now - started;
 
