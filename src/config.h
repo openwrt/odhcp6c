@@ -63,10 +63,27 @@
 #ifndef _CONFIG_H__
 #define _CONFIG_H__
 
+struct config_dhcp_rtx {
+	uint8_t delay_max;
+	uint8_t timeout_init;
+	uint16_t timeout_max;
+	uint8_t rc_max;
+};
+
+enum config_dhcp_msg {
+	CONFIG_DHCP_SOLICIT,
+	CONFIG_DHCP_REQUEST,
+	CONFIG_DHCP_RENEW,
+	CONFIG_DHCP_REBIND,
+	CONFIG_DHCP_RELEASE,
+	CONFIG_DHCP_DECLINE,
+	CONFIG_DHCP_INFO_REQ,
+	CONFIG_DHCP_MAX
+};
+
 struct config_dhcp {
 	bool release;
 	int dscp;
-	int sol_timeout;
 	int sk_prio;
 	bool stateful_only_mode;
 	enum odhcp6c_ia_mode ia_na_mode;
@@ -74,13 +91,16 @@ struct config_dhcp {
 	unsigned int client_options;
 	int allow_slaac_only;
 	unsigned int oro_user_cnt;
+	struct config_dhcp_rtx message_rtx[CONFIG_DHCP_MAX];
+	uint32_t irt_default;
+	uint32_t irt_min;
+	uint16_t rand_factor;
 };
 
 struct config_dhcp *config_dhcp_get(void);
 void config_dhcp_reset(void);
 void config_set_release(bool enable);
 bool config_set_dscp(unsigned int value) ;
-bool config_set_solicit_timeout(unsigned int timeout);
 bool config_set_sk_priority(unsigned int priority);
 void config_set_client_options(enum dhcpv6_config option, bool enable);
 bool config_set_request_addresses(char *mode);
@@ -92,9 +112,18 @@ void config_clear_requested_options(void) ;
 bool config_add_requested_options(unsigned int option);
 void config_clear_send_options(void);
 bool config_add_send_options(char *option);
+bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value);
+bool config_set_rtx_timeout_init(enum config_dhcp_msg msg, unsigned int value);
+bool config_set_rtx_timeout_max(enum config_dhcp_msg msg, unsigned int value);
+bool config_set_rtx_rc_max(enum config_dhcp_msg msg, unsigned int value);
+bool config_set_irt_default(unsigned int value);
+bool config_set_irt_min(unsigned int value);
+bool config_set_rand_factor(unsigned int value);
 
 int config_add_opt(const uint16_t code, const uint8_t *data, const uint16_t len);
 int config_parse_opt_data(const char *data, uint8_t **dst, const unsigned int type, const bool array);
 int config_parse_opt(const char *opt);
+
+void config_apply_dhcp_rtx(struct dhcpv6_retx* dhcpv6_retx);
 
 #endif

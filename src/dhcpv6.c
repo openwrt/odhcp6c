@@ -36,6 +36,7 @@
 #include <net/ethernet.h>
 
 #include "odhcp6c.h"
+#include "config.h"
 #ifdef USE_LIBUBOX
 #include <libubox/md5.h>
 #else
@@ -48,7 +49,6 @@
 #define DHCPV6_CLIENT_PORT 546
 #define DHCPV6_SERVER_PORT 547
 #define DHCPV6_DUID_LLADDR 3
-#define DHCPV6_REQ_DELAY 1
 
 #define DHCPV6_SOL_MAX_RT_MIN 60
 #define DHCPV6_SOL_MAX_RT_MAX 86400
@@ -81,19 +81,19 @@ static int dhcpv6_commit_advert(void);
 
 // RFC 3315 - 5.5 Timeout and Delay values
 static const struct dhcpv6_retx dhcpv6_retx_default[_DHCPV6_MSG_MAX] = {
-	[DHCPV6_MSG_UNKNOWN] = {false, 1, 120, 0, "<POLL>",
+	[DHCPV6_MSG_UNKNOWN] = {0, 1, 120, 0, "<POLL>",
 			dhcpv6_handle_reconfigure, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_SOLICIT] = {true, 1, DHCPV6_SOL_MAX_RT, 0, "SOLICIT",
+	[DHCPV6_MSG_SOLICIT] = {DHCPV6_MAX_DELAY, DHCPV6_SOL_INIT_RT, DHCPV6_SOL_MAX_RT, 0, "SOLICIT",
 			dhcpv6_handle_advert, dhcpv6_commit_advert, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_REQUEST] = {true, 1, DHCPV6_REQ_MAX_RT, 10, "REQUEST",
+	[DHCPV6_MSG_REQUEST] = {0, DHCPV6_REQ_INIT_RT, DHCPV6_REQ_MAX_RT, DHCPV6_REQ_MAX_RC, "REQUEST",
 			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_RENEW] = {false, 10, DHCPV6_REN_MAX_RT, 0, "RENEW",
+	[DHCPV6_MSG_RENEW] = {0, DHCPV6_REN_INIT_RT, DHCPV6_REN_MAX_RT, 0, "RENEW",
 			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_REBIND] = {false, 10, DHCPV6_REB_MAX_RT, 0, "REBIND",
+	[DHCPV6_MSG_REBIND] = {0, DHCPV6_REB_INIT_RT, DHCPV6_REB_MAX_RT, 0, "REBIND",
 			dhcpv6_handle_rebind_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_RELEASE] = {false, 1, 0, 5, "RELEASE", NULL, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_DECLINE] = {false, 1, 0, 5, "DECLINE", NULL, NULL, false, 0, 0, 0,{0, 0, 0}, 0, 0, 0, -1, 0},
-	[DHCPV6_MSG_INFO_REQ] = {true, 1, DHCPV6_INF_MAX_RT, 0, "INFOREQ",
+	[DHCPV6_MSG_RELEASE] = {0, DHCPV6_REL_INIT_RT, 0, DHCPV6_REL_MAX_RC, "RELEASE", NULL, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
+	[DHCPV6_MSG_DECLINE] = {0, DHCPV6_DEC_INIT_RT, 0, DHCPV6_DEC_MAX_RC, "DECLINE", NULL, NULL, false, 0, 0, 0,{0, 0, 0}, 0, 0, 0, -1, 0},
+	[DHCPV6_MSG_INFO_REQ] = {DHCPV6_MAX_DELAY, DHCPV6_INF_INIT_RT, DHCPV6_INF_MAX_RT, 0, "INFOREQ",
 			dhcpv6_handle_reply, NULL, false, 0, 0, 0, {0, 0, 0}, 0, 0, 0, -1, 0},
 };
 static struct dhcpv6_retx dhcpv6_retx[_DHCPV6_MSG_MAX] = {0};
@@ -122,6 +122,9 @@ static unsigned int client_options = 0;
 
 // counters for statistics
 static struct dhcpv6_stats dhcpv6_stats = {0};
+
+// config
+static struct config_dhcp* config_dhcp = NULL;
 
 static uint32_t ntohl_unaligned(const uint8_t *data)
 {
@@ -399,11 +402,14 @@ void dhcpv6_reset_stats(void)
 	memset(&dhcpv6_stats, 0, sizeof(dhcpv6_stats));
 }
 
-int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_timeout, unsigned int dscp)
+int init_dhcpv6(const char *ifname)
 {
+	config_dhcp = config_dhcp_get();
+
 	memcpy(dhcpv6_retx, dhcpv6_retx_default, sizeof(dhcpv6_retx));
-	client_options = options;
-	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = sol_timeout;
+	config_apply_dhcp_rtx(dhcpv6_retx);
+
+	client_options = config_dhcp->client_options;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (sock < 0)
@@ -495,10 +501,10 @@ int init_dhcpv6(const char *ifname, unsigned int options, int sk_prio, int sol_t
 	if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, ifname, strlen(ifname)) < 0)
 		goto failure;
 
-	if (setsockopt(sock, SOL_SOCKET, SO_PRIORITY, &sk_prio, sizeof(sk_prio)) < 0)
+	if (setsockopt(sock, SOL_SOCKET, SO_PRIORITY, &(config_dhcp->sk_prio), sizeof(config_dhcp->sk_prio)) < 0)
 		goto failure;
 
-	val = dscp << 2;
+	val = config_dhcp->dscp << 2;
 	if(setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS, &val, sizeof(val)) < 0) {
 		goto failure;
 	}
@@ -839,7 +845,7 @@ static int64_t dhcpv6_rand_delay(int64_t time)
 	int random;
 	odhcp6c_random(&random, sizeof(random));
 
-	return (time * ((int64_t)random % 1000LL)) / 10000LL;
+	return (time * ((int64_t)random % (config_dhcp->rand_factor*10LL))) / 10000LL;
 }
 
 // Message validation checks according to RFC3315 chapter 15
@@ -1105,7 +1111,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 {
 	uint8_t *odata;
 	uint16_t otype, olen;
-	uint32_t refresh = 86400;
+	uint32_t refresh = config_dhcp->irt_default;
 	int ret = 1;
 	unsigned int state_IAs;
 	unsigned int updated_IAs = 0;
@@ -1372,7 +1378,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 		odhcp6c_clear_state(STATE_SERVER_ADDR);
 		odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
 
-		t1 = refresh;
+		t1 = (refresh < config_dhcp->irt_min) ? config_dhcp->irt_min : refresh;
 		break;
 
 	default:
@@ -1754,23 +1760,23 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
 	uint64_t current_milli_time = 0;
 
-	if (retx->delay ) {
-		if (retx->delay_msec == 0) {
-			retx->delay_msec = (dhcpv6_rand_delay((10000 * DHCPV6_REQ_DELAY) / 2) + (1000 * DHCPV6_REQ_DELAY) / 2);
-			dhcpv6_set_state_timeout(retx->delay_msec);
-			retx->delay_msec += odhcp6c_get_milli_time();
-			return 1;
-		} else {
-			current_milli_time = odhcp6c_get_milli_time();
-			if (current_milli_time < retx->delay_msec) {
-				dhcpv6_set_state_timeout(retx->delay_msec - current_milli_time);
-				return 1;
-			}
-			retx->delay_msec = 0;
-		}
-	}
-
 	if (!retx->is_retransmit) {
+		if (retx->max_delay) {
+			if (retx->delay_msec == 0) {
+				retx->delay_msec = (dhcpv6_rand_delay((10000 * retx->max_delay) / 2) + (1000 * retx->max_delay) / 2);
+				dhcpv6_set_state_timeout(retx->delay_msec);
+				retx->delay_msec += odhcp6c_get_milli_time();
+				return 1;
+			} else {
+				current_milli_time = odhcp6c_get_milli_time();
+				if (current_milli_time < retx->delay_msec) {
+					dhcpv6_set_state_timeout(retx->delay_msec - current_milli_time);
+					return 1;
+				}
+				retx->delay_msec = 0;
+			}
+		}
+		
 		retx->is_retransmit = true;
 		retx->rc = 0;
 		retx->timeout = UINT32_MAX;
@@ -1813,7 +1819,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 	if (retx->max_timeo && (retx->rto >= retx->max_timeo * 1000)) {
 		retx->rto = retx->max_timeo * 1000 +
 			dhcpv6_rand_delay(retx->max_timeo * 1000);
-        }
+    }
 
 	// Calculate end for this round and elapsed time
 	retx->round_end = retx->round_start + retx->rto;

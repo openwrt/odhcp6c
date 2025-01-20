@@ -81,7 +81,6 @@ struct config_dhcp *config_dhcp_get(void) {
 void config_dhcp_reset(void) {
 	config_dhcp.release = true;
 	config_dhcp.dscp = 0;
-	config_dhcp.sol_timeout = DHCPV6_SOL_MAX_RT;
 	config_dhcp.sk_prio = 0;
 	config_dhcp.stateful_only_mode = false;
 	config_dhcp.ia_na_mode = IA_MODE_TRY;
@@ -89,6 +88,27 @@ void config_dhcp_reset(void) {
 	config_dhcp.client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
 	config_dhcp.allow_slaac_only = -1;
 	config_dhcp.oro_user_cnt = 0;
+	memset(config_dhcp.message_rtx, 0, sizeof(config_dhcp.message_rtx));
+	config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].delay_max = DHCPV6_MAX_DELAY;
+	config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].timeout_init = DHCPV6_SOL_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].timeout_max = DHCPV6_SOL_MAX_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].timeout_init = DHCPV6_REQ_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].timeout_max = DHCPV6_REQ_MAX_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].rc_max = DHCPV6_REQ_MAX_RC;
+	config_dhcp.message_rtx[CONFIG_DHCP_RENEW].timeout_init = DHCPV6_REN_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_RENEW].timeout_max = DHCPV6_REN_MAX_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_REBIND].timeout_init = DHCPV6_REB_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_REBIND].timeout_max = DHCPV6_REB_MAX_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].delay_max = DHCPV6_MAX_DELAY;
+	config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].timeout_init = DHCPV6_INF_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].timeout_max = DHCPV6_INF_MAX_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_RELEASE].timeout_init = DHCPV6_REL_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_RELEASE].rc_max = DHCPV6_REL_MAX_RC;
+	config_dhcp.message_rtx[CONFIG_DHCP_DECLINE].timeout_init = DHCPV6_DEC_INIT_RT;
+	config_dhcp.message_rtx[CONFIG_DHCP_DECLINE].rc_max = DHCPV6_DEC_MAX_RC;
+	config_dhcp.irt_default = DHCPV6_IRT_DEFAULT;
+	config_dhcp.irt_min = DHCPV6_IRT_MIN;
+	config_dhcp.rand_factor = DHCPV6_RAND_FACTOR;
 }
 
 void config_set_release(bool enable) {
@@ -96,24 +116,19 @@ void config_set_release(bool enable) {
 }
 
 bool config_set_dscp(unsigned int value) {
-	if(value > 63)
+	if(value > 63) {
+		syslog(LOG_ERR, "Invalid DSCP value");
 		return false;
+	}
 	config_dhcp.dscp = value;
 	return true;
 }
 
-bool config_set_solicit_timeout(unsigned int timeout) {
-	if(timeout > INT32_MAX)
-		return false;
-
-	config_dhcp.sol_timeout = timeout;
-	return true;
-}
-
 bool config_set_sk_priority(unsigned int priority) {
-	if(priority > 6)
+	if(priority > 6) {
+		syslog(LOG_ERR, "Invalid SK priority value");
 		return false;
-
+	}
 	config_dhcp.sk_prio = priority;
 	return true;
 }
@@ -134,8 +149,10 @@ bool config_set_request_addresses(char* mode) {
 		config_dhcp.ia_na_mode = IA_MODE_NONE;
 	else if (!strcmp(mode, "try"))
 		config_dhcp.ia_na_mode = IA_MODE_TRY;
-	else
+	else {
+		syslog(LOG_ERR, "Invalid Request Adresses mode");
 		return false;
+	}
 
 	return true;
 }
@@ -187,11 +204,14 @@ void config_clear_requested_options(void) {
 }
 
 bool config_add_requested_options(unsigned int option) {
-	if(option > UINT16_MAX)
+	if(option > UINT16_MAX) {
+		syslog(LOG_ERR, "Invalid requested option");
 		return false;
+	}
 
 	option = htons(option);
 	if (odhcp6c_insert_state(STATE_ORO, 0, &option, 2)) {
+		syslog(LOG_ERR, "Failed to set requested option");
 		return false;
 	}
 	config_dhcp.oro_user_cnt++;
@@ -204,6 +224,76 @@ void config_clear_send_options(void) {
 
 bool config_add_send_options(char* option) {
 	return (config_parse_opt(option) == 0);
+}
+
+bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value)
+{
+	if(msg >= CONFIG_DHCP_MAX || value > UINT8_MAX) {
+		syslog(LOG_ERR, "Invalid retransmission Maximum Delay value");
+		return false;
+	}
+	config_dhcp.message_rtx[msg].delay_max = value;
+	return true;
+}
+
+bool config_set_rtx_timeout_init(enum config_dhcp_msg msg, unsigned int value)
+{
+	if(msg >= CONFIG_DHCP_MAX || value > UINT8_MAX || value == 0) {
+		syslog(LOG_ERR, "Invalid retransmission Initial Timeout value");
+		return false;
+	}
+	config_dhcp.message_rtx[msg].timeout_init = value;
+	return true;
+}
+
+bool config_set_rtx_timeout_max(enum config_dhcp_msg msg, unsigned int value)
+{
+	if(msg >= CONFIG_DHCP_MAX || value > UINT16_MAX) {
+		syslog(LOG_ERR, "Invalid retransmission Maximum Timeout value");
+		return false;
+	}
+	config_dhcp.message_rtx[msg].timeout_max = value;
+	return true;
+}
+
+bool config_set_rtx_rc_max(enum config_dhcp_msg msg, unsigned int value)
+{
+	if(msg >= CONFIG_DHCP_MAX || value > UINT8_MAX) {
+		syslog(LOG_ERR, "Invalid retransmission Retry Attempt value");
+		return false;
+	}
+	config_dhcp.message_rtx[msg].rc_max = value;
+	return true;
+}
+
+bool config_set_irt_default(unsigned int value)
+{
+	if(value == 0) {
+		syslog(LOG_ERR, "Invalid Default Information Refresh Time value");
+		return false;
+	}
+	config_dhcp.irt_default = value;
+	return true;
+}
+
+bool config_set_irt_min(unsigned int value)
+{
+	if(value == 0) {
+		syslog(LOG_ERR, "Invalid Minimum Information Refresh Time value");
+		return false;
+	}
+	config_dhcp.irt_min = value;
+	return true;
+}
+
+bool config_set_rand_factor(unsigned int value)
+{
+	if(value > 999 || value < 10) {
+		syslog(LOG_ERR, "Invalid Random Factor value");
+		return false;
+	}
+	config_dhcp.rand_factor = value;
+	return true;
 }
 
 static int config_parse_opt_u8(const char *src, uint8_t **dst)
@@ -481,4 +571,25 @@ int config_parse_opt(const char *opt)
 	free(payload);
 
 	return ret;
+}
+
+void config_apply_dhcp_rtx(struct dhcpv6_retx* dhcpv6_retx)
+{
+	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_delay = config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].delay_max;
+	dhcpv6_retx[DHCPV6_MSG_SOLICIT].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].timeout_max;
+	dhcpv6_retx[DHCPV6_MSG_REQUEST].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_REQUEST].max_timeo = config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].timeout_max;
+	dhcpv6_retx[DHCPV6_MSG_REQUEST].max_rc = config_dhcp.message_rtx[CONFIG_DHCP_REQUEST].rc_max;
+	dhcpv6_retx[DHCPV6_MSG_RENEW].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_RENEW].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_RENEW].max_timeo = config_dhcp.message_rtx[CONFIG_DHCP_RENEW].timeout_max;
+	dhcpv6_retx[DHCPV6_MSG_REBIND].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_REBIND].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_REBIND].max_timeo = config_dhcp.message_rtx[CONFIG_DHCP_REBIND].timeout_max;
+	dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_delay = config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].delay_max;
+	dhcpv6_retx[DHCPV6_MSG_INFO_REQ].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = config_dhcp.message_rtx[CONFIG_DHCP_INFO_REQ].timeout_max;
+	dhcpv6_retx[DHCPV6_MSG_RELEASE].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_RELEASE].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_RELEASE].max_rc = config_dhcp.message_rtx[CONFIG_DHCP_RELEASE].rc_max;
+	dhcpv6_retx[DHCPV6_MSG_DECLINE].init_timeo = config_dhcp.message_rtx[CONFIG_DHCP_DECLINE].timeout_init;
+	dhcpv6_retx[DHCPV6_MSG_DECLINE].max_rc = config_dhcp.message_rtx[CONFIG_DHCP_DECLINE].rc_max;
 }
