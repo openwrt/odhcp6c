@@ -363,13 +363,11 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 't':
-			config_set_solicit_timeout(atoi(optarg));
+			config_set_rtx_timeout_max(CONFIG_DHCP_SOLICIT, atoi(optarg));
 			break;
 
 		case 'C':
-			if (!config_set_dscp(atoi(optarg))) {
-				syslog(LOG_ERR, "Invalid DSCP value, using default (0)");
-			}
+			config_set_dscp(atoi(optarg));
 			break;
 
 		case 'm':
@@ -517,7 +515,7 @@ int main(_unused int argc, char* const argv[])
 			odhcp6c_get_state(STATE_ORO, &oro_len);
 			config_dhcp->oro_user_cnt = oro_len / sizeof(uint16_t);
 
-			if (init_dhcpv6(ifname, config_dhcp->client_options, config_dhcp->sk_prio, config_dhcp->sol_timeout, config_dhcp->dscp)) {
+			if (init_dhcpv6(ifname)) {
 				syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
 				return 1;
 			}
@@ -666,9 +664,6 @@ int main(_unused int argc, char* const argv[])
 		case DHCPV6_SOLICIT_PROCESSING:
 		case DHCPV6_REQUEST_PROCESSING:
 			res = dhcpv6_state_processing(msg_type);
-
-			if (signal_usr2 || signal_term)
-				dhcpv6_set_state(DHCPV6_EXIT);
 			break;
 
 		case DHCPV6_BOUND_PROCESSING:
@@ -678,8 +673,6 @@ int main(_unused int argc, char* const argv[])
 
 			if (signal_usr1)
 				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
-			if (signal_usr2 || signal_term)
-				dhcpv6_set_state(DHCPV6_EXIT);
 			break;
 		
 		case DHCPV6_RENEW_PROCESSING:
@@ -688,8 +681,6 @@ int main(_unused int argc, char* const argv[])
 
 			if (signal_usr1)
 				signal_usr1 = false;	// Acknowledged
-			if (signal_usr2 || signal_term)
-				dhcpv6_set_state(DHCPV6_EXIT);
 			break;
 		
 		case DHCPV6_EXIT:
@@ -735,6 +726,9 @@ int main(_unused int argc, char* const argv[])
 		default:
 			break;
 		}
+
+		if (signal_usr2 || signal_term)
+			dhcpv6_set_state(DHCPV6_EXIT);
 
 		poll_res = poll(fds, nfds, dhcpv6_get_state_timeout());
 		dhcpv6_reset_state_timeout();

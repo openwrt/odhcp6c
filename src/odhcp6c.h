@@ -26,12 +26,32 @@
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNSSL 31
 
+#define DHCPV6_MAX_DELAY 1
+#define DHCPV6_IRT_DEFAULT 86400
+#define DHCPV6_IRT_MIN 600
+#define DHCPV6_RAND_FACTOR 100
+
+#define DHCPV6_SOL_INIT_RT 1
 #define DHCPV6_SOL_MAX_RT 120
+
+#define DHCPV6_REQ_INIT_RT 1
 #define DHCPV6_REQ_MAX_RT 30
-#define DHCPV6_CNF_MAX_RT 4
+#define DHCPV6_REQ_MAX_RC 10
+
+#define DHCPV6_REN_INIT_RT 10
 #define DHCPV6_REN_MAX_RT 600
+
+#define DHCPV6_REB_INIT_RT 10
 #define DHCPV6_REB_MAX_RT 600
-#define DHCPV6_INF_MAX_RT 120
+
+#define DHCPV6_INF_INIT_RT 1
+#define DHCPV6_INF_MAX_RT 3600
+
+#define DHCPV6_REL_INIT_RT 1
+#define DHCPV6_REL_MAX_RC 4
+
+#define DHCPV6_DEC_INIT_RT 1
+#define DHCPV6_DEC_MAX_RC 4
 
 #define RA_MIN_ADV_INTERVAL 3   /* RFC 4861 paragraph 6.2.1 */
 
@@ -202,7 +222,7 @@ typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
 
 // retransmission strategy
 struct dhcpv6_retx {
-	bool delay;
+	uint8_t max_delay;
 	uint8_t init_timeo;
 	uint16_t max_timeo;
 	uint8_t max_rc;
@@ -445,7 +465,7 @@ struct odhcp6c_opt {
 	const char *str;
 };
 
-int init_dhcpv6(const char *ifname, unsigned int client_options, int sk_prio, int sol_timeout, unsigned int dscp);
+int init_dhcpv6(const char *ifname);
 int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only);
 int dhcpv6_promote_server_cand(void);
 int dhcpv6_send_request(enum dhcpv6_msg type);
@@ -471,19 +491,6 @@ int ra_get_reachable(void);
 int ra_get_retransmit(void);
 
 void notify_state_change(const char *status, int delay, bool resume);
-
-void config_set_release(bool enable);
-bool config_set_dscp(unsigned int value);
-bool config_set_solicit_timeout(unsigned int timeout);
-bool config_set_sk_priority(unsigned int value);
-void config_set_client_options(enum dhcpv6_config option, bool enable);
-bool config_set_request_addresses(char *mode);
-bool config_set_request_prefix(unsigned int length, unsigned int id);
-void config_set_stateful_only(bool enable);
-void config_clear_requested_options(void);
-bool config_add_requested_options(unsigned int option);
-void config_clear_send_options(void);
-bool config_add_send_options(char *option);
 
 int script_init(const char *path, const char *ifname);
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
