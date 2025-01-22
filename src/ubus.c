@@ -138,6 +138,10 @@ static int ubus_handle_reset_stats(struct ubus_context *ctx, struct ubus_object 
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
 static int ubus_handle_reconfigure_dhcp(struct ubus_context *ctx, struct ubus_object *obj,
 		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+static int ubus_handle_renew(struct ubus_context *ctx, struct ubus_object *obj,
+		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
+static int ubus_handle_release(struct ubus_context *ctx, struct ubus_object *obj,
+		struct ubus_request_data *req, const char *method, struct blob_attr *msg);
 
 static const struct blobmsg_policy reconfigure_dhcp_policy[RECONFIGURE_DHCP_ATTR_MAX] = {
 	[RECONFIGURE_DHCP_ATTR_DSCP] = { .name = "dscp", .type = BLOBMSG_TYPE_INT32},
@@ -170,6 +174,8 @@ static struct ubus_method odhcp6c_object_methods[] = {
 	UBUS_METHOD_NOARG("get_statistics", ubus_handle_get_stats),
 	UBUS_METHOD_NOARG("reset_statistics", ubus_handle_reset_stats),
 	UBUS_METHOD("reconfigure_dhcp", ubus_handle_reconfigure_dhcp, reconfigure_dhcp_policy),
+	UBUS_METHOD_NOARG("renew", ubus_handle_renew),
+	UBUS_METHOD_NOARG("release", ubus_handle_release),
 };
 
 static struct ubus_object_type odhcp6c_object_type = 
@@ -904,6 +910,22 @@ static int ubus_handle_reconfigure_dhcp(_unused struct ubus_context *ctx, _unuse
 		raise(SIGUSR2);
 
 	return valid_args ? UBUS_STATUS_OK : UBUS_STATUS_INVALID_ARGUMENT;
+}
+
+static int ubus_handle_renew(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	raise(SIGUSR1);
+	return UBUS_STATUS_OK;
+}
+
+static int ubus_handle_release(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	raise(SIGUSR2);
+	return UBUS_STATUS_OK;
 }
 
 int ubus_dhcp_event(const char *status)
