@@ -525,11 +525,12 @@ int main(_unused int argc, char* const argv[])
 			syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
 
 			signal_usr1 = signal_usr2 = false;
+
 			dhcpv6_set_state(DHCPV6_SOLICIT);
 			break;
 
 		case DHCPV6_SOLICIT:
-			mode = dhcpv6_set_ia_mode(config_dhcp->ia_na_mode, config_dhcp->ia_pd_mode, config_dhcp->stateful_only_mode);
+			mode = dhcpv6_get_ia_mode();
 			if (mode == DHCPV6_STATELESS) {
 				dhcpv6_set_state(DHCPV6_REQUEST);
 				break;
