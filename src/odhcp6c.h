@@ -466,7 +466,7 @@ struct odhcp6c_opt {
 };
 
 int init_dhcpv6(const char *ifname);
-int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only);
+int dhcpv6_get_ia_mode(void);
 int dhcpv6_promote_server_cand(void);
 int dhcpv6_send_request(enum dhcpv6_msg type);
 int dhcpv6_receive_response(enum dhcpv6_msg type);

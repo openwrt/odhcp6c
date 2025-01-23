@@ -410,6 +410,9 @@ int init_dhcpv6(const char *ifname)
 	config_apply_dhcp_rtx(dhcpv6_retx);
 
 	client_options = config_dhcp->client_options;
+	na_mode = config_dhcp->ia_na_mode;
+	pd_mode = config_dhcp->ia_pd_mode;
+	stateful_only_mode = config_dhcp->stateful_only_mode;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (sock < 0)
@@ -538,13 +541,9 @@ enum {
 	IOV_TOTAL
 };
 
-int dhcpv6_set_ia_mode(enum odhcp6c_ia_mode na, enum odhcp6c_ia_mode pd, bool stateful_only)
+int dhcpv6_get_ia_mode(void)
 {
 	int mode = DHCPV6_UNKNOWN;
-
-	na_mode = na;
-	pd_mode = pd;
-	stateful_only_mode = stateful_only;
 
 	if (na_mode == IA_MODE_NONE && pd_mode == IA_MODE_NONE)
 		mode = DHCPV6_STATELESS;
@@ -1722,8 +1721,6 @@ int dhcpv6_promote_server_cand(void)
 
 		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
 		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
-
-		dhcpv6_set_state(DHCPV6_SOLICIT);
 		return -1;
 	}
 
