@@ -279,13 +279,17 @@ struct dhcpv6_duid {
 	uint8_t data[128];
 } _packed;
 
-struct dhcpv6_auth_reconfigure {
+struct dhcpv6_auth {
 	uint16_t type;
 	uint16_t len;
 	uint8_t protocol;
 	uint8_t algorithm;
 	uint8_t rdm;
 	uint64_t replay;
+	uint8_t data[];
+} _packed;
+
+struct dhcpv6_auth_reconfigure {
 	uint8_t reconf_type;
 	uint8_t key[16];
 } _packed;
@@ -414,6 +418,26 @@ enum odhcp6c_ia_mode {
 	IA_MODE_FORCE,
 };
 
+enum odhcp6c_auth_protocol {
+	AUTH_PROT_NONE = -1,
+	/* RFC3118 */
+	AUTH_PROT_TOKEN = 0,
+	/* draft-ietf-dhc-rfc8415bis-12 */
+	AUTH_PROT_RKAP = 3,
+};
+
+enum odhcp6c_auth_algorithm {
+	/* RFC3118 */
+	AUTH_ALG_TOKEN = 0,
+	/* draft-ietf-dhc-rfc8415bis-12 */
+	AUTH_ALG_HMACMD5 = 1
+};
+
+enum odhcp6c_rkap_type {
+	/* draft-ietf-dhc-rfc8415bis-12 */
+	RKAP_TYPE_KEY = 1,
+	RKAP_TYPE_HMACMD5 = 2,
+};
 
 struct odhcp6c_entry {
 	struct in6_addr router;
