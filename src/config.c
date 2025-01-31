@@ -109,6 +109,9 @@ void config_dhcp_reset(void) {
 	config_dhcp.irt_default = DHCPV6_IRT_DEFAULT;
 	config_dhcp.irt_min = DHCPV6_IRT_MIN;
 	config_dhcp.rand_factor = DHCPV6_RAND_FACTOR;
+	config_dhcp.auth_protocol = AUTH_PROT_RKAP;
+	free(config_dhcp.auth_token);
+	config_dhcp.auth_token = NULL;
 }
 
 void config_set_release(bool enable) {
@@ -294,6 +297,30 @@ bool config_set_rand_factor(unsigned int value)
 	}
 	config_dhcp.rand_factor = value;
 	return true;
+}
+
+bool config_set_auth_protocol(const char* protocol)
+{
+	if (!strcmp(protocol, "None")) {
+		config_dhcp.auth_protocol = AUTH_PROT_NONE;
+	} else if (!strcmp(protocol, "ConfigurationToken"))
+		config_dhcp.auth_protocol = AUTH_PROT_TOKEN;
+	else if (!strcmp(protocol, "ReconfigureKeyAuthentication"))
+		config_dhcp.auth_protocol = AUTH_PROT_RKAP;
+	else {
+		syslog(LOG_ERR, "Invalid Authentification protocol");
+		return false;
+	}
+
+	return true;
+}
+
+bool config_set_auth_token(const char* token)
+{
+	free(config_dhcp.auth_token);
+
+	config_dhcp.auth_token = strdup(token);
+	return config_dhcp.auth_token != NULL; 
 }
 
 static int config_parse_opt_u8(const char *src, uint8_t **dst)

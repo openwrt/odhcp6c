@@ -123,6 +123,8 @@ enum {
 	RECONFIGURE_DHCP_ATTR_IRT_DEFAULT,
 	RECONFIGURE_DHCP_ATTR_IRT_MIN,
 	RECONFIGURE_DHCP_ATTR_RAND_FACTOR,
+	RECONFIGURE_DHCP_ATTR_AUTH_PROTO,
+	RECONFIGURE_DHCP_ATTR_AUTH_TOKEN,
 	RECONFIGURE_DHCP_ATTR_MAX,
 };
 
@@ -167,6 +169,8 @@ static const struct blobmsg_policy reconfigure_dhcp_policy[RECONFIGURE_DHCP_ATTR
 	[RECONFIGURE_DHCP_ATTR_IRT_DEFAULT] = { .name = "irt_default", .type = BLOBMSG_TYPE_INT32},
 	[RECONFIGURE_DHCP_ATTR_IRT_MIN] = { .name = "irt_min", .type = BLOBMSG_TYPE_INT32},
 	[RECONFIGURE_DHCP_ATTR_RAND_FACTOR] = { .name = "rand_factor", .type = BLOBMSG_TYPE_INT32},
+	[RECONFIGURE_DHCP_ATTR_AUTH_PROTO] = { .name = "auth_protocol", .type = BLOBMSG_TYPE_STRING},
+	[RECONFIGURE_DHCP_ATTR_AUTH_TOKEN] = { .name = "auth_token", .type = BLOBMSG_TYPE_STRING},
 };
 
 static struct ubus_method odhcp6c_object_methods[] = {
@@ -900,6 +904,26 @@ static int ubus_handle_reconfigure_dhcp(_unused struct ubus_context *ctx, _unuse
 		value = blobmsg_get_u32(cur);
 
 		if (!config_set_rand_factor(value))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_AUTH_PROTO])) {
+		string = blobmsg_get_string(cur);
+
+		if (string == NULL || !config_set_auth_protocol(string))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+
+		need_reinit = true;
+		valid_args = true;
+	}
+
+	if ((cur = tb[RECONFIGURE_DHCP_ATTR_AUTH_TOKEN])) {
+		string = blobmsg_get_string(cur);
+
+		if (string == NULL || !config_set_auth_token(string))
 			return UBUS_STATUS_INVALID_ARGUMENT;
 
 		need_reinit = true;

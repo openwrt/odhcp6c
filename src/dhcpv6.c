@@ -114,7 +114,8 @@ static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
 static enum dhcpv6_state dhcpv6_state = DHCPV6_INIT;
 static int dhcpv6_state_timeout = 0;
 
-// Reconfigure key
+// Authentification options
+static enum odhcp6c_auth_protocol auth_protocol = AUTH_PROT_RKAP;
 static uint8_t reconf_key[16];
 
 // client options
@@ -413,6 +414,7 @@ int init_dhcpv6(const char *ifname)
 	na_mode = config_dhcp->ia_na_mode;
 	pd_mode = config_dhcp->ia_pd_mode;
 	stateful_only_mode = config_dhcp->stateful_only_mode;
+	auth_protocol = config_dhcp->auth_protocol;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (sock < 0)
@@ -873,7 +875,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		rcmsg = DHCPV6_MSG_UNKNOWN;
 	uint16_t otype, olen = UINT16_MAX;
 	bool clientid_ok = false, serverid_ok = false, rcauth_ok = false,
-		ia_present = false, options_valid = true;
+		auth_present = false, ia_present = false, options_valid = true;
 
 	size_t client_id_len, server_id_len;
 	void *client_id = odhcp6c_get_state(STATE_CLIENT_ID, &client_id_len);
@@ -889,40 +891,57 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 						&odata[-4], server_id, server_id_len);
 			else
 				serverid_ok = true;
-		} else if (otype == DHCPV6_OPT_AUTH && olen == -4 +
-				sizeof(struct dhcpv6_auth_reconfigure)) {
-			struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
-			if (r->protocol != 3 || r->algorithm != 1 || r->reconf_type != 2)
+		} else if (otype == DHCPV6_OPT_AUTH) {
+			struct dhcpv6_auth *r = (void*)&odata[-4];
+			if(auth_present) {
+				options_valid = false;		
 				continue;
-
-			md5_ctx_t md5;
-			uint8_t serverhash[16], secretbytes[64];
-			uint32_t hash[4];
-			memcpy(serverhash, r->key, sizeof(serverhash));
-			memset(r->key, 0, sizeof(r->key));
-
-			memset(secretbytes, 0, sizeof(secretbytes));
-			memcpy(secretbytes, reconf_key, sizeof(reconf_key));
-
-			for (size_t i = 0; i < sizeof(secretbytes); ++i)
-				secretbytes[i] ^= 0x36;
-
-			md5_begin(&md5);
-			md5_hash(secretbytes, sizeof(secretbytes), &md5);
-			md5_hash(buf, len, &md5);
-			md5_end(hash, &md5);
-
-			for (size_t i = 0; i < sizeof(secretbytes); ++i) {
-				secretbytes[i] ^= 0x36;
-				secretbytes[i] ^= 0x5c;
 			}
 
-			md5_begin(&md5);
-			md5_hash(secretbytes, sizeof(secretbytes), &md5);
-			md5_hash(hash, 16, &md5);
-			md5_end(hash, &md5);
+			auth_present = true;
+			if (auth_protocol == AUTH_PROT_RKAP) {
+				struct dhcpv6_auth_reconfigure *rkap = (void*)r->data;
+				if (r->protocol != AUTH_PROT_RKAP || r->algorithm != AUTH_ALG_HMACMD5 || r->len != 28 || rkap->reconf_type != RKAP_TYPE_HMACMD5)
+					continue;
 
-			rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
+				md5_ctx_t md5;
+				uint8_t serverhash[16], secretbytes[64];
+				uint32_t hash[4];
+				memcpy(serverhash, rkap->key, sizeof(serverhash));
+				memset(rkap->key, 0, sizeof(rkap->key));
+
+				memset(secretbytes, 0, sizeof(secretbytes));
+				memcpy(secretbytes, reconf_key, sizeof(reconf_key));
+
+				for (size_t i = 0; i < sizeof(secretbytes); ++i)
+					secretbytes[i] ^= 0x36;
+
+				md5_begin(&md5);
+				md5_hash(secretbytes, sizeof(secretbytes), &md5);
+				md5_hash(buf, len, &md5);
+				md5_end(hash, &md5);
+
+				for (size_t i = 0; i < sizeof(secretbytes); ++i) {
+					secretbytes[i] ^= 0x36;
+					secretbytes[i] ^= 0x5c;
+				}
+
+				md5_begin(&md5);
+				md5_hash(secretbytes, sizeof(secretbytes), &md5);
+				md5_hash(hash, 16, &md5);
+				md5_end(hash, &md5);
+
+				rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
+			} else if (auth_protocol == AUTH_PROT_TOKEN) {
+				if (r->protocol != AUTH_PROT_TOKEN || r->algorithm != AUTH_ALG_TOKEN || r->len < 12)
+					continue;
+
+				uint16_t token_len = r->len - 11;
+				if(config_dhcp->auth_token == NULL || strlen(config_dhcp->auth_token) != token_len)
+					continue;
+
+				rcauth_ok = !memcmp(r->data, config_dhcp->auth_token, token_len);
+			}
 		} else if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
 			rcmsg = odata[0];
 		} else if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)) {
@@ -1252,12 +1271,12 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 			else if (otype == DHCPV6_OPT_INFO_REFRESH && olen >= 4) {
 				refresh = ntohl_unaligned(odata);
 			} else if (otype == DHCPV6_OPT_AUTH) {
-				if (olen == -4 + sizeof(struct dhcpv6_auth_reconfigure)) {
-					struct dhcpv6_auth_reconfigure *r = (void*)&odata[-4];
-					if (r->protocol == 3 && r->algorithm == 1 &&
-							r->reconf_type == 1)
-						memcpy(reconf_key, r->key, sizeof(r->key));
-				}
+					struct dhcpv6_auth *r = (void*)&odata[-4];
+					if (auth_protocol == AUTH_PROT_RKAP) {
+						struct dhcpv6_auth_reconfigure *rkap = (void*)r->data;
+						if (r->protocol == AUTH_PROT_RKAP || r->algorithm == AUTH_ALG_HMACMD5 || r->len == 28 || rkap->reconf_type == RKAP_TYPE_KEY)
+							memcpy(reconf_key, rkap->key, sizeof(rkap->key));
+					}
 			} else if (otype == DHCPV6_OPT_AFTR_NAME && olen > 3) {
 				size_t cur_len;
 				odhcp6c_get_state(STATE_AFTR_NAME, &cur_len);
@@ -1729,6 +1748,7 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
 	odhcp6c_add_state(STATE_SERVER_ID, cand->duid, cand->duid_len);
 	accept_reconfig = cand->wants_reconfigure;
+	memset(reconf_key, 0, sizeof(reconf_key));
 
 	if (cand->ia_na_len) {
 		odhcp6c_add_state(STATE_IA_NA, cand->ia_na, cand->ia_na_len);
