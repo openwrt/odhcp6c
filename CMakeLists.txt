@@ -38,7 +38,8 @@ add_executable(odhcp6c ${SOURCES})
 target_link_libraries(odhcp6c ${LIBRARIES})
 
 # Installation
-install(TARGETS odhcp6c DESTINATION sbin/)
+include(GNUInstallDirs)
+install(TARGETS odhcp6c DESTINATION "${CMAKE_INSTALL_SBINDIR}")
 
 # Packaging information
 set(CPACK_PACKAGE_VERSION "1")
