@@ -634,19 +634,19 @@ int main(_unused int argc, char* const argv[])
 			odhcp6c_get_state(STATE_IA_PD, &ia_pd_len_r);
 			odhcp6c_get_state(STATE_IA_NA, &ia_na_len_r);
 
+			// If we have IAs, try rebind otherwise restart
 			if (ia_pd_len_r == 0 && ia_na_len_r == 0) {
-				dhcpv6_set_state(DHCPV6_EXIT);
+				dhcpv6_set_state(DHCPV6_RESET);
 				break;
 			}
 
-			// If we have IAs, try rebind otherwise restart
 			msg_type = DHCPV6_MSG_REBIND;
 			dhcpv6_send_request(msg_type);
 			break;
 		
 		case DHCPV6_REBIND_REPLY:
 			if (res < 0) {
-				dhcpv6_set_state(DHCPV6_EXIT);
+				dhcpv6_set_state(DHCPV6_RESET);
 			} else {
 				notify_state_change("rebound", 0, true);
 				dhcpv6_set_state(DHCPV6_BOUND);
@@ -659,7 +659,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 		
 		case DHCPV6_INFO_REPLY:
-			dhcpv6_set_state(res < 0 ? DHCPV6_EXIT : DHCPV6_BOUND);
+			dhcpv6_set_state(res < 0 ? DHCPV6_RESET : DHCPV6_BOUND);
 			break;
 
 		case DHCPV6_SOLICIT_PROCESSING:
@@ -693,8 +693,10 @@ int main(_unused int argc, char* const argv[])
 			odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
 			// Add all prefixes to lost prefixes
-			bound = false;
-			notify_state_change("unbound", 0, true);
+			if(bound) {
+				bound = false;
+				notify_state_change("unbound", 0, true);
+			}
 
 			if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && config_dhcp->release)
 				dhcpv6_send_request(DHCPV6_MSG_RELEASE);
@@ -712,6 +714,11 @@ int main(_unused int argc, char* const argv[])
 
 		case DHCPV6_RESET:
 			odhcp6c_clear_state(STATE_CLIENT_ID);
+
+			if(bound) {
+				bound = false;
+				notify_state_change("unbound", 0, true);
+			}
 
 			size_t oro_user_len, oro_total_len;
 			odhcp6c_get_state(STATE_ORO, &oro_total_len);
