@@ -351,6 +351,10 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'E':
+#ifndef HAVE_UBUS
+			syslog(LOG_ERR, "Failed to use ubus event: ENABLE_UBUS compilation flag missing");
+			return 1;
+#endif
 			script = NULL;
 			break;
 
