@@ -698,13 +698,13 @@ int main(_unused int argc, char* const argv[])
 				notify_state_change("unbound", 0, true);
 			}
 
-			if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && config_dhcp->release)
+			if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && (!signal_term || config_dhcp->release))
 				dhcpv6_send_request(DHCPV6_MSG_RELEASE);
 
 			odhcp6c_clear_state(STATE_IA_NA);
 			odhcp6c_clear_state(STATE_IA_PD);
 
-			if (!signal_usr2) {
+			if (signal_term) {
 				terminate = true;
 			} else {
 				signal_usr2 = false;
