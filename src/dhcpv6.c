@@ -724,8 +724,10 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	// Build IA_PDs
 	size_t ia_pd_entries = 0, ia_pd_len = 0;
 	uint8_t *ia_pd;
+	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
+	ia_pd_entries /= sizeof(*e);
 
-	if (type == DHCPV6_MSG_SOLICIT) {
+	if (type == DHCPV6_MSG_SOLICIT || (type == DHCPV6_MSG_REQUEST && ia_pd_entries == 0 && pd_mode != IA_MODE_NONE)) {
 		odhcp6c_clear_state(STATE_IA_PD);
 		size_t n_prefixes;
 		struct odhcp6c_request_prefix *request_prefixes = odhcp6c_get_state(STATE_IA_PD_INIT, &n_prefixes);
@@ -754,9 +756,6 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			}
 		}
 	} else {
-		struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
-		ia_pd_entries /= sizeof(*e);
-
 		// we're too lazy to count our distinct IAIDs,
 		// so just allocate maximally needed space
 		ia_pd = alloca(ia_pd_entries * (sizeof(struct dhcpv6_ia_prefix) + 10 +
@@ -835,7 +834,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	// Build IA_NAs
 	size_t ia_na_entries, ia_na_len = 0;
 	void *ia_na = NULL;
-	struct odhcp6c_entry *e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
+	e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
 	ia_na_entries /= sizeof(*e);
 
 	struct dhcpv6_ia_hdr hdr_ia_na = {
@@ -937,7 +936,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		cnt = IOV_HDR_IA_NA;
 
 	// Disable IAs if not used
-	if (type != DHCPV6_MSG_SOLICIT && ia_na_len == 0)
+	if (type != DHCPV6_MSG_SOLICIT && type != DHCPV6_MSG_REQUEST && ia_na_len == 0)
 		iov[IOV_HDR_IA_NA].iov_len = 0;
 
 	if (na_mode == IA_MODE_NONE)
@@ -1385,9 +1384,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 
 						dhcpv6_handle_ia_status_code(orig, ia_hdr,
 							code, mdata, mlen, handled_status_codes, &ret);
-
-						if (ret > 0)
-							return ret;
 
 						break;
 					}
@@ -1890,8 +1886,13 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 			break;
 
 		default:
+			*ret = 0;
 			break;
 		}
+		break;
+
+	case DHCPV6_NoAddrsAvail:
+	case DHCPV6_NoPrefixAvail:
 		break;
 
 	default:
