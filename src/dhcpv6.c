@@ -585,6 +585,15 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	if (!(client_options & DHCPV6_CLIENT_FQDN))
 		iov[IOV_FQDN].iov_len = 0;
 
+	/*
+	 * RFC 4704: A client MUST only include the Client FQDN option in
+	 * SOLICIT, REQUEST, RENEW, or REBIND messages
+	 */
+	if (!(type == DHCPV6_MSG_SOLICIT || type == DHCPV6_MSG_REQUEST ||
+			type == DHCPV6_MSG_RENEW || type == DHCPV6_MSG_REBIND)) {
+		iov[IOV_FQDN].iov_len = 0;
+	}
+
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};
 	struct msghdr msg = {.msg_name = &srv, .msg_namelen = sizeof(srv),
