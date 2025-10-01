@@ -582,8 +582,32 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
 		iov[IOV_RECONF_ACCEPT].iov_len = 0;
 
-	if (!(client_options & DHCPV6_CLIENT_FQDN))
+	if (!(client_options & DHCPV6_CLIENT_FQDN)) {
 		iov[IOV_FQDN].iov_len = 0;
+	} else {
+		switch (type) {
+		/*  rfc4704 §5
+			A client MUST only include the Client FQDN option in SOLICIT,
+			REQUEST, RENEW, or REBIND messages.
+		*/
+		case DHCPV6_MSG_SOLICIT:
+		case DHCPV6_MSG_REQUEST:
+		case DHCPV6_MSG_RENEW:
+		case DHCPV6_MSG_REBIND:
+		/*  rfc4704 §6
+			Servers MUST only include a Client FQDN option in ADVERTISE and REPLY
+			messages...
+		case DHCPV6_MSG_ADVERT:
+		case DHCPV6_MSG_REPLY:
+		*/
+			/* leave FQDN as-is */
+		    break;
+		default:
+			/* remaining MSG types cannot contain client FQDN */
+			iov[IOV_FQDN].iov_len = 0;
+		    break;
+		}
+	}
 
 	struct sockaddr_in6 srv = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 		0, ALL_DHCPV6_RELAYS, ifindex};
