@@ -20,9 +20,21 @@ if(${EXT_CER_ID})
 	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
-set(SOURCES src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c)
+set(SOURCES src/odhcp6c.c src/dhcpv6.c src/ra.c src/script.c src/config.c)
 
 set(LIBRARIES resolv)
+
+option(ENABLE_UBUS "Enable support for ubus" OFF)
+
+if(ENABLE_UBUS)
+	set(USE_LIBUBOX 1)
+	add_definitions(-DHAVE_UBUS)
+	set(SOURCES ${SOURCES} src/ubus.c)
+	FIND_LIBRARY(ubus_lib NAMES ubus)
+	set(LIBRARIES ${LIBRARIES} ${ubus_lib})
+	FIND_PATH(ubus_include_dir NAMES libubus.h)
+	INCLUDE_DIRECTORIES(${ubus_include_dir})
+endif()
 
 if(USE_LIBUBOX)
 	add_definitions(-DUSE_LIBUBOX)

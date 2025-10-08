@@ -31,26 +31,30 @@
 
 #include <net/if.h>
 #include <sys/syscall.h>
+#include <poll.h>
 #include <arpa/inet.h>
 #include <linux/if_addr.h>
 
 #include "odhcp6c.h"
 #include "ra.h"
+#include "config.h"
+
+#ifdef HAVE_UBUS
+#include <libubus.h>
+#include "ubus.h"
+#endif
+
+#define DHCPV6_FD_INDEX 0
+#define UBUS_FD_INDEX 1
 
 #ifndef IN6_IS_ADDR_UNIQUELOCAL
 #define IN6_IS_ADDR_UNIQUELOCAL(a) \
 	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
 	 == htonl (0xfc000000))
 #endif
-#define ARRAY_SEP " ,\t"
 
 static void sighandler(int signal);
 static int usage(void);
-static int add_opt(const uint16_t code, const uint8_t *data,
-		const uint16_t len);
-static int parse_opt_data(const char *data, uint8_t **dst,
-		const unsigned int type, const bool array);
-static int parse_opt(const char *opt);
 
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
@@ -60,10 +64,11 @@ static volatile bool signal_usr1 = false;
 static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
-static int urandom_fd = -1, allow_slaac_only = 0;
-static bool bound = false, release = true, ra = false;
+static int urandom_fd = -1;
+static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
+struct config_dhcp *config_dhcp = NULL;
 
 static unsigned int script_sync_delay = 10;
 static unsigned int script_accu_delay = 1;
@@ -173,40 +178,31 @@ int main(_unused int argc, char* const argv[])
 	uint8_t buf[134], *o_data;
 	char *optpos;
 	uint16_t opttype;
-	enum odhcp6c_ia_mode ia_na_mode = IA_MODE_TRY;
-	enum odhcp6c_ia_mode ia_pd_mode = IA_MODE_NONE;
-	bool stateful_only_mode = 0;
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
-	int sk_prio = 0;
-	int sol_timeout = DHCPV6_SOL_MAX_RT;
 	int verbosity = 0;
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
-	int c, res;
-	unsigned int client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
+	int c;
+	int res = -1;
 	unsigned int ra_options = RA_RDNSS_DEFAULT_LIFETIME;
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
+	bool terminate = false;
+	config_dhcp = config_dhcp_get();
+	config_dhcp_reset();
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:kK:t:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
-			allow_slaac_only = (optarg) ? atoi(optarg) : -1;
+			config_set_allow_slaac_only((optarg) ? atoi(optarg) : -1);
 			break;
 
 		case 'D':
-			stateful_only_mode = 1;
+			config_set_stateful_only(true);
 			break;
 
 		case 'N':
-			if (!strcmp(optarg, "force")) {
-				ia_na_mode = IA_MODE_FORCE;
-				allow_slaac_only = -1;
-			} else if (!strcmp(optarg, "none"))
-				ia_na_mode = IA_MODE_NONE;
-			else if (!strcmp(optarg, "try"))
-				ia_na_mode = IA_MODE_TRY;
-			else
+			if (!config_set_request_addresses(optarg))
 				help = true;
 			break;
 
@@ -218,10 +214,10 @@ int main(_unused int argc, char* const argv[])
 			}
 
 			o_data = NULL;
-			res = parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
+			res = config_parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
 						(opt->flags & OPT_ARRAY) == OPT_ARRAY);
 			if (res > 0) {
-				res = add_opt(opt->code, o_data, res);
+				res = config_add_opt(opt->code, o_data, res);
 				if (res) {
 					if (res > 0)
 						return 1;
@@ -235,11 +231,11 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'P':
-			if (ia_pd_mode == IA_MODE_NONE)
-				ia_pd_mode = IA_MODE_TRY;
+			if (config_dhcp->ia_pd_mode == IA_MODE_NONE)
+				config_dhcp->ia_pd_mode = IA_MODE_TRY;
 
-			if (allow_slaac_only >= 0 && allow_slaac_only < 10)
-				allow_slaac_only = 10;
+			if (config_dhcp->allow_slaac_only >= 0 && config_dhcp->allow_slaac_only < 10)
+				config_dhcp->allow_slaac_only = 10;
 
 			struct odhcp6c_request_prefix prefix = { 0 };
 
@@ -278,8 +274,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'F':
-			allow_slaac_only = -1;
-			ia_pd_mode = IA_MODE_FORCE;
+			config_set_force_prefix(true);
 			break;
 
 		case 'c':
@@ -319,7 +314,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'R':
-			client_options |= DHCPV6_STRICT_OPTIONS;
+			config_set_client_options(DHCPV6_STRICT_OPTIONS, true);
 			break;
 
 		case 'u':
@@ -330,10 +325,10 @@ int main(_unused int argc, char* const argv[])
 			}
 
 			o_data = NULL;
-			res = parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
+			res = config_parse_opt_data(optarg, &o_data, opt->flags & OPT_MASK_SIZE,
 						(opt->flags & OPT_ARRAY) == OPT_ARRAY);
 			if (res > 0) {
-				res = add_opt(opt->code, o_data, res);
+				res = config_add_opt(opt->code, o_data, res);
 				if (res) {
 					if (res > 0)
 						return 1;
@@ -347,23 +342,36 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'U':
-			client_options |= DHCPV6_IGNORE_OPT_UNICAST;
+			config_set_client_options(DHCPV6_IGNORE_OPT_UNICAST, true);
 			break;
 
 		case 's':
-			script = optarg;
+			if (script)
+				script = optarg;
+			break;
+
+		case 'E':
+#ifndef HAVE_UBUS
+			syslog(LOG_ERR, "Failed to use ubus event: ENABLE_UBUS compilation flag missing");
+			return 1;
+#endif
+			script = NULL;
 			break;
 
 		case 'k':
-			release = false;
+			config_set_release(false);
 			break;
 
 		case 'K':
-			sk_prio = atoi(optarg);
+			config_set_sk_priority(atoi(optarg));
 			break;
 
 		case 't':
-			sol_timeout = atoi(optarg);
+			config_set_rtx_timeout_max(CONFIG_DHCP_SOLICIT, atoi(optarg));
+			break;
+
+		case 'C':
+			config_set_dscp(atoi(optarg));
 			break;
 
 		case 'm':
@@ -387,11 +395,11 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'f':
-			client_options &= ~DHCPV6_CLIENT_FQDN;
+			config_set_client_options(DHCPV6_CLIENT_FQDN, false);
 			break;
 
 		case 'a':
-			client_options &= ~DHCPV6_ACCEPT_RECONFIGURE;
+			config_set_client_options(DHCPV6_ACCEPT_RECONFIGURE, false);
 			break;
 
 		case 'v':
@@ -399,7 +407,7 @@ int main(_unused int argc, char* const argv[])
 			break;
 
 		case 'x':
-			res = parse_opt(optarg);
+			res = config_parse_opt(optarg);
 			if (res) {
 				if (res > 0)
 					return res;
@@ -414,8 +422,8 @@ int main(_unused int argc, char* const argv[])
 		}
 	}
 
-	if (allow_slaac_only > 0)
-		script_sync_delay = allow_slaac_only;
+	if (config_dhcp->allow_slaac_only > 0)
+		script_sync_delay = config_dhcp->allow_slaac_only;
 
 	openlog("odhcp6c", logopt, LOG_DAEMON);
 	if (!verbosity)
@@ -434,7 +442,6 @@ int main(_unused int argc, char* const argv[])
 	signal(SIGUSR2, sighandler);
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-			init_dhcpv6(ifname, client_options, sk_prio, sol_timeout) ||
 			ra_init(ifname, &ifid, ra_options, ra_holdoff_interval) ||
 			script_init(script, ifname)) {
 		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
@@ -461,159 +468,301 @@ int main(_unused int argc, char* const argv[])
 		}
 	}
 
-	script_call("started", 0, false);
+	struct pollfd fds[2] = {0};
+	int nfds = 0;
 
-	while (!signal_term) { // Main logic
-		odhcp6c_clear_state(STATE_SERVER_ID);
-		odhcp6c_clear_state(STATE_SERVER_ADDR);
-		odhcp6c_clear_state(STATE_IA_NA);
-		odhcp6c_clear_state(STATE_IA_PD);
-		odhcp6c_clear_state(STATE_SNTP_IP);
-		odhcp6c_clear_state(STATE_NTP_IP);
-		odhcp6c_clear_state(STATE_NTP_FQDN);
-		odhcp6c_clear_state(STATE_SIP_IP);
-		odhcp6c_clear_state(STATE_SIP_FQDN);
-		bound = false;
+	int mode = DHCPV6_UNKNOWN;
+	enum dhcpv6_msg msg_type = DHCPV6_MSG_UNKNOWN;
 
-		syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
+	fds[DHCPV6_FD_INDEX].fd = -1;
+	fds[DHCPV6_FD_INDEX].events = POLLIN;
+	nfds++;
 
-		signal_usr1 = signal_usr2 = false;
-		int mode = dhcpv6_set_ia_mode(ia_na_mode, ia_pd_mode, stateful_only_mode);
-		if (mode != DHCPV6_STATELESS)
-			mode = dhcpv6_request(DHCPV6_MSG_SOLICIT);
+#ifdef HAVE_UBUS
+	char *err = ubus_init(ifname);
+	if (err) {
+		syslog(LOG_ERR, "ubus error: %s", err);
+		return 1;
+	}
 
-		odhcp6c_signal_process();
+	struct ubus_context *ubus = ubus_get_ctx();
+	int ubus_socket = ubus->sock.fd;
+	if (ubus_socket < 0) {
+		syslog(LOG_ERR, "Invalid ubus file descriptor");
+		return 1;
+	}
+	fds[UBUS_FD_INDEX].fd = ubus_socket;
+	fds[UBUS_FD_INDEX].events = POLLIN;
+	nfds++;
+#endif
 
-		if (mode < 0)
-			continue;
+	notify_state_change("started", 0, false);
 
-		do {
-			res = dhcpv6_request(mode == DHCPV6_STATELESS ?
-					DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST);
-			bool signalled = odhcp6c_signal_process();
+	while (!terminate) { // Main logic
+		int poll_res;
+		bool signalled = odhcp6c_signal_process(); 
 
-			if (res > 0)
+		switch (dhcpv6_get_state()) {
+		case DHCPV6_INIT:
+			odhcp6c_clear_state(STATE_SERVER_ID);
+			odhcp6c_clear_state(STATE_SERVER_ADDR);
+			odhcp6c_clear_state(STATE_IA_NA);
+			odhcp6c_clear_state(STATE_IA_PD);
+			odhcp6c_clear_state(STATE_SNTP_IP);
+			odhcp6c_clear_state(STATE_NTP_IP);
+			odhcp6c_clear_state(STATE_NTP_FQDN);
+			odhcp6c_clear_state(STATE_SIP_IP);
+			odhcp6c_clear_state(STATE_SIP_FQDN);
+			bound = false;
+
+			size_t oro_len = 0;
+			odhcp6c_get_state(STATE_ORO, &oro_len);
+			config_dhcp->oro_user_cnt = oro_len / sizeof(uint16_t);
+
+			if(init_dhcpv6(ifname)) {
+				syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+				return 1;
+			}
+
+			fds[DHCPV6_FD_INDEX].fd = dhcpv6_get_socket();
+
+			syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
+
+			signal_usr1 = signal_usr2 = false;
+
+			dhcpv6_set_state(DHCPV6_SOLICIT);
+			break;
+
+		case DHCPV6_SOLICIT:
+			mode = dhcpv6_get_ia_mode();
+			if (mode == DHCPV6_STATELESS) {
+				dhcpv6_set_state(DHCPV6_REQUEST);
 				break;
-			else if (signalled) {
-				mode = -1;
+			}
+
+			msg_type = DHCPV6_MSG_SOLICIT;
+			dhcpv6_send_request(msg_type);		
+			break;
+
+		case DHCPV6_ADVERT:
+			if(res > 0) {
+				mode = DHCPV6_STATEFUL;
+				dhcpv6_set_state(DHCPV6_REQUEST);
+			} else {
+				mode = DHCPV6_UNKNOWN;
+				dhcpv6_set_state(DHCPV6_RESET);
+			}
+			break;
+
+		case DHCPV6_REQUEST:
+			msg_type = (mode == DHCPV6_STATELESS) ? DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST;
+			dhcpv6_send_request(msg_type);
+			break;
+
+		case DHCPV6_REPLY:
+			if ((res > 0) && mode != DHCPV6_UNKNOWN) {
+				dhcpv6_set_state(DHCPV6_BOUND);
+				break;
+			}
+
+			if ((res < 0) && signalled) {
+				mode = DHCPV6_UNKNOWN;
+				dhcpv6_set_state(DHCPV6_RESET);
 				break;
 			}
 
 			mode = dhcpv6_promote_server_cand();
-		} while (mode > DHCPV6_UNKNOWN);
+			dhcpv6_set_state(mode > DHCPV6_UNKNOWN ? DHCPV6_REQUEST : DHCPV6_RESET);
+			break;
 
-		if (mode < 0)
-			continue;
-
-		switch (mode) {
-		case DHCPV6_STATELESS:
-			bound = true;
-			syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
-
-			while (!signal_usr2 && !signal_term) {
-				signal_usr1 = false;
-				script_call("informed", script_sync_delay, true);
-
-				res = dhcpv6_poll_reconfigure();
-				odhcp6c_signal_process();
-
-				if (res > 0)
-					continue;
-
-				if (signal_usr1) {
-					signal_usr1 = false; // Acknowledged
-					continue;
+		case DHCPV6_BOUND:
+			if (!bound) {
+				bound = true;
+				if (mode == DHCPV6_STATELESS) {
+					syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
+					signal_usr1 = false;
+					notify_state_change("informed", script_sync_delay, true);
+				} else {
+					notify_state_change("bound", script_sync_delay, true);
+					syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
 				}
+			}
 
-				if (signal_usr2 || signal_term)
-					break;
-
-				res = dhcpv6_request(DHCPV6_MSG_INFO_REQ);
-				odhcp6c_signal_process();
-
-				if (signal_usr1)
-					continue;
-				else if (res < 0)
-					break;
+			msg_type = DHCPV6_MSG_UNKNOWN;
+			dhcpv6_send_request(msg_type);
+			break;
+		
+		case DHCPV6_BOUND_REPLY:
+			if (res == DHCPV6_MSG_RENEW || res == DHCPV6_MSG_REBIND ||
+				res == DHCPV6_MSG_INFO_REQ) {
+				msg_type = res;
+				dhcpv6_set_state(DHCPV6_RECONF);			
+			} else {
+				dhcpv6_set_state(DHCPV6_RECONF_REPLY);
 			}
 			break;
 
-		case DHCPV6_STATEFUL:
-			bound = true;
-			script_call("bound", script_sync_delay, true);
-			syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+		case DHCPV6_RECONF:	
+			dhcpv6_send_request(msg_type);
+			break;
 
-			while (!signal_usr2 && !signal_term) {
-				// Renew Cycle
-				// Wait for T1 to expire or until we get a reconfigure
-				res = dhcpv6_poll_reconfigure();
-				odhcp6c_signal_process();
-				if (res > 0) {
-					script_call("updated", 0, false);
-					continue;
-				}
-
-				// Handle signal, if necessary
-				if (signal_usr1)
-					signal_usr1 = false; // Acknowledged
-
-				if (signal_usr2 || signal_term)
-					break; // Other signal type
-
-				// Send renew as T1 expired
-				res = dhcpv6_request(DHCPV6_MSG_RENEW);
-				odhcp6c_signal_process();
-
-				if (res > 0) { // Renew was succesfull
-					// Publish updates
-					script_call("updated", 0, false);
-					continue; // Renew was successful
-				}
-
-				odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
-				odhcp6c_clear_state(STATE_SERVER_ADDR);
-
-				size_t ia_pd_len, ia_na_len;
-				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-
-				if (ia_pd_len == 0 && ia_na_len == 0)
-					break;
-
-				// If we have IAs, try rebind otherwise restart
-				res = dhcpv6_request(DHCPV6_MSG_REBIND);
-				odhcp6c_signal_process();
-
-				if (res > 0)
-					script_call("rebound", 0, true);
-				else
-					break;
+		case DHCPV6_RECONF_REPLY:
+			if (res > 0) {
+				dhcpv6_set_state(DHCPV6_BOUND);
+				if (mode == DHCPV6_STATEFUL)
+					notify_state_change("updated", 0, false);
+			} else {
+				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
 			}
+			break;
+		
+		case DHCPV6_RENEW:
+			msg_type = DHCPV6_MSG_RENEW;
+			dhcpv6_send_request(msg_type);
+			break;
+		
+		case DHCPV6_RENEW_REPLY:
+			if (res > 0 ) {
+				notify_state_change("updated", 0, false);
+				dhcpv6_set_state(DHCPV6_BOUND);
+			} else {
+				dhcpv6_set_state(DHCPV6_REBIND);
+			}
+			break;
+
+		case DHCPV6_REBIND:
+			odhcp6c_clear_state(STATE_SERVER_ID); // Remove binding
+			odhcp6c_clear_state(STATE_SERVER_ADDR);
+
+			size_t ia_pd_len_r, ia_na_len_r;
+			odhcp6c_get_state(STATE_IA_PD, &ia_pd_len_r);
+			odhcp6c_get_state(STATE_IA_NA, &ia_na_len_r);
+
+			// If we have IAs, try rebind otherwise restart
+			if (ia_pd_len_r == 0 && ia_na_len_r == 0) {
+				dhcpv6_set_state(DHCPV6_RESET);
+				break;
+			}
+
+			msg_type = DHCPV6_MSG_REBIND;
+			dhcpv6_send_request(msg_type);
+			break;
+		
+		case DHCPV6_REBIND_REPLY:
+			if (res < 0) {
+				dhcpv6_set_state(DHCPV6_RESET);
+			} else {
+				notify_state_change("rebound", 0, true);
+				dhcpv6_set_state(DHCPV6_BOUND);
+			}
+			break;
+
+		case DHCPV6_INFO:
+			msg_type = DHCPV6_MSG_INFO_REQ;
+			dhcpv6_send_request(msg_type);
+			break;
+		
+		case DHCPV6_INFO_REPLY:
+			dhcpv6_set_state(res < 0 ? DHCPV6_RESET : DHCPV6_BOUND);
+			break;
+
+		case DHCPV6_SOLICIT_PROCESSING:
+		case DHCPV6_REQUEST_PROCESSING:
+			res = dhcpv6_state_processing(msg_type);
+			break;
+
+		case DHCPV6_BOUND_PROCESSING:
+		case DHCPV6_RECONF_PROCESSING:
+		case DHCPV6_REBIND_PROCESSING:
+			res = dhcpv6_state_processing(msg_type);
+
+			if (signal_usr1)
+				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
+			break;
+		
+		case DHCPV6_RENEW_PROCESSING:
+		case DHCPV6_INFO_PROCESSING:
+			res = dhcpv6_state_processing(msg_type);
+
+			if (signal_usr1)
+				signal_usr1 = false;   // Acknowledged
+			break;
+		
+		case DHCPV6_EXIT:
+			odhcp6c_expire(false);
+
+			size_t ia_pd_len, ia_na_len, server_id_len;
+			odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+			odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+			odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
+
+			// Add all prefixes to lost prefixes
+			if(bound) {
+				bound = false;
+				notify_state_change("unbound", 0, true);
+			}
+
+			if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && (!signal_term || config_dhcp->release))
+				dhcpv6_send_request(DHCPV6_MSG_RELEASE);
+
+			odhcp6c_clear_state(STATE_IA_NA);
+			odhcp6c_clear_state(STATE_IA_PD);
+
+			if (signal_term) {
+				terminate = true;
+			} else {
+				signal_usr2 = false;
+				dhcpv6_set_state(DHCPV6_RESET);
+			}
+			break;
+
+		case DHCPV6_RESET:
+			odhcp6c_clear_state(STATE_CLIENT_ID);
+
+			if(bound) {
+				bound = false;
+				notify_state_change("unbound", 0, true);
+			}
+
+			size_t oro_user_len, oro_total_len;
+			odhcp6c_get_state(STATE_ORO, &oro_total_len);
+			oro_user_len = config_dhcp->oro_user_cnt * sizeof(uint16_t);
+			odhcp6c_remove_state(STATE_ORO, oro_user_len, oro_total_len - oro_user_len);
+
+			close(dhcpv6_get_socket());
+			fds[DHCPV6_FD_INDEX].fd = -1;
+
+			dhcpv6_set_state(DHCPV6_INIT);
 			break;
 
 		default:
 			break;
 		}
 
-		odhcp6c_expire(false);
+		if (signal_usr2 || signal_term)
+			dhcpv6_set_state(DHCPV6_EXIT);
 
-		size_t ia_pd_len, ia_na_len, server_id_len;
-		odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
-		odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
-		odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
+		poll_res = poll(fds, nfds, dhcpv6_get_state_timeout());
+		dhcpv6_reset_state_timeout();
+		if (poll_res == -1 && (errno == EINTR || errno == EAGAIN)) {
+			continue;
+		}
 
-		// Add all prefixes to lost prefixes
-		bound = false;
-		script_call("unbound", 0, true);
+		if (fds[0].revents & POLLIN)
+			dhcpv6_receive_response(msg_type);
 
-		if (server_id_len > 0 && (ia_pd_len > 0 || ia_na_len > 0) && release)
-			dhcpv6_request(DHCPV6_MSG_RELEASE);
-
-		odhcp6c_clear_state(STATE_IA_NA);
-		odhcp6c_clear_state(STATE_IA_PD);
+#ifdef HAVE_UBUS
+		if (fds[1].revents & POLLIN)
+			ubus_handle_event(ubus);
 	}
 
-	script_call("stopped", 0, true);
+	notify_state_change("stopped", 0, true);
+	ubus_destroy(ubus);
+#else
+	}
+	
+	notify_state_change("stopped", 0, true);
+#endif
 
 	return 0;
 }
@@ -641,10 +790,12 @@ static int usage(void)
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-R		Do not request any options except those specified with -r\n"
 	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
+	"	-E		Only use UBUS event and disable status update script\n"
 	"	-a		Don't send Accept Reconfigure option\n"
 	"	-f		Don't send Client FQDN option\n"
 	"	-k		Don't send a RELEASE when stopping\n"
 	"	-K <sk-prio>	Set packet kernel priority (0)\n"
+	"	-C <dscp>	Set packet DSCP value (0)\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
@@ -700,8 +851,8 @@ bool odhcp6c_signal_process(void)
 			ra = false;
 		}
 
-		if (ra_updated && (bound || allow_slaac_only >= 0)) {
-			script_call("ra-updated", (!ra && !bound) ?
+		if (ra_updated && (bound || config_dhcp->allow_slaac_only >= 0)) {
+			notify_state_change("ra-updated", (!ra && !bound) ?
 					script_sync_delay : script_accu_delay, false);
 			ra = true;
 		}
@@ -857,20 +1008,6 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed, bool
 	}
 }
 
-static uint8_t *odhcp6c_state_find_opt(const uint16_t code)
-{
-	size_t opts_len;
-	uint8_t *odata, *opts = odhcp6c_get_state(STATE_OPTS, &opts_len);
-	uint16_t otype, olen;
-
-	dhcpv6_for_each_option(opts, &opts[opts_len], otype, olen, odata) {
-		if (otype == code)
-			return &odata[-4];
-	}
-
-	return NULL;
-}
-
 void odhcp6c_expire(bool expire_ia_pd)
 {
 	time_t now = odhcp6c_get_milli_time() / 1000;
@@ -969,23 +1106,12 @@ static void sighandler(int signal)
 		signal_term = true;
 }
 
-static int add_opt(const uint16_t code, const uint8_t *data, const uint16_t len)
+void notify_state_change(const char *status, int delay, bool resume)
 {
-	struct {
-		uint16_t code;
-		uint16_t len;
-	} opt_hdr = { htons(code), htons(len) };
-
-	if (odhcp6c_state_find_opt(code))
-		return -1;
-
-	if (odhcp6c_add_state(STATE_OPTS, &opt_hdr, sizeof(opt_hdr)) ||
-			odhcp6c_add_state(STATE_OPTS, data, len)) {
-		syslog(LOG_ERR, "Failed to add option %hu", code);
-		return 1;
-	}
-
-	return 0;
+	script_call(status, delay, resume);
+#ifdef HAVE_UBUS
+	ubus_dhcp_event(status);
+#endif
 }
 
 struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code)
@@ -1002,7 +1128,7 @@ struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code)
 	return NULL;
 }
 
-static struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name)
+struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name)
 {
 	struct odhcp6c_opt *opt = opts;
 
@@ -1013,248 +1139,4 @@ static struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name)
 		opt++;
 
 	return (opt->code > 0 ? opt : NULL);
-}
-
-static int parse_opt_u8(const char *src, uint8_t **dst)
-{
-	int len = strlen(src);
-
-	*dst = realloc(*dst, len/2);
-	if (!*dst)
-		return -1;
-
-	return script_unhexlify(*dst, len, src);
-}
-
-static int parse_opt_string(const char *src, uint8_t **dst, const bool array)
-{
-	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
-
-	if (sep && !array)
-		return -1;
-
-	do {
-		if (sep) {
-			*sep = 0;
-			sep++;
-		}
-
-		int len = strlen(src);
-
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
-			return -1;
-
-		memcpy(&((*dst)[o_len]), src, len);
-
-		o_len += len;
-		src = sep;
-
-		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
-	} while (src);
-
-	return o_len;
-}
-
-static int parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
-{
-	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
-
-	if (sep && !array)
-		return -1;
-
-	do {
-		uint8_t tmp[256];
-
-		if (sep) {
-			*sep = 0;
-			sep++;
-		}
-
-		int len = dn_comp(src, tmp, sizeof(tmp), NULL, NULL);
-		if (len < 0)
-			return -1;
-
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
-			return -1;
-
-		memcpy(&((*dst)[o_len]), tmp, len);
-
-		o_len += len;
-		src = sep;
-
-		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
-	} while (src);
-
-	return o_len;
-}
-
-static int parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
-{
-	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
-
-	if (sep && !array)
-		return -1;
-
-	do {
-		int len = sizeof(struct in6_addr);
-
-		if (sep) {
-			*sep = 0;
-			sep++;
-		}
-
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
-			return -1;
-
-		if (inet_pton(AF_INET6, src, &((*dst)[o_len])) < 1)
-			return -1;
-
-		o_len += len;
-		src = sep;
-
-		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
-	} while (src);
-
-	return o_len;
-}
-
-static int parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
-{
-	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
-
-	if (sep && !array)
-		return -1;
-
-	do {
-		if (sep) {
-			*sep = 0;
-			sep++;
-		}
-		uint16_t str_len = strlen(src);
-
-		*dst = realloc(*dst, o_len + str_len + 2);
-		if (!*dst)
-			return -1;
-
-		struct user_class {
-			uint16_t len;
-			uint8_t data[];
-		} *e = (struct user_class *)&((*dst)[o_len]);
-
-		e->len = ntohs(str_len);
-		memcpy(e->data, src, str_len);
-
-		o_len += str_len + 2;
-		src = sep;
-
-		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
-	} while (src);
-
-	return o_len;
-}
-
-static int parse_opt_data(const char *data, uint8_t **dst, const unsigned int type,
-		const bool array)
-{
-	int ret = 0;
-
-	switch (type) {
-	case OPT_U8:
-		ret = parse_opt_u8(data, dst);
-		break;
-
-	case OPT_STR:
-		ret = parse_opt_string(data, dst, array);
-		break;
-
-	case OPT_DNS_STR:
-		ret = parse_opt_dns_string(data, dst, array);
-		break;
-
-	case OPT_IP6:
-		ret = parse_opt_ip6(data, dst, array);
-		break;
-
-	case OPT_USER_CLASS:
-		ret = parse_opt_user_class(data, dst, array);
-		break;
-
-	default:
-		ret = -1;
-		break;
-	}
-
-	return ret;
-}
-
-static int parse_opt(const char *opt)
-{
-	uint32_t optn;
-	char *data;
-	uint8_t *payload = NULL;
-	int payload_len;
-	unsigned int type = OPT_U8;
-	bool array = false;
-	struct odhcp6c_opt *dopt = NULL;
-	int ret = -1;
-
-	data = strpbrk(opt, ":");
-	if (!data)
-		return -1;
-
-	*data = '\0';
-	data++;
-
-	if (strlen(opt) == 0 || strlen(data) == 0)
-		return -1;
-
-	dopt = odhcp6c_find_opt_by_name(opt);
-	if (!dopt) {
-		char *e;
-		optn = strtoul(opt, &e, 0);
-		if (*e || e == opt || optn > USHRT_MAX)
-			return -1;
-
-		dopt = odhcp6c_find_opt(optn);
-	} else
-		optn = dopt->code;
-
-	/* Check if the type for the content is well-known */
-	if (dopt) {
-		/* Refuse internal options */
-		if (dopt->flags & OPT_INTERNAL)
-			return -1;
-
-		type = dopt->flags & OPT_MASK_SIZE;
-		array = ((dopt->flags & OPT_ARRAY) == OPT_ARRAY) ? true : false;
-	} else if (data[0] == '"' || data[0] == '\'') {
-		char *end = strrchr(data + 1, data[0]);
-
-		if (end && (end == (data + strlen(data) - 1))) {
-			/* Raw option is specified as a string */
-			type = OPT_STR;
-			data++;
-			*end = '\0';
-		}
-
-	}
-
-	payload_len = parse_opt_data(data, &payload, type, array);
-	if (payload_len > 0)
-		ret = add_opt(optn, payload, payload_len);
-
-	free(payload);
-
-	return ret;
 }
