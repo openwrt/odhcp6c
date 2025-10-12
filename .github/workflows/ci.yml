@@ -1,0 +1,94 @@
+name: odhcp6c
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            gcc: /usr/bin/aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+          - arch: arm
+            gcc: /usr/bin/arm-linux-gnueabi-gcc
+            packages: gcc-arm-linux-gnueabi
+          - arch: mips
+            gcc: /usr/bin/mips-linux-gnu-gcc
+            packages: gcc-mips-linux-gnu
+          - arch: x86_64
+            gcc: /usr/bin/x86_64-linux-gnu-gcc
+            packages: gcc-x86-64-linux-gnu
+
+    steps:
+      - name: Checkout odhcp6c
+        uses: actions/checkout@v5
+
+      - name: Checkout json-c
+        uses: actions/checkout@v5
+        with:
+          repository: json-c/json-c
+          path: depends/json-c
+
+      - name: Checkout libubox
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/libubox
+          path: depends/libubox
+
+      - name: Install dependencies
+        run: |
+          sudo apt install ${{ matrix.packages }}
+
+      - name: Prepare build
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/build
+
+      - name: Build json-c
+        working-directory: depends/json-c
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_SHARED_LIBS=OFF -DDISABLE_EXTRA_LIBS=ON  \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build libubox
+        working-directory: depends/libubox
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build odhcp6c (w/o libubox)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -D USE_LIBUBOX=OFF \
+            -B build/odhcp6c-without-libubox
+          make -C build/odhcp6c-without-libubox
+
+      - name: Build odhcp6c (with libubox)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.arch }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DUSE_LIBUBOX=ON \
+            -B build/odhcp6c-with-libubox
+          make -C build/odhcp6c-with-libubox
