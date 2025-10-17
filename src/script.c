@@ -228,6 +228,11 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 			}
 		}
 
+		if (type == ENTRY_HOST) {
+			snprintf(&buf[buf_len], 12, ",%u", e[i].valid);
+			buf_len += strlen(&buf[buf_len]);
+		}
+
 		buf[buf_len++] = ' ';
 	}
 
@@ -240,25 +245,33 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 
 static void search_to_env(const char *name, const uint8_t *start, size_t len)
 {
-	size_t buf_len = strlen(name);
-	char *buf = realloc(NULL, buf_len + 2 + len);
-	char *c = mempcpy(buf, name, buf_len);
-	*c++ = '=';
+	char *buf = NULL;
+	size_t buf_len;
+
+	if (asprintf(&buf, "%s=", name) == -1) {
+		syslog(LOG_ERR, "Failed to allocate memory for env: %s",  name);
+		return;
+	}
 
 	for (struct odhcp6c_entry *e = (struct odhcp6c_entry*)start;
 				(uint8_t*)e < &start[len] &&
 				(uint8_t*)odhcp6c_next_entry(e) <= &start[len];
 				e = odhcp6c_next_entry(e)) {
+
 		if (!e->valid)
 			continue;
-		c = mempcpy(c, e->auxtarget, e->auxlen);
-		*c++ = ' ';
+
+		if (asprintf(&buf, "%s%.*s,%u ", buf, (int)e->auxlen, e->auxtarget, e->valid) == -1) {
+			syslog(LOG_ERR, "Failed to allocate memory for env concatenation: %s", name);
+			free(buf);
+			return;
+		}
 	}
 
-	if (c[-1] == ' ')
-		c--;
+	buf_len = strlen(buf);
+	if (buf_len > 0 && buf[buf_len - 1] == ' ')
+		buf[buf_len - 1] = '\0';
 
-	*c = '\0';
 	putenv(buf);
 }
 
