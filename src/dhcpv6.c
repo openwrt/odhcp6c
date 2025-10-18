@@ -1425,8 +1425,8 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 					The status of any operations involving this IA Prefix option is
 					indicated in a Status Code option (see Section 21.13) in the
 					IAprefix-options field. */
-					uint8_t *status_msg = (slen > 2) ? &sdata[2] : NULL;
-					uint16_t msg_len = (slen > 2) ? slen - 2 : 0;
+					uint8_t *status_msg = &sdata[2];
+					uint16_t msg_len = slen - 2;
 					uint16_t code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
 					if (code == DHCPV6_Success)
@@ -1497,13 +1497,38 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 
 			entry.length = 128;
 			entry.target = addr->addr;
+			uint16_t stype, slen;
+			uint8_t *sdata;
 
-			if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0))
-				updated_IAs++;
+			bool update_state = true;
+			dhcpv6_for_each_option(odata + sizeof(*addr) - 4U,
+					odata + olen, stype, slen, sdata) {
+				if (stype == DHCPV6_OPT_STATUS && slen > 2) {
+					/* RFC 8415 §21.6
+					The status of any operations involving this IA Address is indicated
+					in a Status Code option in the IAaddr-options field, as specified in
+					Section 21.13. */
+					uint8_t *status_msg = &sdata[2];
+					uint16_t msg_len = slen - 2;
+					uint16_t code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
-			syslog(LOG_INFO, "%s preferred %d valid %d",
-					inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
-					entry.preferred , entry.valid);
+					if (code == DHCPV6_Success)
+						continue;
+
+					dhcpv6_log_status_code(code, "IA_ADDR", status_msg, msg_len);
+					if (ret) *ret = 0; // renewal failed
+					update_state = false;
+				}
+			}
+
+			if (update_state) {
+				if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0))
+					updated_IAs++;
+
+				syslog(LOG_INFO, "%s preferred %d valid %d",
+						inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
+						entry.preferred , entry.valid);
+			}
 			break;
 		}
 		default:
