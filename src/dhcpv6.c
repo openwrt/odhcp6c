@@ -1370,6 +1370,11 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 	t1 = ntohl(ia_hdr->t1);
 	t2 = ntohl(ia_hdr->t2);
 
+	/* RFC 8415 §21.4
+	If a client receives an IA_NA with T1 greater than T2 and both T1 and
+	T2 are greater than 0, the client discards the IA_NA option and
+	processes the remainder of the message as though the server had not
+	included the invalid IA_NA option. */
 	if (t1 > t2 && t1 > 0 && t2 > 0)
 		return 0;
 
@@ -1382,7 +1387,8 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 
 		entry.iaid = ia_hdr->iaid;
 
-		if (otype == DHCPV6_OPT_IA_PREFIX) {
+		switch (otype) {
+		case DHCPV6_OPT_IA_PREFIX: {
 			struct dhcpv6_ia_prefix *prefix = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*prefix))
 				continue;
@@ -1393,6 +1399,10 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			if (entry.preferred > entry.valid)
 				continue;
 
+			/*	RFC 8415 §21.21
+			Recommended values for T1 and T2 are 0.5 and 0.8 times the
+			shortest preferred lifetime of the prefixes in the IA_PD that the
+			server is willing to extend. */
 			entry.t1 = (t1 ? t1 : (entry.preferred != UINT32_MAX ? 0.5 * entry.preferred : UINT32_MAX));
 			entry.t2 = (t2 ? t2 : (entry.preferred != UINT32_MAX ? 0.8 * entry.preferred : UINT32_MAX));
 			if (entry.t1 > entry.t2)
@@ -1407,6 +1417,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 			bool ok = true;
 			dhcpv6_for_each_option(odata + sizeof(*prefix) - 4U,
 					odata + olen, stype, slen, sdata) {
+				/*	RFC 6603 §4.2 Prefix Exclude option */
 				if (stype != DHCPV6_OPT_PD_EXCLUDE || slen < 2)
 					continue;
 
@@ -1444,13 +1455,15 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 					updated_IAs++;
 
 				syslog(LOG_INFO, "%s/%d preferred %d valid %d",
-				       inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
-				       entry.length, entry.preferred , entry.valid);
+						inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
+						entry.length, entry.preferred , entry.valid);
 			}
 
 			entry.priority = 0;
 			memset(&entry.router, 0, sizeof(entry.router));
-		} else if (otype == DHCPV6_OPT_IA_ADDR) {
+			break;
+		}
+		case DHCPV6_OPT_IA_ADDR: {
 			struct dhcpv6_ia_addr *addr = (void*)&odata[-4];
 			if (olen + 4U < sizeof(*addr))
 				continue;
@@ -1473,8 +1486,12 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 				updated_IAs++;
 
 			syslog(LOG_INFO, "%s preferred %d valid %d",
-			       inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
-			       entry.preferred , entry.valid);
+					inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
+					entry.preferred , entry.valid);
+			break;
+		}
+		default:
+			break;
 		}
 	}
 
