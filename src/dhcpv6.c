@@ -479,9 +479,11 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	ia_na_entries /= sizeof(*e);
 
 	struct dhcpv6_ia_hdr hdr_ia_na = {
-		htons(DHCPV6_OPT_IA_NA),
-		htons(sizeof(hdr_ia_na) - 4),
-		htonl(1), 0, 0
+		.type = htons(DHCPV6_OPT_IA_NA),
+		.len = htons(sizeof(hdr_ia_na) - 4),
+		.iaid = htonl(ifindex),
+		.t1 = 0,
+		.t2 = 0,
 	};
 
 	struct dhcpv6_ia_addr pa[ia_na_entries];
@@ -1156,7 +1158,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 					continue;
 
 				// Test ID
-				if (ia_hdr->iaid != htonl(1) && otype == DHCPV6_OPT_IA_NA)
+				if (ia_hdr->iaid != htonl(ifindex) && otype == DHCPV6_OPT_IA_NA)
 					continue;
 
 				uint16_t code = DHCPV6_Success;
