@@ -1368,6 +1368,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 				uint16_t code = DHCPV6_Success;
 				uint16_t stype, slen;
 				uint8_t *sdata;
+				bool dhcpv6_successful_once = false;
 				// Get and handle status code
 				dhcpv6_for_each_option(&ia_hdr[1], odata + olen,
 						stype, slen, sdata) {
@@ -1377,8 +1378,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 
 						code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
-						if (code == DHCPV6_Success)
+						if (code == DHCPV6_Success) {
+							dhcpv6_successful_once = true;
 							continue;
+						}
 
 						dhcpv6_handle_ia_status_code(orig, ia_hdr,
 							code, mdata, mlen, handled_status_codes, &ret);
@@ -1387,7 +1390,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
 					}
 				}
 
-				if (code != DHCPV6_Success)
+				if (!dhcpv6_successful_once && code != DHCPV6_Success)
 					continue;
 
 				updated_IAs += dhcpv6_parse_ia(ia_hdr, odata + olen, &ret);
