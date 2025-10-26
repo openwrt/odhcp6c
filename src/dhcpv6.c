@@ -1668,7 +1668,7 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 		const void *status_msg, const int len,
 		bool handled_status_codes[_DHCPV6_Status_Max], int *ret)
 {
-	dhcpv6_log_status_code(code, ia_hdr->type == DHCPV6_OPT_IA_NA ?
+	dhcpv6_log_status_code(code, ntohs(ia_hdr->type) == DHCPV6_OPT_IA_NA ?
 		"IA_NA" : "IA_PD", status_msg, len);
 
 	switch (code) {
