@@ -25,14 +25,10 @@ jobs:
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
     outputs:
-      size-aarch64-without-libubox: ${{ steps.without_libubox.outputs.size_aarch64 }}
-      size-aarch64-with-libubox: ${{ steps.with_libubox.outputs.size_aarch64 }}
-      size-arm-without-libubox: ${{ steps.without_libubox.outputs.size_arm }}
-      size-arm-with-libubox: ${{ steps.with_libubox.outputs.size_arm }}
-      size-mips-without-libubox: ${{ steps.without_libubox.outputs.size_mips }}
-      size-mips-with-libubox: ${{ steps.with_libubox.outputs.size_mips }}
-      size-x86_64-without-libubox: ${{ steps.without_libubox.outputs.size_x86_64 }}
-      size-x86_64-with-libubox: ${{ steps.with_libubox.outputs.size_x86_64 }}
+      size-aarch64: ${{ steps.build.outputs.size_aarch64 }}
+      size-arm: ${{ steps.build.outputs.size_arm }}
+      size-mips: ${{ steps.build.outputs.size_mips }}
+      size-x86_64: ${{ steps.build.outputs.size_x86_64 }}
     steps:
       - name: Checkout odhcp6c
         uses: actions/checkout@v5
@@ -80,28 +76,14 @@ jobs:
           make
           make install
 
-      - id: without_libubox
-        name: Build odhcp6c (w/o libubox)
+      - id: build
+        name: Build odhcp6c
         env:
-          BUILD_DIR: build/odhcp6c-without-libubox
+          BUILD_DIR: build/odhcp6c
         run: |
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -D USE_LIBUBOX=OFF \
-            -B $BUILD_DIR
-          make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
-
-      - id: with_libubox
-        name: Build odhcp6c (with libubox)
-        env:
-          BUILD_DIR: build/odhcp6c-with-libubox
-        run: |
-          cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DUSE_LIBUBOX=ON \
             -B $BUILD_DIR
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
@@ -111,7 +93,7 @@ jobs:
         with:
           name: odhcp6c-${{ matrix.arch }}-binaries
           path: |
-            build/odhcp6c-*/odhcp6c
+            build/odhcp6c/odhcp6c
           if-no-files-found: error
 
   summary:
@@ -121,17 +103,12 @@ jobs:
     steps:
       - name: Sizes summary
         env:
-          size_aarch64_without_libubox: ${{needs.build.outputs.size-aarch64-without-libubox}}
-          size_aarch64_with_libubox: ${{needs.build.outputs.size-aarch64-with-libubox}}
-          size_arm_without_libubox: ${{needs.build.outputs.size-arm-without-libubox}}
-          size_arm_with_libubox: ${{needs.build.outputs.size-arm-with-libubox}}
-          size_mips_without_libubox: ${{needs.build.outputs.size-mips-without-libubox}}
-          size_mips_with_libubox: ${{needs.build.outputs.size-mips-with-libubox}}
-          size_x86_64_without_libubox: ${{needs.build.outputs.size-x86_64-without-libubox}}
-          size_x86_64_with_libubox: ${{needs.build.outputs.size-x86_64-with-libubox}}
+          size_aarch64: ${{needs.build.outputs.size-aarch64}}
+          size_arm: ${{needs.build.outputs.size-arm}}
+          size_mips: ${{needs.build.outputs.size-mips}}
+          size_x86_64: ${{needs.build.outputs.size-x86_64}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
           echo "| Variant | aarch64 | arm | mips | x86_64 |" >> $GITHUB_STEP_SUMMARY
           echo "| :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| w/o libubox | ${size_aarch64_without_libubox} | ${size_arm_without_libubox} | ${size_mips_without_libubox} | ${size_x86_64_without_libubox} |" >> $GITHUB_STEP_SUMMARY
-          echo "| with libubox | ${size_aarch64_with_libubox} | ${size_arm_with_libubox} | ${size_mips_with_libubox} | ${size_x86_64_with_libubox} |" >> $GITHUB_STEP_SUMMARY
+          echo "| odhcp6c | ${size_aarch64} | ${size_arm} | ${size_mips} | ${size_x86_64} |" >> $GITHUB_STEP_SUMMARY

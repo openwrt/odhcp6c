@@ -32,15 +32,10 @@ target_compile_options(${PROJECT_NAME} PRIVATE -Wmissing-declarations)
 # Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE resolv)
 
-if (${USE_LIBUBOX})
-	target_compile_definitions(${PROJECT_NAME} PRIVATE USE_LIBUBOX)
-	find_path(ubox_include_dir libubox/md5.h)
-	target_include_directories(${PROJECT_NAME} PRIVATE ${ubox_include_dir})
-	find_library(libubox ubox)
-	target_link_libraries(${PROJECT_NAME} PRIVATE ${libubox})
-else (${USE_LIBUBOX})
-	target_sources(${PROJECT_NAME} PRIVATE src/md5.c)
-endif(${USE_LIBUBOX})
+find_path(ubox_include_dir libubox/md5.h)
+target_include_directories(${PROJECT_NAME} PRIVATE ${ubox_include_dir})
+find_library(libubox ubox)
+target_link_libraries(${PROJECT_NAME} PRIVATE ${libubox})
 
 
 # Optional Features
