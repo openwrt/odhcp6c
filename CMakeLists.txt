@@ -48,10 +48,6 @@ if (${EXT_CER_ID})
 	target_compile_definitions(${PROJECT_NAME} PRIVATE EXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})
 
-if (${EXT_PREFIX_CLASS})
-	target_compile_definitions(${PROJECT_NAME} PRIVATE EXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
-endif(${EXT_PREFIX_CLASS})
-
 
 # Installation
 install(TARGETS ${PROJECT_NAME} DESTINATION sbin/)
