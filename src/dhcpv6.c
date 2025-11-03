@@ -1742,7 +1742,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 			}
 
 			if (update_state) {
-				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0, 0))
+				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0))
 					updated_IAs++;
 
 				syslog(LOG_INFO, "%s/%d preferred %d valid %d",
@@ -1797,7 +1797,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 			}
 
 			if (update_state) {
-				if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0, 0))
+				if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0))
 					updated_IAs++;
 
 				syslog(LOG_INFO, "%s preferred %d valid %d",

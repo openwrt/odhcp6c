@@ -437,7 +437,7 @@ bool ra_process(void)
 		entry->valid = router_valid;
 		entry->preferred = entry->valid;
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
-						0, ra_holdoff_interval);
+						ra_holdoff_interval);
 
 		// Parse hop limit
 		changed |= ra_set_hoplimit(adv->nd_ra_curhoplimit);
@@ -478,8 +478,18 @@ bool ra_process(void)
 
 				if (entry->priority > 0)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
-									0, ra_holdoff_interval);
+									ra_holdoff_interval);
 			} else if (opt->type == ND_OPT_PREFIX_INFORMATION && opt->len == 4) {
+				/*
+				 * We implement draft-ietf-6man-slaac-renum-11 here:
+				 * https://datatracker.ietf.org/doc/html/draft-ietf-6man-slaac-renum-11#section-5.4
+				 *
+				 * This removes the two hour magic and instead just uses the new
+				 * data. If the lifetime is zero, then the prefix is removed.
+				 *
+				 * An entry with lifetime zero is added. odhcp6c_expire will remove
+				 * it again. odhcp6c_expire is called at the end of this function.
+				 */
 				struct nd_opt_prefix_info *pinfo = (struct nd_opt_prefix_info*)opt;
 				entry->router = any;
 				entry->target = pinfo->nd_opt_pi_prefix;
@@ -497,7 +507,7 @@ bool ra_process(void)
 				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) &&
 				    !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
-									7200, ra_holdoff_interval);
+									ra_holdoff_interval);
 
 				if (!(pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_AUTO) ||
 						pinfo->nd_opt_pi_prefix_len != 64)
@@ -507,7 +517,7 @@ bool ra_process(void)
 				entry->target.s6_addr32[3] = lladdr.s6_addr32[3];
 
 				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry,
-								7200, ra_holdoff_interval);
+								ra_holdoff_interval);
 			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
 				entry->router = from.sin6_addr;
 				entry->priority = 0;
@@ -520,7 +530,7 @@ bool ra_process(void)
 					memcpy(&entry->target, &opt->data[6 + i * sizeof(entry->target)],
 							sizeof(entry->target));
 					changed |= odhcp6c_update_entry(STATE_RA_DNS, entry,
-									0, ra_holdoff_interval);
+									ra_holdoff_interval);
 				}
 			} else if (opt->type == ND_OPT_DNSSL && opt->len > 1) {
 				uint32_t *valid = (uint32_t*)&opt->data[2];
@@ -542,7 +552,7 @@ bool ra_process(void)
 						continue;
 
 					changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry,
-									0, ra_holdoff_interval);
+									ra_holdoff_interval);
 					entry->auxlen = 0;
 				}
 			}

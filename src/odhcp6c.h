@@ -576,7 +576,7 @@ void* odhcp6c_get_state(enum odhcp6c_state state, size_t *len);
 
 // Entry manipulation
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
-				uint32_t safe, unsigned int holdoff_interval);
+				unsigned int holdoff_interval);
 
 void odhcp6c_expire(bool expire_ia_pd);
 uint32_t odhcp6c_elapsed(void);
