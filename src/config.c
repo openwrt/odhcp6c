@@ -59,11 +59,11 @@
  *
  */
 
-#include <string.h>
-#include <resolv.h>
-#include <limits.h>
 #include <arpa/inet.h>
+#include <limits.h>
+#include <resolv.h>
 #include <stdlib.h>
+#include <string.h>
 #include <syslog.h>
 
 #include "config.h"

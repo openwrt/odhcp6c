@@ -59,16 +59,17 @@
  *
  */
 
-#include <sys/types.h>
 #include <arpa/inet.h>
-#include <resolv.h>
-#include <stdio.h>
-#include <syslog.h>
 #include <inttypes.h>
 #include <libubox/blobmsg.h>
+#include <resolv.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <syslog.h>
 
-#include "ubus.h"
 #include "config.h"
+#include "odhcp6c.h"
+#include "ubus.h"
 
 #define CHECK(stmt) \
 	do { \

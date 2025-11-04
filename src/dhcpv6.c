@@ -13,32 +13,30 @@
  *
  */
 
-#include <time.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <inttypes.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <limits.h>
-#include <resolv.h>
-#include <string.h>
-#include <unistd.h>
-#include <syslog.h>
-#include <stdbool.h>
-#include <ctype.h>
-#include <sys/time.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
 #include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <libubox/md5.h>
+#include <limits.h>
 #include <netinet/in.h>
-
 #include <net/if.h>
 #include <net/ethernet.h>
+#include <resolv.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
 
-#include <libubox/md5.h>
 #include "config.h"
 #include "odhcp6c.h"
-
 
 #define ALL_DHCPV6_RELAYS {{{0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,\
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02}}}

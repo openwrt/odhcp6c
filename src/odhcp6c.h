@@ -12,10 +12,12 @@
  * GNU General Public License for more details.
  *
  */
+
 #pragma once
-#include <stdint.h>
-#include <stdbool.h>
+
 #include <netinet/in.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define _unused __attribute__((unused))
 #define _packed __attribute__((packed))

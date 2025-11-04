@@ -13,27 +13,28 @@
  *
  */
 
+#include <alloca.h>
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <signal.h>
-#include <string.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include <syslog.h>
-#include <unistd.h>
-#include <resolv.h>
-#include <alloca.h>
-
+#include <linux/rtnetlink.h>
 #include <net/if.h>
-#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/icmp6.h>
+#include <resolv.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <syslog.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <netinet/in.h>
-#include <netinet/icmp6.h>
+#include <unistd.h>
 
-#include <linux/rtnetlink.h>
+#include "odhcp6c.h"
+#include "ra.h"
 
 #ifndef SOL_NETLINK
 #define SOL_NETLINK 270
@@ -46,9 +47,6 @@
 #ifndef IFF_LOWER_UP
 #define IFF_LOWER_UP 0x10000
 #endif
-
-#include "odhcp6c.h"
-#include "ra.h"
 
 static bool nocarrier = false;
 static bool ptp_link = false;

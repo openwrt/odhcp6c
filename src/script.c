@@ -13,18 +13,18 @@
  *
  */
 
-#include <stdio.h>
+#include <arpa/inet.h>
+#include <inttypes.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <resolv.h>
+#include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
-#include <signal.h>
-#include <unistd.h>
-#include <inttypes.h>
-#include <arpa/inet.h>
 #include <sys/wait.h>
-#include <netinet/in.h>
+#include <unistd.h>
 
 #include "odhcp6c.h"
 

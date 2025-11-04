@@ -13,27 +13,26 @@
  *
  */
 
-#include <time.h>
-#include <errno.h>
+#include <arpa/inet.h>
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/if_addr.h>
+#include <net/if.h>
+#include <poll.h>
 #include <resolv.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stddef.h>
-#include <unistd.h>
-#include <syslog.h>
 #include <signal.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <stdbool.h>
-
-#include <net/if.h>
+#include <syslog.h>
 #include <sys/syscall.h>
-#include <poll.h>
-#include <arpa/inet.h>
-#include <linux/if_addr.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "config.h"
 #include "odhcp6c.h"
