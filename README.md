@@ -65,6 +65,7 @@ The script is called with the following parameters: `<interface>` `<state>`
 
 | Environment						| Description														|
 |-----------------------------------|-------------------------------------------------------------------|
+| `SERVER`							| A space-separated list of upstream IPv6 routers					|
 | `RDNSS`							| A space-separated list of recursive DNS servers					|
 | `DOMAINS`							| A space-separated list of DNS search domains						|
 | `SNTP_IP`							| A space-separated list of SNTP server IP addresses				|
@@ -72,6 +73,7 @@ The script is called with the following parameters: `<interface>` `<state>`
 | `SIP_IP`							| A space-separated list of SIP servers								|
 | `SIP_DOMAIN`						| A space-separated list of SIP domains								|
 | `OPTION_<num>`					| Custom option received as base-16									|
+| 									| E.g. (Client ID) `OPTION_1` : `000300010badf00dcafe`				|
 | `PREFIXES` 						| A space-separated list of prefixes currently assigned				|
 | 									|	Format: `<prefix>/<length>,preferred,valid[,excluded=<excluded-prefix>/<length>][,class=<prefix class #>]`|
 | `ADDRESSES`						| A space-separated list of addresses currently assigned			|
@@ -87,7 +89,9 @@ The script is called with the following parameters: `<interface>` `<state>`
 | `RA_REACHABLE`					| ND Reachability time												|
 | `RA_RETRANSMIT` 					| ND Retransmit time												|
 | `AFTR`							| The DS-Lite AFTR domain name										|
+| `CER`								| A space-separated list of CER-id IPv6								|
 | `MAPE` / `MAPT` / `LW4O6` 		| Softwire rules for MAPE, MAPT and LW4O6							|
+| `PASSTHRU` 						| The content of the last packet relayed							|
 
 
 
