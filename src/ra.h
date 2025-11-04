@@ -13,7 +13,8 @@
  *
  */
 
-#pragma once
+#ifndef _RA_H_
+#define _RA_H_
 
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -53,3 +54,5 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 		unsigned int options, unsigned int holdoff_interval);
 bool ra_link_up(void);
 bool ra_process(void);
+
+#endif /* _RA_H_ */

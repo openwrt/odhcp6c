@@ -13,7 +13,8 @@
  *
  */
 
-#pragma once
+#ifndef _ODHCP6C_H_
+#define _ODHCP6C_H_
 
 #include <netinet/in.h>
 #include <stdbool.h>
@@ -546,3 +547,5 @@ void odhcp6c_expire(bool expire_ia_pd);
 uint32_t odhcp6c_elapsed(void);
 struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code);
 struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name);
+
+#endif /* _ODHCP6C_H_ */
