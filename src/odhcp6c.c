@@ -41,7 +41,7 @@
 
 #define DHCPV6_FD_INDEX 0
 #define UBUS_FD_INDEX 1
- 
+
 #ifndef IN6_IS_ADDR_UNIQUELOCAL
 #define IN6_IS_ADDR_UNIQUELOCAL(a) \
 	((((__const uint32_t *) (a))[0] & htonl (0xfe000000)) \
@@ -495,7 +495,7 @@ int main(_unused int argc, char* const argv[])
 
 	while (!terminate) { // Main logic
 		int poll_res;
-		bool signalled = odhcp6c_signal_process(); 
+		bool signalled = odhcp6c_signal_process();
 
 		switch (dhcpv6_get_state()) {
 		case DHCPV6_INIT:
@@ -536,7 +536,7 @@ int main(_unused int argc, char* const argv[])
 			}
 
 			msg_type = DHCPV6_MSG_SOLICIT;
-			dhcpv6_send_request(msg_type);		
+			dhcpv6_send_request(msg_type);
 			break;
 
 		case DHCPV6_ADVERT:
@@ -586,18 +586,18 @@ int main(_unused int argc, char* const argv[])
 			msg_type = DHCPV6_MSG_UNKNOWN;
 			dhcpv6_send_request(msg_type);
 			break;
-		
+
 		case DHCPV6_BOUND_REPLY:
 			if (res == DHCPV6_MSG_RENEW || res == DHCPV6_MSG_REBIND ||
 				res == DHCPV6_MSG_INFO_REQ) {
 				msg_type = res;
-				dhcpv6_set_state(DHCPV6_RECONF);			
+				dhcpv6_set_state(DHCPV6_RECONF);
 			} else {
 				dhcpv6_set_state(DHCPV6_RECONF_REPLY);
 			}
 			break;
 
-		case DHCPV6_RECONF:	
+		case DHCPV6_RECONF:
 			dhcpv6_send_request(msg_type);
 			break;
 
@@ -610,12 +610,12 @@ int main(_unused int argc, char* const argv[])
 				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
 			}
 			break;
-		
+
 		case DHCPV6_RENEW:
 			msg_type = DHCPV6_MSG_RENEW;
 			dhcpv6_send_request(msg_type);
 			break;
-		
+
 		case DHCPV6_RENEW_REPLY:
 			if (res > 0 ) {
 				notify_state_change("updated", 0, false);
@@ -642,7 +642,7 @@ int main(_unused int argc, char* const argv[])
 			msg_type = DHCPV6_MSG_REBIND;
 			dhcpv6_send_request(msg_type);
 			break;
-		
+
 		case DHCPV6_REBIND_REPLY:
 			if (res < 0) {
 				dhcpv6_set_state(DHCPV6_RESET);
@@ -656,7 +656,7 @@ int main(_unused int argc, char* const argv[])
 			msg_type = DHCPV6_MSG_INFO_REQ;
 			dhcpv6_send_request(msg_type);
 			break;
-		
+
 		case DHCPV6_INFO_REPLY:
 			dhcpv6_set_state(res < 0 ? DHCPV6_RESET : DHCPV6_BOUND);
 			break;
@@ -674,7 +674,7 @@ int main(_unused int argc, char* const argv[])
 			if (signal_usr1)
 				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
 			break;
-		
+
 		case DHCPV6_RENEW_PROCESSING:
 		case DHCPV6_INFO_PROCESSING:
 			res = dhcpv6_state_processing(msg_type);
@@ -682,7 +682,7 @@ int main(_unused int argc, char* const argv[])
 			if (signal_usr1)
 				signal_usr1 = false;	// Acknowledged
 			break;
-		
+
 		case DHCPV6_EXIT:
 			odhcp6c_expire(false);
 

@@ -4,7 +4,7 @@
 update_resolv() {
 	local device="$1"
 	local dns="$2"
-	
+
 	(
 		flock 9
 		grep -v "#odhcp6c:$device:" /etc/resolv.conf > /tmp/resolv.conf.tmp
@@ -68,7 +68,7 @@ setup_interface () {
 		done
 
 		local prefix="{\"address\": \"$addr\", \"preferred\": $preferred, \"valid\": $valid $class $excluded}"
-		
+
 		if [ -z "$prefixpart" ]; then
 			prefixpart="$prefix"
 		else
@@ -100,7 +100,7 @@ setup_interface () {
 		entry="${entry#*,}"
 		local valid="${entry%%,*}"
 
-		ip -6 address add "$addr" dev "$device" preferred_lft "$preferred" valid_lft "$valid" 
+		ip -6 address add "$addr" dev "$device" preferred_lft "$preferred" valid_lft "$valid"
 	done
 
 	for entry in $RA_ROUTES; do

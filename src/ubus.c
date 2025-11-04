@@ -179,7 +179,7 @@ static struct ubus_method odhcp6c_object_methods[] = {
 	UBUS_METHOD_NOARG("release", ubus_handle_release),
 };
 
-static struct ubus_object_type odhcp6c_object_type = 
+static struct ubus_object_type odhcp6c_object_type =
 	UBUS_OBJECT_TYPE("odhcp6c", odhcp6c_object_methods);
 
 static struct ubus_object odhcp6c_object = {
@@ -200,7 +200,7 @@ static void ubus_disconnect_cb(struct ubus_context *ubus)
 	}
 }
 
-char *ubus_init(const char* interface) 
+char *ubus_init(const char* interface)
 {
 	int ret = 0;
 
@@ -209,7 +209,7 @@ char *ubus_init(const char* interface)
 
 	snprintf(ubus_name, 24, "odhcp6c.%s", interface);
 	odhcp6c_object.name = ubus_name;
-	
+
 	ret = ubus_add_object(ubus, &odhcp6c_object);
 	if (ret) {
 		ubus_destroy(ubus);
@@ -228,7 +228,7 @@ struct ubus_context *ubus_get_ctx(void)
 void ubus_destroy(struct ubus_context *ubus)
 {
 	syslog(LOG_NOTICE, "Disconnecting from ubus");
-	
+
 	if (ubus != NULL)
 		ubus_free(ubus);
 	ubus = NULL;
@@ -242,7 +242,7 @@ static int ipv6_to_blob(const char *name,
 		const struct in6_addr *addr, size_t cnt)
 {
 	void *arr = blobmsg_open_array(&b, name);
-	
+
 	for (size_t i = 0; i < cnt; ++i) {
 		char *buf = blobmsg_alloc_string_buffer(&b, NULL, INET6_ADDRSTRLEN);
 		CHECK_ALLOC(buf);
@@ -371,7 +371,7 @@ static int search_to_blob(const char *name, const uint8_t *start, size_t len)
 				e = odhcp6c_next_entry(e)) {
 		if (!e->valid)
 			continue;
-		
+
 		buf = blobmsg_alloc_string_buffer(&b, NULL, e->auxlen+1);
 		CHECK_ALLOC(buf);
 		buf = mempcpy(buf, e->auxtarget, e->auxlen);
@@ -590,7 +590,7 @@ static int states_to_blob(void)
 	blobmsg_add_u32(&b, "RA_MTU", ra_get_mtu());
 	blobmsg_add_u32(&b, "RA_REACHABLE", ra_get_reachable());
 	blobmsg_add_u32(&b, "RA_RETRANSMIT", ra_get_retransmit());
-	
+
 	buf = blobmsg_alloc_string_buffer(&b, "PASSTHRU", passthru_len * 2);
 	CHECK_ALLOC(buf);
 	script_hexlify(buf, passthru, passthru_len);

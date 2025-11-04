@@ -318,7 +318,7 @@ bool config_set_auth_token(const char* token)
 	free(config_dhcp.auth_token);
 
 	config_dhcp.auth_token = strdup(token);
-	return config_dhcp.auth_token != NULL; 
+	return config_dhcp.auth_token != NULL;
 }
 
 static int config_parse_opt_u8(const char *src, uint8_t **dst)

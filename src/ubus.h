@@ -68,7 +68,7 @@
 
 char *ubus_init(const char* interface);
 struct ubus_context *ubus_get_ctx(void);
-void ubus_destroy(struct ubus_context *ubus); 
+void ubus_destroy(struct ubus_context *ubus);
 int ubus_dhcp_event(const char *status);
 
 #endif /* _UBUS_H_ */

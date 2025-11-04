@@ -1058,7 +1058,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		} else if (otype == DHCPV6_OPT_AUTH) {
 			struct dhcpv6_auth *r = (void*)&odata[-4];
 			if (auth_present) {
-				options_valid = false;		
+				options_valid = false;
 				continue;
 			}
 
@@ -2014,7 +2014,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 				retx->delay_msec = 0;
 			}
 		}
-		
+
 		retx->is_retransmit = true;
 		retx->rc = 0;
 		retx->timeout = UINT32_MAX;
@@ -2082,7 +2082,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 		dhcpv6_send(type, retx->tr_id, elapsed / 10);
 		retx->rc++;
 	}
-	
+
 	if (dhcpv6_get_state() != DHCPV6_EXIT)
 		dhcpv6_next_state();
 
@@ -2167,7 +2167,7 @@ int dhcpv6_state_processing(enum dhcpv6_msg type)
 	if (retx->round_start >= retx->round_end || ret >=0 ) {
 		if (retx->handler_finish)
 			ret = retx->handler_finish();
-		
+
 		if (ret < 0 && ((retx->timeout == UINT32_MAX) || (elapsed / 1000 < retx->timeout)) &&
 			(!retx->max_rc || retx->rc < retx->max_rc)) {
 				retx->reply_ret = -1;
