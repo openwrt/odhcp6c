@@ -1626,13 +1626,13 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 			bool update_state = true;
 			dhcpv6_for_each_option(odata + sizeof(*prefix) - 4U,
 					odata + olen, stype, slen, sdata) {
-				if (stype == DHCPV6_OPT_STATUS && slen > 2) {
+				if (stype == DHCPV6_OPT_STATUS && slen >= 2) {
 					/* RFC 8415 §21.22
 					The status of any operations involving this IA Prefix option is
 					indicated in a Status Code option (see Section 21.13) in the
 					IAprefix-options field. */
-					uint8_t *status_msg = &sdata[2];
-					uint16_t msg_len = slen - 2;
+					uint8_t *status_msg = (slen > 2) ? &sdata[2] : NULL;
+					uint16_t msg_len = (slen > 2) ? slen - 2 : 0;
 					uint16_t code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
 					if (code == DHCPV6_Success)
@@ -1709,13 +1709,13 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 			bool update_state = true;
 			dhcpv6_for_each_option(odata + sizeof(*addr) - 4U,
 					odata + olen, stype, slen, sdata) {
-				if (stype == DHCPV6_OPT_STATUS && slen > 2) {
+				if (stype == DHCPV6_OPT_STATUS && slen >= 2) {
 					/* RFC 8415 §21.6
 					The status of any operations involving this IA Address is indicated
 					in a Status Code option in the IAaddr-options field, as specified in
 					Section 21.13. */
-					uint8_t *status_msg = &sdata[2];
-					uint16_t msg_len = slen - 2;
+					uint8_t *status_msg = (slen > 2) ? &sdata[2] : NULL;
+					uint16_t msg_len = (slen > 2) ? slen - 2 : 0;
 					uint16_t code = ((int)sdata[0]) << 8 | ((int)sdata[1]);
 
 					if (code == DHCPV6_Success)
