@@ -95,3 +95,66 @@ The script is called with the following parameters: `<interface>` `<state>`
 
 
 
+## Ubus Integration
+
+Build with `ENABLE_UBUS` flag to connect odhcp6c to ubus. Object is registered at : `odhcp6c.{ifname}`.
+
+Events are emitted whenever the DHCPv6 state changes and can replace the use of a state script. The variables are the same as those defined in the State Script section.
+
+The following RPC methods are available:
+
+
+| Method							| I/O		| Description														|
+|-----------------------------------|-----------|-------------------------------------------------------------------|
+| `get_state()`						| Output	| Returns the DHCPv6 state											|
+|									| 			| OUT : see State Script section									|
+| `get_statistics()`				| Output	| Returns the packet statistics										|
+|									| 			| `dhcp_solicit` : Total number of SOLICIT messages sent			|
+|									| 			| `dhcp_advertise` : Total number of ADVERTISE messages received	|
+|									| 			| `dhcp_request` : Total number of REQUEST messages sent			|
+|									| 			| `dhcp_confirm` : Total number of CONFIRM messages sent			|
+|									| 			| `dhcp_renew` : Total number of RENEW messages sent				|
+|									| 			| `dhcp_rebind` : Total number of REBIND messages sent				|
+|									| 			| `dhcp_reply` : Total number of REPLY messages received			|
+|									| 			| `dhcp_release` : Total number of RELEASE messages sent			|
+|									| 			| `dhcp_decline` : Total number of DECLINE messages sent			|
+|									| 			| `dhcp_reconfigure` : Total number of RECONFIGURE messages received	|
+|									| 			| `dhcp_information_request` : Total number of INFORMATION-REQUEST messages sent	|
+|									| 			| `dhcp_discarded_packets` : Total number of discarded DHCP packets 	|
+|									| 			| `dhcp_transmit_failures` : Total number of DHCP messages that failed to be transmitted	|
+| `reset_statistics()`				| Input		| Reset packet statistics											|
+| `reconfigure_dhcp({...})`			| Input		| Reconfigure DHCP settings											|
+|									| 			| `dscp` (int) : DSCP value used for DHCP packets					|
+|									| 			| `release` (bool) : Send a RELEASE message on exit/reset			|
+|									| 			| `sol_timeout` (int) : Maximum timeout for DHCPv6-SOLICIT			|
+|									| 			| `sk_prio` (int) : Packet kernel priority							|
+|									| 			| `opt_requested` (int[]) : Options to be requested					|
+|									| 			| `opt_strict` (bool) : Do not request any options except those specified	|
+|									| 			| `opt_reconfigure` (bool) : Send Accept Reconfigure option			|
+|									| 			| `opt_fqdn` (bool) : Send Client FQDN option						|
+|									| 			| `opt_unicast` (bool) : Ignore Server Unicast option				|
+|									| 			| `opt_send` (string[]) : Options to be sent						|
+|									| 			| `req_addresses` (string{`try|force|none`}) : Request addresses	|
+|									| 			| `req_prefixes` (int) : Request Prefixes (0 = auto)				|
+|									| 			| `stateful_only` (bool) : Discard advertisements without any address or prefix proposed	|
+|									| 			| `irt_default` (int) : Default information refresh time (expressed in seconds)		|
+|									| 			| `irt_min` (int) : Minimum information refresh time (expressed in seconds)			|
+|									| 			| `rand_factor` (int) : Randomization factor for retransmission timeout				|
+|									| 			| `auth_protocol` (string) : Authentication protocol to be used (`None`,`ConfigurationToken`, `ReconfigureKeyAuthentication`)|
+|									| 			| `auth_token` (string) : Authentication token to be used when AuthenticationProtocol is set to `ConfigurationToken`|
+|									| 			| `msg_solicit` (table) : Retransmission settings for SOLICIT				|
+|									| 			| `msg_request` (table) : Retransmission settings for REQUEST				|
+|									| 			| `msg_renew` (table) : Retransmission settings for RENEW					|
+|									| 			| `msg_rebind` (table) : Retransmission settings for REBIND					|
+|									| 			| `msg_release` (table) : Retransmission settings for RELEASE				|
+|									| 			| `msg_decline` (table) : Retransmission settings for DECLINE				|
+|									| 			| `msg_inforeq` (table) : Retransmission settings for INFORMATION-REQUEST	|
+|									| 			| 																			|
+|									| 			| Input arguments for Retransmission settings :								|
+|									| 			| `delay_max` (int) : Maximum delay of first message (expressed in seconds)	|
+|									| 			| `timeout_init` (int) : Initial message timeout (expressed in seconds)		|
+|									| 			| `timeout_max` (int) : Initial message timeout (expressed in seconds)		|
+|									| 			| `rc_max` (int) : Maximum message retry attempts							|
+| `renew()`							| Input		| Force transmission of RENEW/INFORMATION-REQUEST messages 					|
+| `release()`						| Input		| Force transmission of RELEASE message and start new cycle					|
+
