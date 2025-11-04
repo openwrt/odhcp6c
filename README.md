@@ -153,7 +153,7 @@ The following RPC methods are available:
 |									| 			| Input arguments for Retransmission settings :								|
 |									| 			| `delay_max` (int) : Maximum delay of first message (expressed in seconds)	|
 |									| 			| `timeout_init` (int) : Initial message timeout (expressed in seconds)		|
-|									| 			| `timeout_max` (int) : Initial message timeout (expressed in seconds)		|
+|									| 			| `timeout_max` (int) : Maximum message timeout (expressed in seconds)		|
 |									| 			| `rc_max` (int) : Maximum message retry attempts							|
 | `renew()`							| Input		| Force transmission of RENEW/INFORMATION-REQUEST messages 					|
 | `release()`						| Input		| Force transmission of RELEASE message and start new cycle					|
