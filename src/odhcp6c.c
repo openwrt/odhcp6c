@@ -219,8 +219,9 @@ int main(_unused int argc, char* const argv[])
 
 					help = true;
 				}
-			} else
+			} else {
 				help = true;
+			}
 
 			free(o_data);
 			break;
@@ -243,8 +244,9 @@ int main(_unused int argc, char* const argv[])
 					return 1;
 				}
 				optpos++;
-			} else
+			} else {
 				optpos = optarg;
+			}
 
 			char *iaid_begin;
 			int iaid_len = 0;
@@ -283,8 +285,9 @@ int main(_unused int argc, char* const argv[])
 					syslog(LOG_ERR, "Failed to override client-ID");
 					return 1;
 				}
-			} else
+			} else {
 				help = true;
+			}
 			break;
 
 		case 'i':
@@ -330,8 +333,9 @@ int main(_unused int argc, char* const argv[])
 
 					help = true;
 				}
-			} else
+			} else {
 				help = true;
+			}
 
 			free(o_data);
 			break;
@@ -1000,8 +1004,9 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 		x->t1 = new->t1;
 		x->t2 = new->t2;
 		x->iaid = new->iaid;
-	} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new)))
+	} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new))) {
 		return false;
+	}
 
 	return true;
 }
@@ -1038,8 +1043,9 @@ static void odhcp6c_expire_list(enum odhcp6c_state state, uint32_t elapsed, bool
 		if (!c->valid && remove_expired) {
 			odhcp6c_remove_state(state, ((uint8_t*)c) - start, odhcp6c_entry_size(c));
 			start = odhcp6c_get_state(state, &len);
-		} else
+		} else {
 			c = odhcp6c_next_entry(c);
+		}
 	}
 }
 
