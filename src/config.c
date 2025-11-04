@@ -1,5 +1,4 @@
 /**
- *
  * SPDX-License-Identifier: BSD-2-Clause-Patent
  *
  * SPDX-FileCopyrightText: Copyright (c) 2024 SoftAtHome
@@ -59,6 +58,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  */
+
 #include <string.h>
 #include <resolv.h>
 #include <limits.h>
