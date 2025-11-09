@@ -163,7 +163,7 @@ static struct odhcp6c_opt opts[] = {
 	{ .code = 0, .flags = 0, .str = NULL },
 };
 
-int main(_unused int argc, char* const argv[])
+int main(_o_unused int argc, char* const argv[])
 {
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	// Allocate resources

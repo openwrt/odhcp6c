@@ -599,9 +599,9 @@ static int states_to_blob(void)
 	return UBUS_STATUS_OK;
 }
 
-static int ubus_handle_get_stats(struct ubus_context *ctx, _unused struct ubus_object *obj,
-		struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int ubus_handle_get_stats(struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	struct dhcpv6_stats stats = dhcpv6_get_stats();
 
@@ -626,18 +626,18 @@ static int ubus_handle_get_stats(struct ubus_context *ctx, _unused struct ubus_o
 	return UBUS_STATUS_OK;
 }
 
-static int ubus_handle_reset_stats(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int ubus_handle_reset_stats(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	dhcpv6_reset_stats();
 
 	return UBUS_STATUS_OK;
 }
 
-static int ubus_handle_get_state(struct ubus_context *ctx, _unused struct ubus_object *obj,
-		struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int ubus_handle_get_state(struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	CHECK(states_to_blob());
 	CHECK(ubus_send_reply(ctx, req, b.head));
@@ -684,8 +684,8 @@ static int ubus_handle_reconfigure_dhcp_rtx(enum config_dhcp_msg msg, struct blo
 	return UBUS_STATUS_OK;
 }
 
-static int ubus_handle_reconfigure_dhcp(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
+static int ubus_handle_reconfigure_dhcp(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
 		struct blob_attr *msg)
 {
 	const struct blobmsg_policy *policy = reconfigure_dhcp_policy;
@@ -933,17 +933,17 @@ static int ubus_handle_reconfigure_dhcp(_unused struct ubus_context *ctx, _unuse
 	return valid_args ? UBUS_STATUS_OK : UBUS_STATUS_INVALID_ARGUMENT;
 }
 
-static int ubus_handle_renew(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int ubus_handle_renew(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	raise(SIGUSR1);
 	return UBUS_STATUS_OK;
 }
 
-static int ubus_handle_release(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int ubus_handle_release(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	raise(SIGUSR2);
 	return UBUS_STATUS_OK;

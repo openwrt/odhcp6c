@@ -56,7 +56,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret);
 
 static unsigned int dhcpv6_calc_refresh_timers(void);
-static void dhcpv6_handle_status_code(_unused const enum dhcpv6_msg orig,
+static void dhcpv6_handle_status_code(_o_unused const enum dhcpv6_msg orig,
 		const uint16_t code, const void *status_msg, const int len,
 		int *ret);
 static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
@@ -1135,7 +1135,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 }
 
 static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
+		const void *opt, const void *end, _o_unused const struct sockaddr_in6 *from)
 {
 	uint16_t otype, olen;
 	uint8_t *odata;
@@ -1172,7 +1172,7 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 
 // Collect all advertised servers
 static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end, _unused const struct sockaddr_in6 *from)
+		const void *opt, const void *end, _o_unused const struct sockaddr_in6 *from)
 {
 	uint16_t olen, otype;
 	uint8_t *odata, pref = 0;
@@ -1288,7 +1288,7 @@ static int dhcpv6_handle_rebind_reply(enum dhcpv6_msg orig, const int rc,
 	return dhcpv6_handle_reply(orig, rc, opt, end, from);
 }
 
-static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _unused const int rc,
+static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 		const void *opt, const void *end, const struct sockaddr_in6 *from)
 {
 	uint8_t *odata;

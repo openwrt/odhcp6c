@@ -20,9 +20,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define _unused __attribute__((unused))
-#define _packed __attribute__((packed))
-#define _aligned(n) __attribute__((aligned(n)))
+#define _o_unused __attribute__((unused))
+#define _o_packed __attribute__((packed))
+#define _o_aligned(n) __attribute__((aligned(n)))
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
@@ -256,7 +256,7 @@ struct dhcpv6_ia_hdr {
 	uint32_t iaid;
 	uint32_t t1;
 	uint32_t t2;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_ia_addr {
 	uint16_t type;
@@ -264,7 +264,7 @@ struct dhcpv6_ia_addr {
 	struct in6_addr addr;
 	uint32_t preferred;
 	uint32_t valid;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_ia_prefix {
 	uint16_t type;
@@ -273,14 +273,14 @@ struct dhcpv6_ia_prefix {
 	uint32_t valid;
 	uint8_t prefix;
 	struct in6_addr addr;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_duid {
 	uint16_t type;
 	uint16_t len;
 	uint16_t duid_type;
 	uint8_t data[128];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_auth {
 	uint16_t type;
@@ -290,35 +290,35 @@ struct dhcpv6_auth {
 	uint8_t rdm;
 	uint64_t replay;
 	uint8_t data[];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_auth_reconfigure {
 	uint8_t reconf_type;
 	uint8_t key[16];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_cer_id {
 	uint16_t type;
 	uint16_t len;
 	struct in6_addr addr;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_s46_portparams {
 	uint8_t offset;
 	uint8_t psid_len;
 	uint16_t psid;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_s46_v4v6bind {
 	struct in_addr ipv4_address;
 	uint8_t bindprefix6_len;
 	uint8_t bind_ipv6_prefix[];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_s46_dmr {
 	uint8_t dmr_prefix6_len;
 	uint8_t dmr_ipv6_prefix[];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_s46_rule {
 	uint8_t flags;
@@ -327,7 +327,7 @@ struct dhcpv6_s46_rule {
 	struct in_addr ipv4_prefix;
 	uint8_t prefix6_len;
 	uint8_t ipv6_prefix[];
-} _packed;
+} _o_packed;
 
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\
