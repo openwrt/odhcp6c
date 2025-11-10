@@ -321,7 +321,7 @@ static int entry_to_blob(const char *name, const void *data, size_t len, enum en
 		blobmsg_add_string_buffer(&b);
 
 		if (type != ENTRY_HOST) {
-			blobmsg_add_u8(&b, "length", e[i].length);
+			blobmsg_add_u32(&b, "length", e[i].length);
 			if (type == ENTRY_ROUTE) {
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
 					buf = blobmsg_alloc_string_buffer(&b, "router", INET6_ADDRSTRLEN);
@@ -331,7 +331,7 @@ static int entry_to_blob(const char *name, const void *data, size_t len, enum en
 				}
 
 				blobmsg_add_u32(&b, "valid", e[i].valid);
-				blobmsg_add_u16(&b, "priority", e[i].priority);
+				blobmsg_add_u32(&b, "priority", e[i].priority);
 			} else {
 				blobmsg_add_u32(&b, "valid", e[i].valid);
 				blobmsg_add_u32(&b, "preferred", e[i].preferred);
@@ -349,7 +349,7 @@ static int entry_to_blob(const char *name, const void *data, size_t len, enum en
 				CHECK_ALLOC(buf);
 				inet_ntop(AF_INET6, &e[i].router, buf, INET6_ADDRSTRLEN);
 				blobmsg_add_string_buffer(&b);
-				blobmsg_add_u16(&b, "excluded_length", e[i].priority);
+				blobmsg_add_u32(&b, "excluded_length", e[i].priority);
 			}
 		}
 
@@ -392,9 +392,9 @@ static int s46_to_blob_portparams(const uint8_t *data, size_t len)
 		if (otype == DHCPV6_OPT_S46_PORTPARAMS &&
 				olen == sizeof(struct dhcpv6_s46_portparams)) {
 			struct dhcpv6_s46_portparams *params = (void*)odata;
-			blobmsg_add_u8(&b, "offset", params->offset);
-			blobmsg_add_u8(&b, "psidlen", params->psid_len);
-			blobmsg_add_u16(&b, "psid", ntohs(params->psid));
+			blobmsg_add_u32(&b, "offset", params->offset);
+			blobmsg_add_u32(&b, "psidlen", params->psid_len);
+			blobmsg_add_u32(&b, "psid", ntohs(params->psid));
 		}
 	}
 	return UBUS_STATUS_OK;
@@ -446,11 +446,11 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 			inet_ntop(AF_INET6, &in6, buf, INET6_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
 
-			blobmsg_add_u8(&b, "fmr", rule->flags);
+			blobmsg_add_u32(&b, "fmr", rule->flags);
 			blobmsg_add_string(&b, "type", type);
-			blobmsg_add_u8(&b, "ealen", rule->ea_len);
-			blobmsg_add_u8(&b, "prefix4len", rule->prefix4_len);
-			blobmsg_add_u8(&b, "prefix6len", rule->prefix6_len);
+			blobmsg_add_u32(&b, "ealen", rule->ea_len);
+			blobmsg_add_u32(&b, "prefix4len", rule->prefix4_len);
+			blobmsg_add_u32(&b, "prefix6len", rule->prefix6_len);
 
 			s46_to_blob_portparams(&rule->ipv6_prefix[prefix6len],
 					olen - sizeof(*rule) - prefix6len);
@@ -477,7 +477,7 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 					CHECK_ALLOC(buf);
 					inet_ntop(AF_INET6, &in6, buf, INET6_ADDRSTRLEN);
 					blobmsg_add_string_buffer(&b);
-					blobmsg_add_u8(&b, "dmrprefix6len", dmr->dmr_prefix6_len);
+					blobmsg_add_u32(&b, "dmrprefix6len", dmr->dmr_prefix6_len);
 				}
 			}
 		} else if (state == STATE_S46_LW && otype == DHCPV6_OPT_S46_V4V6BIND &&
@@ -504,8 +504,8 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_string(&b, "type", type);
-			blobmsg_add_u8(&b, "prefix4len", 32);
-			blobmsg_add_u8(&b, "prefix6len", bind->bindprefix6_len);
+			blobmsg_add_u32(&b, "prefix4len", 32);
+			blobmsg_add_u32(&b, "prefix6len", bind->bindprefix6_len);
 
 			s46_to_blob_portparams(&bind->bind_ipv6_prefix[prefix6len],
 					olen - sizeof(*bind) - prefix6len);
