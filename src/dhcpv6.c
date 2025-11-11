@@ -1188,51 +1188,78 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr), NULL);
 		}
 
-		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
-			memcpy(cand.duid, odata, olen);
-			cand.duid_len = olen;
-		} else if (otype == DHCPV6_OPT_PREF && olen >= 1 &&
-				cand.preference >= 0) {
-			cand.preference = pref = odata[0];
-		} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(cand.server_addr)) {
-			if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST))
+		switch (otype) {
+		case DHCPV6_OPT_SERVERID:
+			if (olen <= 130) {
+				memcpy(cand.duid, odata, olen);
+				cand.duid_len = olen;
+			}
+			break;
+
+		case DHCPV6_OPT_PREF:
+			if (olen >= 1 && cand.preference >= 0)
+				cand.preference = pref = odata[0];
+			break;
+
+		case DHCPV6_OPT_UNICAST:
+			if (olen == sizeof(cand.server_addr) &&
+			    !(client_options & DHCPV6_IGNORE_OPT_UNICAST))
 				cand.server_addr = *(struct in6_addr *)odata;
+			break;
 
-		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
+		case DHCPV6_OPT_RECONF_ACCEPT:
 			cand.wants_reconfigure = true;
-		} else if (otype == DHCPV6_OPT_SOL_MAX_RT && olen == 4) {
-			uint32_t sol_max_rt = ntohl_unaligned(odata);
-			if (sol_max_rt >= DHCPV6_SOL_MAX_RT_MIN &&
-					sol_max_rt <= DHCPV6_SOL_MAX_RT_MAX)
-				cand.sol_max_rt = sol_max_rt;
+			break;
 
-		} else if (otype == DHCPV6_OPT_INF_MAX_RT && olen == 4) {
-			uint32_t inf_max_rt = ntohl_unaligned(odata);
-			if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
-					inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
-				cand.inf_max_rt = inf_max_rt;
+		case DHCPV6_OPT_SOL_MAX_RT:
+			if (olen == 4) {
+				uint32_t sol_max_rt = ntohl_unaligned(odata);
+				if (sol_max_rt >= DHCPV6_SOL_MAX_RT_MIN &&
+				    sol_max_rt <= DHCPV6_SOL_MAX_RT_MAX)
+					cand.sol_max_rt = sol_max_rt;
+			}
+			break;
 
-		} else if (otype == DHCPV6_OPT_IA_PD &&
-					olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
-			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
-			uint8_t *oend = odata + olen, *d;
-			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
-				if (otype == DHCPV6_OPT_IA_PREFIX &&
-						olen >= -4 + sizeof(struct dhcpv6_ia_prefix)) {
-					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&d[-4];
-					have_pd = p->prefix;
+		case DHCPV6_OPT_INF_MAX_RT:
+			if (olen == 4) {
+				uint32_t inf_max_rt = ntohl_unaligned(odata);
+				if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
+				    inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
+					cand.inf_max_rt = inf_max_rt;
+			}
+			break;
+
+		case DHCPV6_OPT_IA_PD:
+			if (olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
+				struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr *)&odata[-4];
+				uint8_t *oend = odata + olen, *d;
+
+				dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
+					if (otype == DHCPV6_OPT_IA_PREFIX &&
+					    olen >= -4 + sizeof(struct dhcpv6_ia_prefix)) {
+						struct dhcpv6_ia_prefix *p =
+							(struct dhcpv6_ia_prefix *)&d[-4];
+						have_pd = p->prefix;
+					}
 				}
 			}
-		} else if (otype == DHCPV6_OPT_IA_NA &&
-					olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
-			struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr*)&odata[-4];
-			uint8_t *oend = odata + olen, *d;
+			break;
 
-			dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
-				if (otype == DHCPV6_OPT_IA_ADDR &&
-						olen >= -4 + sizeof(struct dhcpv6_ia_addr))
-					have_na = true;
+		case DHCPV6_OPT_IA_NA:
+			if (olen >= -4 + sizeof(struct dhcpv6_ia_hdr)) {
+				struct dhcpv6_ia_hdr *h = (struct dhcpv6_ia_hdr *)&odata[-4];
+				uint8_t *oend = odata + olen, *d;
+
+				dhcpv6_for_each_option(&h[1], oend, otype, olen, d) {
+					if (otype == DHCPV6_OPT_IA_ADDR &&
+					    olen >= -4 + sizeof(struct dhcpv6_ia_addr))
+						have_na = true;
+				}
 			}
+			break;
+
+		default:
+			break;
 		}
 	}
 
