@@ -50,7 +50,7 @@
 #define DHCPV6_INF_MAX_RT_MAX 86400
 
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
-		const uint8_t transaction[3], enum dhcpv6_msg type,
+		const uint8_t transaction[3], enum dhcpv6_msg req_msg_type,
 		const struct in6_addr *daddr);
 
 static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret);
@@ -691,7 +691,7 @@ int dhcpv6_get_ia_mode(void)
 	return mode;
 }
 
-static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
+static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t ecs)
 {
 	// Build FQDN
 	char fqdn_buf[256];
@@ -722,7 +722,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	struct odhcp6c_entry *pd_entries = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entry_cnt);
 	ia_pd_entry_cnt /= sizeof(*pd_entries);
 
-	if (type == DHCPV6_MSG_SOLICIT || (type == DHCPV6_MSG_REQUEST && ia_pd_entry_cnt == 0 && pd_mode != IA_MODE_NONE)) {
+	if (req_msg_type == DHCPV6_MSG_SOLICIT || (req_msg_type == DHCPV6_MSG_REQUEST && ia_pd_entry_cnt == 0 && pd_mode != IA_MODE_NONE)) {
 		odhcp6c_clear_state(STATE_IA_PD);
 		size_t n_prefixes;
 		struct odhcp6c_request_prefix *request_prefixes = odhcp6c_get_state(STATE_IA_PD_INIT, &n_prefixes);
@@ -797,7 +797,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 					.addr = pd_entries[j].target
 				};
 
-				if (type == DHCPV6_MSG_REQUEST) {
+				if (req_msg_type == DHCPV6_MSG_REQUEST) {
 					p.preferred = htonl(pd_entries[j].preferred);
 					p.valid = htonl(pd_entries[j].valid);
 				}
@@ -847,7 +847,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		ia_na_array[i].len = htons(sizeof(ia_na_array[i]) - DHCPV6_OPT_HDR_SIZE_U);
 		ia_na_array[i].addr = ia_entries[i].target;
 
-		if (type == DHCPV6_MSG_REQUEST) {
+		if (req_msg_type == DHCPV6_MSG_REQUEST) {
 			ia_na_array[i].preferred = htonl(ia_entries[i].preferred);
 			ia_na_array[i].valid = htonl(ia_entries[i].valid);
 		} else {
@@ -884,13 +884,13 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 			if (!(opt->flags & OPT_ORO))
 				continue;
 
-			if ((opt->flags & OPT_ORO_SOLICIT) && type != DHCPV6_MSG_SOLICIT)
+			if ((opt->flags & OPT_ORO_SOLICIT) && req_msg_type != DHCPV6_MSG_SOLICIT)
 				continue;
 
-			if ((opt->flags & OPT_ORO_STATELESS) && type != DHCPV6_MSG_INFO_REQ)
+			if ((opt->flags & OPT_ORO_STATELESS) && req_msg_type != DHCPV6_MSG_INFO_REQ)
 				continue;
 
-			if ((opt->flags & OPT_ORO_STATEFUL) && type == DHCPV6_MSG_INFO_REQ)
+			if ((opt->flags & OPT_ORO_STATEFUL) && req_msg_type == DHCPV6_MSG_INFO_REQ)
 				continue;
 		}
 
@@ -908,7 +908,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		uint16_t oro_type;
 		uint16_t oro_len;
 	} hdr = {
-		type, {trid[0], trid[1], trid[2]},
+		req_msg_type, {trid[0], trid[1], trid[2]},
 		htons(DHCPV6_OPT_ELAPSED), htons(2),
 			htons((ecs > 0xffff) ? 0xffff : ecs),
 		htons(DHCPV6_OPT_ORO), htons(oro_len),
@@ -928,24 +928,24 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	};
 
 	size_t cnt = IOV_TOTAL;
-	if (type == DHCPV6_MSG_INFO_REQ)
+	if (req_msg_type == DHCPV6_MSG_INFO_REQ)
 		cnt = IOV_HDR_IA_NA;
 
 	// Disable IAs if not used
-	if (type != DHCPV6_MSG_SOLICIT && type != DHCPV6_MSG_REQUEST && ia_na_len == 0)
+	if (req_msg_type != DHCPV6_MSG_SOLICIT && req_msg_type != DHCPV6_MSG_REQUEST && ia_na_len == 0)
 		iov[IOV_HDR_IA_NA].iov_len = 0;
 
 	if (na_mode == IA_MODE_NONE)
 		iov[IOV_HDR_IA_NA].iov_len = 0;
 
-	if ((type != DHCPV6_MSG_SOLICIT && type != DHCPV6_MSG_REQUEST) ||
+	if ((req_msg_type != DHCPV6_MSG_SOLICIT && req_msg_type != DHCPV6_MSG_REQUEST) ||
 			!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
 		iov[IOV_RECONF_ACCEPT].iov_len = 0;
 
 	if (!(client_options & DHCPV6_CLIENT_FQDN)) {
 		iov[IOV_FQDN].iov_len = 0;
 	} else {
-		switch (type) {
+		switch (req_msg_type) {
 		/*  RFC4704 §5
 			A client MUST only include the Client FQDN option in SOLICIT,
 			REQUEST, RENEW, or REBIND messages.
@@ -974,7 +974,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 	struct msghdr msg = {.msg_name = &srv, .msg_namelen = sizeof(srv),
 			.msg_iov = iov, .msg_iovlen = cnt};
 
-	switch (type) {
+	switch (req_msg_type) {
 	case DHCPV6_MSG_REQUEST:
 	case DHCPV6_MSG_RENEW:
 	case DHCPV6_MSG_RELEASE:
@@ -994,12 +994,12 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		char in6_str[INET6_ADDRSTRLEN];
 
 		syslog(LOG_ERR, "Failed to send %s message to %s (%s)",
-			dhcpv6_msg_to_str(type),
+			dhcpv6_msg_to_str(req_msg_type),
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
 				in6_str, sizeof(in6_str)), strerror(errno));
 		dhcpv6_stats.transmit_failures++;
 	} else {
-		dhcpv6_inc_counter(type);
+		dhcpv6_inc_counter(req_msg_type);
 	}
 }
 
@@ -1013,7 +1013,7 @@ static int64_t dhcpv6_rand_delay(int64_t time)
 
 // Message validation checks according to RFC3315 chapter 15
 static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
-		const uint8_t transaction[3], enum dhcpv6_msg type,
+		const uint8_t transaction[3], enum dhcpv6_msg req_msg_type,
 		const struct in6_addr *daddr)
 {
 	const struct dhcpv6_header *response_buf = buf;
@@ -1021,11 +1021,11 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			transaction, sizeof(response_buf->tr_id)))
 		return false; // Invalid reply
 
-	if (type == DHCPV6_MSG_SOLICIT) {
+	if (req_msg_type == DHCPV6_MSG_SOLICIT) {
 		if (response_buf->msg_type != DHCPV6_MSG_ADVERT &&
 				response_buf->msg_type != DHCPV6_MSG_REPLY)
 			return false;
-	} else if (type == DHCPV6_MSG_UNKNOWN) {
+	} else if (req_msg_type == DHCPV6_MSG_UNKNOWN) {
 		if (!accept_reconfig || response_buf->msg_type != DHCPV6_MSG_RECONF)
 			return false;
 	} else if (response_buf->msg_type != DHCPV6_MSG_REPLY) {
@@ -1119,7 +1119,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	if (!options_valid || ((odata + olen) > end))
 		return false;
 
-	if (type == DHCPV6_MSG_INFO_REQ && ia_present)
+	if (req_msg_type == DHCPV6_MSG_INFO_REQ && ia_present)
 		return false;
 
 	if (response_buf->msg_type == DHCPV6_MSG_RECONF) {
@@ -2076,9 +2076,9 @@ int dhcpv6_promote_server_cand(void)
 	return ret;
 }
 
-int dhcpv6_send_request(enum dhcpv6_msg type)
+int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 {
-	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
+	struct dhcpv6_retx *retx = &dhcpv6_retx[req_msg_type];
 	uint64_t current_milli_time = 0;
 
 	if (!retx->is_retransmit) {
@@ -2103,11 +2103,11 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 		retx->timeout = UINT32_MAX;
 		retx->reply_ret = -1;
 
-		if (type == DHCPV6_MSG_UNKNOWN)
+		if (req_msg_type == DHCPV6_MSG_UNKNOWN)
 			retx->timeout = t1;
-		else if (type == DHCPV6_MSG_RENEW)
+		else if (req_msg_type == DHCPV6_MSG_RENEW)
 			retx->timeout = (t2 > t1) ? t2 - t1 : ((t1 == UINT32_MAX) ? UINT32_MAX : 0);
-		else if (type == DHCPV6_MSG_REBIND)
+		else if (req_msg_type == DHCPV6_MSG_REBIND)
 			retx->timeout = (t3 > t2) ? t3 - t2 : ((t2 == UINT32_MAX) ? UINT32_MAX : 0);
 
 		if (retx->timeout == 0)
@@ -2117,7 +2117,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 			retx->name, retx->timeout, retx->max_rc);
 
 		// Generate transaction ID
-		if (type != DHCPV6_MSG_UNKNOWN) {
+		if (req_msg_type != DHCPV6_MSG_UNKNOWN) {
 			odhcp6c_random(retx->tr_id, sizeof(retx->tr_id));
 		}
 
@@ -2130,7 +2130,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 		int64_t delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
 
 		// First RT MUST be strictly greater than IRT for solicit messages (RFC3313 17.1.2)
-		while (type == DHCPV6_MSG_SOLICIT && delay <= 0)
+		while (req_msg_type == DHCPV6_MSG_SOLICIT && delay <= 0)
 			delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
 
 		retx->rto = (retx->init_timeo * 1000 + delay);
@@ -2154,7 +2154,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 	dhcpv6_set_state_timeout(retx->round_end - odhcp6c_get_milli_time());
 
 	// Built and send package
-	switch (type) {
+	switch (req_msg_type) {
 	case DHCPV6_MSG_UNKNOWN:
 		break;
 	default:
@@ -2163,7 +2163,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 		_o_fallthrough;
 	case DHCPV6_MSG_SOLICIT:
 	case DHCPV6_MSG_INFO_REQ:
-		dhcpv6_send(type, retx->tr_id, elapsed / 10);
+		dhcpv6_send(req_msg_type, retx->tr_id, elapsed / 10);
 		retx->rc++;
 	}
 
@@ -2173,10 +2173,10 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 	return 0;
 }
 
-int dhcpv6_receive_response(enum dhcpv6_msg type)
+int dhcpv6_receive_response(enum dhcpv6_msg req_msg_type)
 {
 	ssize_t len = -1;
-	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
+	struct dhcpv6_retx *retx = &dhcpv6_retx[req_msg_type];
 
 	uint8_t buf[1536];
 	union {
@@ -2214,7 +2214,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg type)
 		return -1;
 	}
 
-	if (!dhcpv6_response_is_valid(buf, len, retx->tr_id, type,
+	if (!dhcpv6_response_is_valid(buf, len, retx->tr_id, req_msg_type,
 					 &pktinfo->ipi6_addr)) {
 		dhcpv6_stats.discarded_packets++;
 		return -1;
@@ -2231,7 +2231,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg type)
 		dhcpv6_msg_to_str(hdr->msg_type), elapsed);
 
 	if (retx->handler_reply) {
-		retx->reply_ret = retx->handler_reply(type, retx->rc, opt, opt_end, &addr);
+		retx->reply_ret = retx->handler_reply(req_msg_type, retx->rc, opt, opt_end, &addr);
 		len = retx->reply_ret;
 	}
 
@@ -2241,9 +2241,9 @@ int dhcpv6_receive_response(enum dhcpv6_msg type)
 	return retx->reply_ret;
 }
 
-int dhcpv6_state_processing(enum dhcpv6_msg type)
+int dhcpv6_state_processing(enum dhcpv6_msg req_msg_type)
 {
-	struct dhcpv6_retx *retx = &dhcpv6_retx[type];
+	struct dhcpv6_retx *retx = &dhcpv6_retx[req_msg_type];
 	int ret = retx->reply_ret;
 	retx->round_start = odhcp6c_get_milli_time();
 	uint64_t elapsed = retx->round_start - retx->start;

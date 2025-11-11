@@ -469,7 +469,7 @@ int main(_o_unused int argc, char* const argv[])
 	int nfds = 0;
 
 	int mode = DHCPV6_UNKNOWN;
-	enum dhcpv6_msg msg_type = DHCPV6_MSG_UNKNOWN;
+	enum dhcpv6_msg req_msg_type = DHCPV6_MSG_UNKNOWN;
 
 	fds[DHCPV6_FD_INDEX].fd = -1;
 	fds[DHCPV6_FD_INDEX].events = POLLIN;
@@ -537,8 +537,8 @@ int main(_o_unused int argc, char* const argv[])
 				break;
 			}
 
-			msg_type = DHCPV6_MSG_SOLICIT;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = DHCPV6_MSG_SOLICIT;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_ADVERT:
@@ -552,8 +552,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_REQUEST:
-			msg_type = (mode == DHCPV6_STATELESS) ? DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = (mode == DHCPV6_STATELESS) ? DHCPV6_MSG_INFO_REQ : DHCPV6_MSG_REQUEST;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_REPLY:
@@ -585,14 +585,14 @@ int main(_o_unused int argc, char* const argv[])
 				}
 			}
 
-			msg_type = DHCPV6_MSG_UNKNOWN;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = DHCPV6_MSG_UNKNOWN;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_BOUND_REPLY:
 			if (res == DHCPV6_MSG_RENEW || res == DHCPV6_MSG_REBIND ||
 				res == DHCPV6_MSG_INFO_REQ) {
-				msg_type = res;
+				req_msg_type = res;
 				dhcpv6_set_state(DHCPV6_RECONF);
 			} else {
 				dhcpv6_set_state(DHCPV6_RECONF_REPLY);
@@ -600,7 +600,7 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_RECONF:
-			dhcpv6_send_request(msg_type);
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_RECONF_REPLY:
@@ -614,8 +614,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_RENEW:
-			msg_type = DHCPV6_MSG_RENEW;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = DHCPV6_MSG_RENEW;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_RENEW_REPLY:
@@ -641,8 +641,8 @@ int main(_o_unused int argc, char* const argv[])
 				break;
 			}
 
-			msg_type = DHCPV6_MSG_REBIND;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = DHCPV6_MSG_REBIND;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_REBIND_REPLY:
@@ -655,8 +655,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_INFO:
-			msg_type = DHCPV6_MSG_INFO_REQ;
-			dhcpv6_send_request(msg_type);
+			req_msg_type = DHCPV6_MSG_INFO_REQ;
+			dhcpv6_send_request(req_msg_type);
 			break;
 
 		case DHCPV6_INFO_REPLY:
@@ -665,13 +665,13 @@ int main(_o_unused int argc, char* const argv[])
 
 		case DHCPV6_SOLICIT_PROCESSING:
 		case DHCPV6_REQUEST_PROCESSING:
-			res = dhcpv6_state_processing(msg_type);
+			res = dhcpv6_state_processing(req_msg_type);
 			break;
 
 		case DHCPV6_BOUND_PROCESSING:
 		case DHCPV6_RECONF_PROCESSING:
 		case DHCPV6_REBIND_PROCESSING:
-			res = dhcpv6_state_processing(msg_type);
+			res = dhcpv6_state_processing(req_msg_type);
 
 			if (signal_usr1)
 				dhcpv6_set_state(mode == DHCPV6_STATELESS ? DHCPV6_INFO : DHCPV6_RENEW);
@@ -679,7 +679,7 @@ int main(_o_unused int argc, char* const argv[])
 
 		case DHCPV6_RENEW_PROCESSING:
 		case DHCPV6_INFO_PROCESSING:
-			res = dhcpv6_state_processing(msg_type);
+			res = dhcpv6_state_processing(req_msg_type);
 
 			if (signal_usr1)
 				signal_usr1 = false;	// Acknowledged
@@ -746,7 +746,7 @@ int main(_o_unused int argc, char* const argv[])
 		}
 
 		if (fds[0].revents & POLLIN)
-			dhcpv6_receive_response(msg_type);
+			dhcpv6_receive_response(req_msg_type);
 
 #ifdef WITH_UBUS
 		if (fds[1].revents & POLLIN)
