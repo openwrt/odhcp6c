@@ -1016,19 +1016,19 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 		const uint8_t transaction[3], enum dhcpv6_msg type,
 		const struct in6_addr *daddr)
 {
-	const struct dhcpv6_header *rep = buf;
-	if (len < (ssize_t)sizeof(*rep) || memcmp(rep->tr_id,
-			transaction, sizeof(rep->tr_id)))
+	const struct dhcpv6_header *response_buf = buf;
+	if (len < (ssize_t)sizeof(*response_buf) || memcmp(response_buf->tr_id,
+			transaction, sizeof(response_buf->tr_id)))
 		return false; // Invalid reply
 
 	if (type == DHCPV6_MSG_SOLICIT) {
-		if (rep->msg_type != DHCPV6_MSG_ADVERT &&
-				rep->msg_type != DHCPV6_MSG_REPLY)
+		if (response_buf->msg_type != DHCPV6_MSG_ADVERT &&
+				response_buf->msg_type != DHCPV6_MSG_REPLY)
 			return false;
 	} else if (type == DHCPV6_MSG_UNKNOWN) {
-		if (!accept_reconfig || rep->msg_type != DHCPV6_MSG_RECONF)
+		if (!accept_reconfig || response_buf->msg_type != DHCPV6_MSG_RECONF)
 			return false;
-	} else if (rep->msg_type != DHCPV6_MSG_REPLY) {
+	} else if (response_buf->msg_type != DHCPV6_MSG_REPLY) {
 		return false;
 	}
 
@@ -1042,7 +1042,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	void *client_id = odhcp6c_get_state(STATE_CLIENT_ID, &client_id_len);
 	void *server_id = odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
-	dhcpv6_for_each_option(&rep[1], end, otype, olen, odata) {
+	dhcpv6_for_each_option(&response_buf[1], end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
 			clientid_ok = (olen + 4U == client_id_len) && !memcmp(
 					&odata[-DHCPV6_OPT_HDR_SIZE], client_id, client_id_len);
@@ -1122,7 +1122,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	if (type == DHCPV6_MSG_INFO_REQ && ia_present)
 		return false;
 
-	if (rep->msg_type == DHCPV6_MSG_RECONF) {
+	if (response_buf->msg_type == DHCPV6_MSG_RECONF) {
 		if ((rcmsg != DHCPV6_MSG_RENEW && rcmsg != DHCPV6_MSG_REBIND && rcmsg != DHCPV6_MSG_INFO_REQ) ||
 			(rcmsg == DHCPV6_MSG_INFO_REQ && ia_present) ||
 			!rcauth_ok || IN6_IS_ADDR_MULTICAST(daddr))
