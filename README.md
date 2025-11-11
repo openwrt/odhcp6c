@@ -29,7 +29,6 @@ especially routers.
 	* Configurable SOL_MAX_RT
 	* DS-Lite AFTR-Name Option
 	* Softwire address and port mapped clients (MAP, LW4over6)
-	* CER-ID (experimental)
 	* Server unicast Option
 
 4. Support for requesting and parsing Router Advertisements
@@ -89,7 +88,6 @@ The script is called with the following parameters: `<interface>` `<state>`
 | `RA_REACHABLE`					| ND Reachability time												|
 | `RA_RETRANSMIT` 					| ND Retransmit time												|
 | `AFTR`							| The DS-Lite AFTR domain name										|
-| `CER`								| A space-separated list of CER-id IPv6								|
 | `MAPE` / `MAPT` / `LW4O6` 		| Softwire rules for MAPE, MAPT and LW4O6							|
 | `PASSTHRU` 						| The content of the last packet relayed							|
 

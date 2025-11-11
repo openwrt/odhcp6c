@@ -617,9 +617,6 @@ int init_dhcpv6(const char *ifname)
 			htons(DHCPV6_OPT_SNTP_SERVERS),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
-#ifdef EXT_CER_ID
-			htons(DHCPV6_OPT_CER_ID),
-#endif
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}
@@ -1342,7 +1339,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 		odhcp6c_clear_state(STATE_SIP_IP);
 		odhcp6c_clear_state(STATE_SIP_FQDN);
 		odhcp6c_clear_state(STATE_AFTR_NAME);
-		odhcp6c_clear_state(STATE_CER);
 		odhcp6c_clear_state(STATE_S46_MAPT);
 		odhcp6c_clear_state(STATE_S46_MAPE);
 		odhcp6c_clear_state(STATE_S46_LW);
@@ -1455,14 +1451,6 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				if (inf_max_rt >= DHCPV6_INF_MAX_RT_MIN &&
 						inf_max_rt <= DHCPV6_INF_MAX_RT_MAX)
 					dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = inf_max_rt;
-	#ifdef EXT_CER_ID
-			} else if (otype == DHCPV6_OPT_CER_ID && olen == -4 +
-					sizeof(struct dhcpv6_cer_id)) {
-				struct dhcpv6_cer_id *cer_id = (void*)&odata[-4];
-				struct in6_addr any = IN6ADDR_ANY_INIT;
-				if (memcmp(&cer_id->addr, &any, sizeof(any)))
-					odhcp6c_add_state(STATE_CER, &cer_id->addr, sizeof(any));
-	#endif
 			} else if (otype == DHCPV6_OPT_S46_CONT_MAPT) {
 				odhcp6c_add_state(STATE_S46_MAPT, odata, olen);
 			} else if (otype == DHCPV6_OPT_S46_CONT_MAPE) {

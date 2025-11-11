@@ -116,9 +116,6 @@ static struct odhcp6c_opt opts[] = {
 	{ .code = DHCPV6_OPT_RADIUS, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU, .str = NULL },
 	{ .code = DHCPV6_OPT_SOL_MAX_RT, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU | OPT_ORO | OPT_ORO_SOLICIT, .str = NULL },
 	{ .code = DHCPV6_OPT_INF_MAX_RT, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU | OPT_ORO | OPT_ORO_STATELESS, .str = NULL },
-#ifdef EXT_CER_ID
-	{ .code = DHCPV6_OPT_CER_ID, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU, .str = NULL },
-#endif
 	{ .code = DHCPV6_OPT_DHCPV4_MSG, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU, .str = NULL },
 	{ .code = DHCPV6_OPT_S46_RULE, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU, .str = NULL },
 	{ .code = DHCPV6_OPT_S46_BR, .flags = OPT_INTERNAL | OPT_NO_PASSTHRU, .str = NULL },

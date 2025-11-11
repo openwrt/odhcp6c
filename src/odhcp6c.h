@@ -106,10 +106,6 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_RADIUS = 81,
 	DHCPV6_OPT_SOL_MAX_RT = 82,
 	DHCPV6_OPT_INF_MAX_RT = 83,
-#ifdef EXT_CER_ID
-	/* draft-donley-dhc-cer-id-option-03 */
-	DHCPV6_OPT_CER_ID = EXT_CER_ID,
-#endif
 	DHCPV6_OPT_DHCPV4_MSG = 87,
 	/* RFC 7598 */
 	DHCPV6_OPT_S46_RULE = 89,
@@ -297,12 +293,6 @@ struct dhcpv6_auth_reconfigure {
 	uint8_t key[16];
 } _o_packed;
 
-struct dhcpv6_cer_id {
-	uint16_t type;
-	uint16_t len;
-	struct in6_addr addr;
-} _o_packed;
-
 struct dhcpv6_s46_portparams {
 	uint8_t offset;
 	uint8_t psid_len;
@@ -390,7 +380,6 @@ enum odhcp6c_state {
 	STATE_RA_SEARCH,
 	STATE_AFTR_NAME,
 	STATE_OPTS,
-	STATE_CER,
 	STATE_S46_MAPT,
 	STATE_S46_MAPE,
 	STATE_S46_LW,
