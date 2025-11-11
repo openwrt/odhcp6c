@@ -1986,26 +1986,26 @@ static void dhcpv6_handle_ia_status_code(const enum dhcpv6_msg orig,
 static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 {
 	size_t cand_len, i;
-	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+	struct dhcpv6_server_cand *srv_candidates = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
 
 	// Remove identical DUID server candidate
-	for (i = 0; i < cand_len / sizeof(*c); ++i) {
-		if (cand->duid_len == c[i].duid_len &&
-				!memcmp(cand->duid, c[i].duid, cand->duid_len)) {
-			free(c[i].ia_na);
-			free(c[i].ia_pd);
-			odhcp6c_remove_state(STATE_SERVER_CAND, i * sizeof(*c), sizeof(*c));
+	for (i = 0; i < cand_len / sizeof(*srv_candidates); ++i) {
+		if (cand->duid_len == srv_candidates[i].duid_len &&
+				!memcmp(cand->duid, srv_candidates[i].duid, cand->duid_len)) {
+			free(srv_candidates[i].ia_na);
+			free(srv_candidates[i].ia_pd);
+			odhcp6c_remove_state(STATE_SERVER_CAND, i * sizeof(*srv_candidates), sizeof(*srv_candidates));
 			break;
 		}
 	}
 
-	for (i = 0, c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
-		i < cand_len / sizeof(*c); ++i) {
-		if (c[i].preference < cand->preference)
+	for (i = 0, srv_candidates = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+		i < cand_len / sizeof(*srv_candidates); ++i) {
+		if (srv_candidates[i].preference < cand->preference)
 			break;
 	}
 
-	if (odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*c), cand, sizeof(*cand))) {
+	if (odhcp6c_insert_state(STATE_SERVER_CAND, i * sizeof(*srv_candidates), cand, sizeof(*cand))) {
 		free(cand->ia_na);
 		free(cand->ia_pd);
 	}
@@ -2014,12 +2014,12 @@ static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 static void dhcpv6_clear_all_server_cand(void)
 {
 	size_t cand_len, i;
-	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
+	struct dhcpv6_server_cand *srv_candidates = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
 
 	// Server candidates need deep delete for IA_NA/IA_PD
-	for (i = 0; i < cand_len / sizeof(*c); ++i) {
-		free(c[i].ia_na);
-		free(c[i].ia_pd);
+	for (i = 0; i < cand_len / sizeof(*srv_candidates); ++i) {
+		free(srv_candidates[i].ia_na);
+		free(srv_candidates[i].ia_pd);
 	}
 	odhcp6c_clear_state(STATE_SERVER_CAND);
 }
