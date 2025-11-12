@@ -1190,7 +1190,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 
 		switch (otype) {
 		case DHCPV6_OPT_SERVERID:
-			if (olen <= 130) {
+			if (olen <= DHCPV6_DUID_MAX_LEN) {
 				memcpy(cand.duid, odata, olen);
 				cand.duid_len = olen;
 			}

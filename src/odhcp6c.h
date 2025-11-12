@@ -272,6 +272,7 @@ struct dhcpv6_retx {
 
 #define DHCPV6_OPT_HDR_SIZE 4
 #define DHCPV6_OPT_HDR_SIZE_U 4U
+#define DHCPV6_DUID_MAX_LEN 130 // 2-byte type + 128-byte DUID, RFC8415, §11.1
 
 // DHCPv6 Protocol Headers
 struct dhcpv6_header {
@@ -364,7 +365,7 @@ struct dhcpv6_server_cand {
 	bool wants_reconfigure;
 	int16_t preference;
 	uint8_t duid_len;
-	uint8_t duid[130];
+	uint8_t duid[DHCPV6_DUID_MAX_LEN];
 	struct in6_addr server_addr;
 	uint32_t sol_max_rt;
 	uint32_t inf_max_rt;
