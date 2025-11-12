@@ -245,7 +245,7 @@ static bool accept_reconfig = false;
 // Server unicast address
 static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
 
-// Initial state of the dhcpv6
+// Initial state of the DHCPv6 service
 static enum dhcpv6_state dhcpv6_state = DHCPV6_INIT;
 static int dhcpv6_state_timeout = 0;
 
@@ -620,7 +620,7 @@ int init_dhcpv6(const char *ifname)
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}
-	// Required oro
+	// Required ORO
 	uint16_t req_oro[] = {
 		htons(DHCPV6_OPT_INF_MAX_RT),
 		htons(DHCPV6_OPT_SOL_MAX_RT),
@@ -945,7 +945,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		iov[IOV_FQDN].iov_len = 0;
 	} else {
 		switch (type) {
-		/*  rfc4704 §5
+		/*  RFC4704 §5
 			A client MUST only include the Client FQDN option in SOLICIT,
 			REQUEST, RENEW, or REBIND messages.
 		*/
@@ -953,7 +953,7 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 		case DHCPV6_MSG_REQUEST:
 		case DHCPV6_MSG_RENEW:
 		case DHCPV6_MSG_REBIND:
-		/*  rfc4704 §6
+		/*  RFC4704 §6
 			Servers MUST only include a Client FQDN option in ADVERTISE and REPLY
 			messages...
 		case DHCPV6_MSG_ADVERT:
@@ -1974,7 +1974,7 @@ static void dhcpv6_add_server_cand(const struct dhcpv6_server_cand *cand)
 	size_t cand_len, i;
 	struct dhcpv6_server_cand *c = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
 
-	// Remove identical duid server candidate
+	// Remove identical DUID server candidate
 	for (i = 0; i < cand_len / sizeof(*c); ++i) {
 		if (cand->duid_len == c[i].duid_len &&
 				!memcmp(cand->duid, c[i].duid, cand->duid_len)) {
@@ -2181,7 +2181,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg type)
 	// Receive cycle
 	len = recvmsg(sock, &msg, 0);
 	if (len < 0) {
-		syslog(LOG_ERR, "Error occured when reading the response of (%s) error(%s)",
+		syslog(LOG_ERR, "Error occurred when reading the response of (%s) error(%s)",
 			retx->name, strerror(errno));
 		return -1;
 	}

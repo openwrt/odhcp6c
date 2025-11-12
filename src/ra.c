@@ -439,7 +439,7 @@ bool ra_process(void)
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 						0, ra_holdoff_interval);
 
-		// Parse hoplimit
+		// Parse hop limit
 		changed |= ra_set_hoplimit(adv->nd_ra_curhoplimit);
 
 		// Parse ND parameters
