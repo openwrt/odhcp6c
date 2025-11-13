@@ -1556,14 +1556,16 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 			break;
 		}
 
-		if (orig == DHCPV6_MSG_REQUEST) {
+		switch (orig) {
+		case DHCPV6_MSG_REQUEST:
 			// All server candidates can be cleared if not yet bound
 			if (!odhcp6c_is_bound())
 				dhcpv6_clear_all_server_cand();
 
 			odhcp6c_clear_state(STATE_SERVER_ADDR);
 			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
-		} else if (orig == DHCPV6_MSG_RENEW) {
+			break;
+		case DHCPV6_MSG_RENEW:
 			// Send further renews if T1 is not set and if
 			// there're IAs which were not in the Reply message
 			if (!t1 && state_IAs != updated_IAs) {
@@ -1584,7 +1586,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				 */
 				ret = -1;
 			}
-		} else if (orig == DHCPV6_MSG_REBIND) {
+			break;
+		case DHCPV6_MSG_REBIND:
 			odhcp6c_clear_state(STATE_SERVER_ADDR);
 			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
 
@@ -1608,6 +1611,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				 */
 				ret = -1;
 			}
+			break;
+
+		default:
+			break;
 		}
 		break;
 
