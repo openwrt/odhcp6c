@@ -1439,7 +1439,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				break;
 
 			case DHCPV6_OPT_DNS_SERVERS:
-				if (olen % 16 == 0)
+				if (olen % sizeof(struct in6_addr) == 0)
 					odhcp6c_add_state(STATE_DNS, odata, olen);
 				break;
 
@@ -1448,7 +1448,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				break;
 
 			case DHCPV6_OPT_SNTP_SERVERS:
-				if (olen % 16 == 0)
+				if (olen % sizeof(struct in6_addr) == 0)
 					odhcp6c_add_state(STATE_SNTP_IP, odata, olen);
 				break;
 
@@ -1458,7 +1458,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				// Test status and bail if error
 				dhcpv6_for_each_option(odata, odata + olen,
 						stype, slen, sdata) {
-					if (slen == 16 && (stype == NTP_MC_ADDR || stype == NTP_SRV_ADDR))
+					if (slen == sizeof(struct in6_addr) && (stype == NTP_MC_ADDR || stype == NTP_SRV_ADDR))
 						odhcp6c_add_state(STATE_NTP_IP, sdata, slen);
 					else if (slen > 0 && stype == NTP_SRV_FQDN)
 						odhcp6c_add_state(STATE_NTP_FQDN, sdata, slen);
@@ -1466,7 +1466,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				break;
 
 			case DHCPV6_OPT_SIP_SERVER_A:
-				if (olen == 16)
+				if (olen == sizeof(struct in6_addr))
 					odhcp6c_add_state(STATE_SIP_IP, odata, olen);
 				break;
 
@@ -1563,7 +1563,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				dhcpv6_clear_all_server_cand();
 
 			odhcp6c_clear_state(STATE_SERVER_ADDR);
-			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, sizeof(struct in6_addr));
 			break;
 		case DHCPV6_MSG_RENEW:
 			// Send further renews if T1 is not set and if
@@ -1589,7 +1589,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 			break;
 		case DHCPV6_MSG_REBIND:
 			odhcp6c_clear_state(STATE_SERVER_ADDR);
-			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+			odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, sizeof(struct in6_addr));
 
 			// Send further rebinds if T1 and T2 is not set and if
 			// there're IAs which were not in the Reply message
@@ -1624,7 +1624,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 			dhcpv6_clear_all_server_cand();
 
 		odhcp6c_clear_state(STATE_SERVER_ADDR);
-		odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, 16);
+		odhcp6c_add_state(STATE_SERVER_ADDR, &from->sin6_addr, sizeof(struct in6_addr));
 
 		t1 = (refresh < config_dhcp->irt_min) ? config_dhcp->irt_min : refresh;
 		break;
