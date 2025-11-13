@@ -20,9 +20,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define _o_unused __attribute__((unused))
-#define _o_packed __attribute__((packed))
+#ifndef _o_aligned
 #define _o_aligned(n) __attribute__((aligned(n)))
+#endif /* _o_aligned */
+
+#ifndef _o_packed
+#define _o_packed __attribute__((packed))
+#endif /* _o_packed */
+
+#ifndef _o_unused
+#define _o_unused __attribute__((unused))
+#endif /* _o_unused */
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
@@ -278,7 +286,7 @@ struct dhcpv6_retx {
 struct dhcpv6_header {
 	uint8_t msg_type;
 	uint8_t tr_id[3];
-} __attribute__((packed));
+} _o_packed;
 
 struct dhcpv6_ia_hdr {
 	uint16_t type;
