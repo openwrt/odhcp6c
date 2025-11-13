@@ -1475,7 +1475,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				break;
 
 			case DHCPV6_OPT_INFO_REFRESH:
-				if (olen >= 4)
+				if (olen == 4)
 					refresh = ntohl_unaligned(odata);
 				break;
 
