@@ -272,7 +272,7 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case 'c':
-			l = script_unhexlify(&buf[4], sizeof(buf) - 4, optarg);
+			l = script_unhexlify(&buf[4], sizeof(buf) - DHCPV6_OPT_HDR_SIZE, optarg);
 			if (l > 0) {
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_CLIENTID;

@@ -270,6 +270,9 @@ struct dhcpv6_retx {
 	uint64_t delay_msec;
 };
 
+#define DHCPV6_OPT_HDR_SIZE 4
+#define DHCPV6_OPT_HDR_SIZE_U 4U
+
 // DHCPv6 Protocol Headers
 struct dhcpv6_header {
 	uint8_t msg_type;
