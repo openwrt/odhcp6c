@@ -71,7 +71,7 @@ struct {
 	.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
 };
 
-static void ra_send_rs(int signal __attribute__((unused)));
+static void ra_send_rs(_o_unused int signal);
 
 int ra_init(const char *ifname, const struct in6_addr *ifid,
 		unsigned int options, unsigned int holdoff_interval)
@@ -189,7 +189,7 @@ failure:
 	return -1;
 }
 
-static void ra_send_rs(int signal __attribute__((unused)))
+static void ra_send_rs(_o_unused int signal)
 {
 	const struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
 	const struct icmpv6_opt llnull = {ND_OPT_SOURCE_LINKADDR, 1, {0}};
