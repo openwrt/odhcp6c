@@ -939,64 +939,20 @@ static struct odhcp6c_entry* odhcp6c_find_entry(enum odhcp6c_state state, const 
 }
 
 bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
-		uint32_t safe, unsigned int holdoff_interval)
+		unsigned int holdoff_interval)
 {
 	struct odhcp6c_entry *x = odhcp6c_find_entry(state, new);
-	uint32_t new_valid;
-
-	/*
-	 * "safe" refers to https://www.rfc-editor.org/rfc/rfc4862#section-5.5.3
-	 * section e; it is either the two hours in seconds or zero when (e)
-	 * does not apply.
-	 *
-	 * The base condition for applying safe is that there is already a
-	 * matching prefix (and safe itself must be set).
-	 */
-	if (safe && x) {
-		if (new->valid > safe || new->valid > x->valid) {
-			/*
-			 * 1: If the received Valid Lifetime is greater than 2 hours or
-			 * greater than RemainingLifetime, set the valid lifetime of the
-			 * corresponding address to the advertised Valid Lifetime.
-			 */
-			new_valid = new->valid;
-		} else if (x->valid <= safe) {
-			/*
-			 * 2: If RemainingLifetime is less than or equal
-			 * to 2 hours, ignore the Prefix Information option with
-			 * regards to the valid lifetime, unless the Router
-			 * Advertisement from which this option was obtained has
-			 * been authenticated (e.g., via Secure Neighbor
-			 * Discovery [RFC3971]).  If the Router Advertisement
-			 * was authenticated, the valid lifetime of the
-			 * corresponding address should be set to the Valid
-			 * Lifetime in the received option.
-			 *
-			 * Since authenticated advertisements aren't supported we
-			 * always keep the old value.
-			 */
-			new_valid = x->valid;
-		} else {
-			/*
-			 * 3: Otherwise, reset the valid lifetime of the corresponding
-			 * address to 2 hours.
-			 */
-			new_valid = safe;
-		}
-	} else {
-		new_valid = new->valid;
-	}
 
 	if (x) {
-		if (holdoff_interval && new_valid >= x->valid &&
-				new_valid != UINT32_MAX &&
-				new_valid - x->valid < holdoff_interval &&
+		if (holdoff_interval && new->valid >= x->valid &&
+				new->valid != UINT32_MAX &&
+				new->valid - x->valid < holdoff_interval &&
 				new->preferred >= x->preferred &&
 				new->preferred != UINT32_MAX &&
 				new->preferred - x->preferred < holdoff_interval)
 			return false;
 
-		x->valid = new_valid;
+		x->valid = new->valid;
 		x->preferred = new->preferred;
 		x->t1 = new->t1;
 		x->t2 = new->t2;
