@@ -1144,11 +1144,11 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 			case DHCPV6_MSG_REBIND:
 				if (t2 != UINT32_MAX)
 					t2 = 0;
-			// Fall through
+				_o_fallthrough;
 			case DHCPV6_MSG_RENEW:
 				if (t1 != UINT32_MAX)
 					t1 = 0;
-			// Fall through
+				_o_fallthrough;
 			case DHCPV6_MSG_INFO_REQ:
 				msg = odata[0];
 				syslog(LOG_NOTICE, "Need to respond with %s in reply to %s",
@@ -2146,7 +2146,7 @@ int dhcpv6_send_request(enum dhcpv6_msg type)
 	default:
 		syslog(LOG_NOTICE, "Send %s message (elapsed %"PRIu64"ms, rc %d)",
 				retx->name, elapsed, retx->rc);
-	// Fall through
+		_o_fallthrough;
 	case DHCPV6_MSG_SOLICIT:
 	case DHCPV6_MSG_INFO_REQ:
 		dhcpv6_send(type, retx->tr_id, elapsed / 10);

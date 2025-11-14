@@ -24,6 +24,10 @@
 #define _o_aligned(n) __attribute__((aligned(n)))
 #endif /* _o_aligned */
 
+#ifndef _o_fallthrough
+#define _o_fallthrough __attribute__((__fallthrough__))
+#endif /* _o_fallthrough */
+
 #ifndef _o_packed
 #define _o_packed __attribute__((packed))
 #endif /* _o_packed */
