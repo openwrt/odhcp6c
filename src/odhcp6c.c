@@ -510,6 +510,7 @@ int main(_o_unused int argc, char* const argv[])
 			odhcp6c_clear_state(STATE_NTP_FQDN);
 			odhcp6c_clear_state(STATE_SIP_IP);
 			odhcp6c_clear_state(STATE_SIP_FQDN);
+			odhcp6c_clear_state(STATE_CAPT_PORT);
 			bound = false;
 
 			size_t oro_len = 0;

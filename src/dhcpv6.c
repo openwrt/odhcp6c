@@ -617,6 +617,8 @@ int init_dhcpv6(const char *ifname)
 			htons(DHCPV6_OPT_SNTP_SERVERS),
 			htons(DHCPV6_OPT_NTP_SERVER),
 			htons(DHCPV6_OPT_PD_EXCLUDE),
+			/* RFC8910: Clients that support this option SHOULD include it */
+			htons(DHCPV6_OPT_CAPTIVE_PORTAL),
 		};
 		odhcp6c_add_state(STATE_ORO, oro, sizeof(oro));
 	}
@@ -1370,6 +1372,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 		odhcp6c_clear_state(STATE_S46_MAPT);
 		odhcp6c_clear_state(STATE_S46_MAPE);
 		odhcp6c_clear_state(STATE_S46_LW);
+		odhcp6c_clear_state(STATE_CAPT_PORT);
 		odhcp6c_clear_state(STATE_PASSTHRU);
 		odhcp6c_clear_state(STATE_CUSTOM_OPTS);
 
@@ -1528,6 +1531,28 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 
 			case DHCPV6_OPT_S46_CONT_LW:
 				odhcp6c_add_state(STATE_S46_LW, odata, olen);
+				break;
+
+			case DHCPV6_OPT_CAPTIVE_PORTAL: /* RFC8910 §2.2 */
+				size_t ref_len = sizeof(URN_IETF_CAPT_PORT_UNRESTR) - 1;
+				/* RFC8910 §2:
+				 * Networks with no captive portals may explicitly indicate this
+				 * condition by using this option with the IANA-assigned URI for
+				 * this purpose. Clients observing the URI value ... may forego
+				 * time-consuming forms of captive portal detection. */
+				if (memcmp(odata, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
+					/* RFC8910 §2.2:
+					 * Note that the URI parameter is not null terminated.
+					 * Allocate new buffer including room for '\0' */
+					size_t uri_len = olen + 1;
+					uint8_t *copy = malloc(uri_len);
+					if (!copy)
+						continue;
+					memcpy(copy, odata, olen);
+					copy[uri_len] = '\0';
+					odhcp6c_add_state(STATE_CAPT_PORT, odata, olen);
+					free(copy);
+				}
 				break;
 
 			default:

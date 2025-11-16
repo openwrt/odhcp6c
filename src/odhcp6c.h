@@ -70,6 +70,10 @@
 
 #define RA_MIN_ADV_INTERVAL 3   /* RFC 4861 paragraph 6.2.1 */
 
+/* RFC8910 §2 */
+static const uint8_t URN_IETF_CAPT_PORT_UNRESTR[] = "urn:ietf:params:capport:unrestricted";
+#define CAPT_PORT_URI_STR "CAPTIVE_PORTAL_URI"
+
 enum dhcvp6_opt {
 	/* RFC8415(bis) */
 	DHCPV6_OPT_CLIENTID = 1,
@@ -155,6 +159,8 @@ enum dhcvp6_opt {
 	DHCPV6_OPT_LQ_BASE_TIME = 100,
 	DHCPV6_OPT_LQ_START_TIME = 101,
 	DHCPV6_OPT_LQ_END_TIME = 102,
+	/* RFC8910 */
+	DHCPV6_OPT_CAPTIVE_PORTAL = 103,
 	/* RFC7839 */
 	DHCPV6_OPT_ANI_ATT = 105,
 	DHCPV6_OPT_ANI_NETWORK_NAME = 106,
@@ -429,6 +435,7 @@ enum odhcp6c_state {
 	STATE_S46_MAPT,
 	STATE_S46_MAPE,
 	STATE_S46_LW,
+	STATE_CAPT_PORT,
 	STATE_PASSTHRU,
 	_STATE_MAX
 };

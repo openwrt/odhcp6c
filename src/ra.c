@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
 #include <sys/ioctl.h>
@@ -556,6 +557,34 @@ bool ra_process(void)
 					changed |= odhcp6c_update_entry(STATE_RA_SEARCH, entry,
 									ra_holdoff_interval);
 					entry->auxlen = 0;
+				}
+			} else if (opt->type == ND_OPT_CAPTIVE_PORTAL) {
+				/* RFC8910 Captive-Portal §2.3 */
+				if (opt->len <= 1)
+					continue;
+
+				struct icmpv6_opt_captive_portal *capt_port = (struct icmpv6_opt_captive_portal*)opt;
+				uint8_t *buf = &capt_port->data[0];
+				size_t ref_len = sizeof(URN_IETF_CAPT_PORT_UNRESTR) - 1;
+
+				/* RFC8910 §2:
+				 * Networks with no captive portals may explicitly indicate this
+				 * condition by using this option with the IANA-assigned URI for
+				 * this purpose. Clients observing the URI value ... may forego
+				 * time-consuming forms of captive portal detection. */
+				if (memcmp(buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
+					/* URI are not guaranteed to be \0 terminated if data is unpadded */
+					size_t uri_len = (capt_port->len * 8) - 2;
+					/* Allocate new buffer including room for '\0' */
+					uint8_t *copy = malloc(uri_len + 1);
+					if (!copy)
+						continue;
+
+					memcpy(copy, buf, uri_len);
+					copy[uri_len] = '\0';
+					odhcp6c_clear_state(STATE_CAPT_PORT);
+					odhcp6c_add_state(STATE_CAPT_PORT, copy, uri_len);
+					free(copy);
 				}
 			}
 		}

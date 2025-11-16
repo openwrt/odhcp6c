@@ -142,6 +142,31 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 	putenv(buf);
 }
 
+static void string_to_env(const char *name, const uint8_t *string, size_t len)
+{
+	size_t buf_len = strlen(name);
+	const uint8_t *string_end = string + len;
+	char *buf = realloc(NULL, len + buf_len + 2);
+
+	memcpy(buf, name, buf_len);
+	buf[buf_len++] = '=';
+
+	while (string < string_end) {
+		int l = strlen((const char *)string);
+		if (l <= 0)
+			break;
+		string += l;
+		buf_len += strlen(&buf[buf_len]);
+		buf[buf_len++] = ' ';
+	}
+
+	if (buf[buf_len - 1] == ' ')
+		buf_len--;
+
+	buf[buf_len] = '\0';
+	putenv(buf);
+}
+
 static void bin_to_env(uint8_t *opts, size_t len)
 {
 	uint8_t *oend = opts + len, *odata;
@@ -436,7 +461,7 @@ void script_call(const char *status, int delay, bool resume)
 	} else if (pid == 0) {
 		size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 		size_t sip_ip_len, sip_fqdn_len, aftr_name_len, addr_len;
-		size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
+		size_t s46_mapt_len, s46_mape_len, s46_lw_len, capt_port_len, passthru_len;
 
 		signal(SIGTERM, SIG_DFL);
 		if (delay > 0) {
@@ -457,6 +482,7 @@ void script_call(const char *status, int delay, bool resume)
 		uint8_t *s46_mapt = odhcp6c_get_state(STATE_S46_MAPT, &s46_mapt_len);
 		uint8_t *s46_mape = odhcp6c_get_state(STATE_S46_MAPE, &s46_mape_len);
 		uint8_t *s46_lw = odhcp6c_get_state(STATE_S46_LW, &s46_lw_len);
+		uint8_t *capt_port = odhcp6c_get_state(STATE_CAPT_PORT, &capt_port_len);
 		uint8_t *passthru = odhcp6c_get_state(STATE_PASSTHRU, &passthru_len);
 
 		size_t prefix_len, address_len, ra_pref_len,
@@ -480,6 +506,7 @@ void script_call(const char *status, int delay, bool resume)
 		s46_to_env(STATE_S46_MAPE, s46_mape, s46_mape_len);
 		s46_to_env(STATE_S46_MAPT, s46_mapt, s46_mapt_len);
 		s46_to_env(STATE_S46_LW, s46_lw, s46_lw_len);
+		string_to_env(CAPT_PORT_URI_STR, capt_port, capt_port_len);
 		bin_to_env(custom, custom_len);
 
 		if (odhcp6c_is_bound()) {

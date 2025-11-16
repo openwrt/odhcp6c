@@ -32,6 +32,13 @@ struct icmpv6_opt {
 	uint8_t data[6];
 };
 
+/* RFC8910 Captive-Portal §2.3 */
+struct icmpv6_opt_captive_portal {
+	uint8_t type; /* 37 */
+	uint8_t len; /* includes the Type and Length fields, in units of 8 bytes */
+	uint8_t data[]; /* padded with NUL (0x00) to make length multiple of 8 */
+};
+
 struct icmpv6_opt_route_info {
 	uint8_t type;
 	uint8_t len;
@@ -42,6 +49,7 @@ struct icmpv6_opt_route_info {
 };
 
 #define ND_OPT_ROUTE_INFORMATION 24
+#define ND_OPT_CAPTIVE_PORTAL 37
 
 
 #define icmpv6_for_each_option(opt, start, end)\
