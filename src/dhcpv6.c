@@ -816,8 +816,9 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 					excl >>= (64 - e[j].priority);
 					excl <<= 8 - ((e[j].priority - e[j].length) % 8);
 
-					for (size_t i = ex_len - 5; i > 0; --i, excl >>= 8)
-						ia_pd[ia_pd_len + i] = excl & 0xff;
+					for (size_t k = ex_len - 5; k > 0; --k, excl >>= 8)
+						ia_pd[ia_pd_len + k] = excl & 0xff;
+
 					ia_pd_len += ex_len - 5;
 				}
 
