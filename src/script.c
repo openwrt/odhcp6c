@@ -217,13 +217,13 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 				buf_len += strlen(&buf[buf_len]);
 			}
 
-			if (type == ENTRY_PREFIX && e[i].priority) {
-				// priority and router are abused for prefix exclusion
+			if (type == ENTRY_PREFIX && e[i].exclusion_length) {
 				snprintf(&buf[buf_len], 11, ",excluded=");
 				buf_len += strlen(&buf[buf_len]);
+				// '.router' is dual-used: for prefixes it contains the prefix
 				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
 				buf_len += strlen(&buf[buf_len]);
-				snprintf(&buf[buf_len], 12, "/%u", e[i].priority);
+				snprintf(&buf[buf_len], 12, "/%u", e[i].exclusion_length);
 				buf_len += strlen(&buf[buf_len]);
 			}
 		}

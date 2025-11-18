@@ -787,8 +787,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 					continue;
 
 				uint8_t ex_len = 0;
-				if (pd_entries[j].priority > 0)
-					ex_len = ((pd_entries[j].priority - pd_entries[j].length - 1) / 8) + 6;
+				if (pd_entries[j].exclusion_length > 0)
+					ex_len = ((pd_entries[j].exclusion_length - pd_entries[j].length - 1) / 8) + 6;
 
 				struct dhcpv6_ia_prefix p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
@@ -810,11 +810,11 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 					ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
 					ia_pd[ia_pd_len++] = 0;
 					ia_pd[ia_pd_len++] = ex_len - DHCPV6_OPT_HDR_SIZE;
-					ia_pd[ia_pd_len++] = pd_entries[j].priority;
+					ia_pd[ia_pd_len++] = pd_entries[j].exclusion_length;
 
 					uint32_t excl = ntohl(pd_entries[j].router.s6_addr32[1]);
-					excl >>= (64 - pd_entries[j].priority);
-					excl <<= 8 - ((pd_entries[j].priority - pd_entries[j].length) % 8);
+					excl >>= (64 - pd_entries[j].exclusion_length);
+					excl <<= 8 - ((pd_entries[j].exclusion_length - pd_entries[j].length) % 8);
 
 					for (size_t k = ex_len - 5; k > 0; --k, excl >>= 8)
 						ia_pd[ia_pd_len + k] = excl & 0xff;
@@ -1666,6 +1666,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 			.auxlen = 0,
 			.length = 0,
 			.ra_flags = 0,
+			.exclusion_length = 0,
 			.target = IN6ADDR_ANY_INIT,
 			.priority = 0,
 			.valid = 0,
@@ -1721,33 +1722,35 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 					if (ret) *ret = 0; // renewal failed
 				} else if (stype == DHCPV6_OPT_PD_EXCLUDE && slen > 2) {
 					/*	RFC 6603 §4.2 Prefix Exclude option */
-					uint8_t elen = sdata[0];
-					if (elen > 64)
-						elen = 64;
+					uint8_t exclude_length = sdata[0];
+					if (exclude_length > 64)
+						exclude_length = 64;
 
-					if (entry.length < 32 || elen <= entry.length) {
+					if (entry.length < 32 || exclude_length <= entry.length) {
 						update_state = false;
 						continue;
 					}
 
-					uint8_t bytes = ((elen - entry.length - 1) / 8) + 1;
-					if (slen <= bytes) {
+					uint8_t bytes_needed = ((exclude_length - entry.length - 1) / 8) + 1;
+					if (slen <= bytes_needed) {
 						update_state = false;
 						continue;
 					}
 
-					uint32_t exclude = 0;
+					// this decrements through the ipaddr bytes masking against 
+					// the address in the option until byte 0, the option length field.
+					uint32_t excluded_bits = 0;
 					do {
-						exclude = exclude << 8 | sdata[bytes];
-					} while (--bytes);
+						excluded_bits = excluded_bits << 8 | sdata[bytes_needed];
+					} while (--bytes_needed);
 
-					exclude >>= 8 - ((elen - entry.length) % 8);
-					exclude <<= 64 - elen;
+					excluded_bits >>= 8 - ((exclude_length - entry.length) % 8);
+					excluded_bits <<= 64 - exclude_length;
 
-					// Abusing router & priority fields for exclusion
-					entry.router = entry.target;
-					entry.router.s6_addr32[1] |= htonl(exclude);
-					entry.priority = elen;
+					// Re-using router field to hold the prefix
+					entry.router = entry.target; // base prefix
+					entry.router.s6_addr32[1] |= htonl(excluded_bits);
+					entry.exclusion_length = exclude_length;
 				}
 			}
 
