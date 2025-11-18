@@ -430,6 +430,7 @@ bool ra_process(void)
 		entry->target = any;
 		entry->length = 0;
 		entry->router = from.sin6_addr;
+		entry->ra_flags = adv->nd_ra_flags_reserved & (ND_RA_FLAG_MANAGED | ND_RA_FLAG_OTHER);
 		entry->priority = pref_to_priority(adv->nd_ra_flags_reserved);
 		if (entry->priority < 0)
 			entry->priority = pref_to_priority(0);
@@ -438,6 +439,7 @@ bool ra_process(void)
 		entry->preferred = entry->valid;
 		changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 						ra_holdoff_interval);
+		entry->ra_flags = 0; // other STATE_RA_* entries don't have flags
 
 		// Parse hop limit
 		changed |= ra_set_hoplimit(adv->nd_ra_curhoplimit);
