@@ -4,6 +4,10 @@ on:
   pull_request:
   push:
 
+env:
+  archs: "aarch64 arm mips mips64 powerpc powerpc64 riscv64 x86_64"
+  variants: "without_ubus with_ubus"
+
 jobs:
   build:
     name: Build ${{ matrix.arch }}
@@ -21,9 +25,18 @@ jobs:
           - arch: mips
             gcc: /usr/bin/mips-linux-gnu-gcc
             packages: gcc-mips-linux-gnu
+          - arch: mips64
+            gcc: /usr/bin/mips64-linux-gnuabi64-gcc
+            packages: gcc-mips64-linux-gnuabi64
           - arch: powerpc
             gcc: /usr/bin/powerpc-linux-gnu-gcc
             packages: gcc-powerpc-linux-gnu
+          - arch: powerpc64
+            gcc: /usr/bin/powerpc64-linux-gnu-gcc
+            packages: gcc-powerpc64-linux-gnu
+          - arch: riscv64
+            gcc: /usr/bin/riscv64-linux-gnu-gcc
+            packages: gcc-riscv64-linux-gnu
           - arch: x86_64
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
@@ -34,8 +47,14 @@ jobs:
       size-arm-with-ubus: ${{ steps.with_ubus.outputs.size_arm }}
       size-mips-without-ubus: ${{ steps.without_ubus.outputs.size_mips }}
       size-mips-with-ubus: ${{ steps.with_ubus.outputs.size_mips }}
+      size-mips64-without-ubus: ${{ steps.without_ubus.outputs.size_mips64 }}
+      size-mips64-with-ubus: ${{ steps.with_ubus.outputs.size_mips64 }}
       size-powerpc-without-ubus: ${{ steps.without_ubus.outputs.size_powerpc }}
       size-powerpc-with-ubus: ${{ steps.with_ubus.outputs.size_powerpc }}
+      size-powerpc64-without-ubus: ${{ steps.without_ubus.outputs.size_powerpc64 }}
+      size-powerpc64-with-ubus: ${{ steps.with_ubus.outputs.size_powerpc64 }}
+      size-riscv64-without-ubus: ${{ steps.without_ubus.outputs.size_riscv64 }}
+      size-riscv64-with-ubus: ${{ steps.with_ubus.outputs.size_riscv64 }}
       size-x86_64-without-ubus: ${{ steps.without_ubus.outputs.size_x86_64 }}
       size-x86_64-with-ubus: ${{ steps.with_ubus.outputs.size_x86_64 }}
     steps:
@@ -155,13 +174,33 @@ jobs:
           size_arm_with_ubus: ${{needs.build.outputs.size-arm-with-ubus}}
           size_mips_without_ubus: ${{needs.build.outputs.size-mips-without-ubus}}
           size_mips_with_ubus: ${{needs.build.outputs.size-mips-with-ubus}}
+          size_mips64_without_ubus: ${{needs.build.outputs.size-mips64-without-ubus}}
+          size_mips64_with_ubus: ${{needs.build.outputs.size-mips64-with-ubus}}
           size_powerpc_without_ubus: ${{needs.build.outputs.size-powerpc-without-ubus}}
           size_powerpc_with_ubus: ${{needs.build.outputs.size-powerpc-with-ubus}}
+          size_powerpc64_without_ubus: ${{needs.build.outputs.size-powerpc64-without-ubus}}
+          size_powerpc64_with_ubus: ${{needs.build.outputs.size-powerpc64-with-ubus}}
+          size_riscv64_without_ubus: ${{needs.build.outputs.size-riscv64-without-ubus}}
+          size_riscv64_with_ubus: ${{needs.build.outputs.size-riscv64-with-ubus}}
           size_x86_64_without_ubus: ${{needs.build.outputs.size-x86_64-without-ubus}}
           size_x86_64_with_ubus: ${{needs.build.outputs.size-x86_64-with-ubus}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant | aarch64 | arm | mips | powerpc | x86_64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| :---: | :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| w/o ubus | ${size_aarch64_without_ubus} | ${size_arm_without_ubus} | ${size_mips_without_ubus} | ${size_powerpc_without_ubus} | ${size_x86_64_without_ubus} |" >> $GITHUB_STEP_SUMMARY
-          echo "| with ubus | ${size_aarch64_with_ubus} | ${size_arm_with_ubus} | ${size_mips_with_ubus} | ${size_powerpc_with_ubus} | ${size_x86_64_with_ubus} |" >> $GITHUB_STEP_SUMMARY
+
+          header="| arch |"
+          table="| :---: |"
+          for variant in ${{ env.variants }}; do
+            header="$header $variant |"
+            table="$table :---: |"
+          done
+          echo $header >> $GITHUB_STEP_SUMMARY
+          echo $table >> $GITHUB_STEP_SUMMARY
+
+          for arch in ${{ env.archs }}; do
+            row="| $arch | "
+            for variant in $variants; do
+              value=size_${arch}_$(echo "$variant" | tr "[:upper:]" "[:lower:]")
+              row="$row ${!value} |"
+            done
+            echo $row >> $GITHUB_STEP_SUMMARY
+          done
