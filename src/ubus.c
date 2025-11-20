@@ -343,13 +343,13 @@ static int entry_to_blob(const char *name, const void *data, size_t len, enum en
 				blobmsg_add_u32(&b, "iaid", ntohl(e[i].iaid));
 			}
 
-			if (type == ENTRY_PREFIX && e[i].priority) {
-				// priority and router are abused for prefix exclusion
+			if (type == ENTRY_PREFIX && e[i].exclusion_length) {
 				buf = blobmsg_alloc_string_buffer(&b, "excluded", INET6_ADDRSTRLEN);
 				CHECK_ALLOC(buf);
+				// '.router' is dual-used: for prefixes it contains the prefix
 				inet_ntop(AF_INET6, &e[i].router, buf, INET6_ADDRSTRLEN);
 				blobmsg_add_string_buffer(&b);
-				blobmsg_add_u32(&b, "excluded_length", e[i].priority);
+				blobmsg_add_u32(&b, "excluded_length", e[i].exclusion_length);
 			}
 		}
 

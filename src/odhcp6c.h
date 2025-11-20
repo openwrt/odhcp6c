@@ -482,6 +482,7 @@ struct odhcp6c_entry {
 	uint8_t auxlen;
 	uint8_t length;
 	uint8_t ra_flags;
+	uint8_t exclusion_length;
 	struct in6_addr target;
 	int16_t priority;
 	uint32_t valid;
