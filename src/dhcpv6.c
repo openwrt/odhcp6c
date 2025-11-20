@@ -1826,52 +1826,53 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 
 static unsigned int dhcpv6_calc_refresh_timers(void)
 {
-	struct odhcp6c_entry *e;
-	size_t ia_na_entries, ia_pd_entries, i;
+	struct odhcp6c_entry *pd_entries;
+	struct odhcp6c_entry *ia_entries;
+	size_t ia_na_entry_cnt, ia_pd_entry_cnt, i;
 	size_t invalid_entries = 0;
 	int64_t l_t1 = UINT32_MAX, l_t2 = UINT32_MAX, l_t3 = 0;
 
-	e = odhcp6c_get_state(STATE_IA_NA, &ia_na_entries);
-	ia_na_entries /= sizeof(*e);
+	ia_entries = odhcp6c_get_state(STATE_IA_NA, &ia_na_entry_cnt);
+	ia_na_entry_cnt /= sizeof(*ia_entries);
 
-	for (i = 0; i < ia_na_entries; i++) {
+	for (i = 0; i < ia_na_entry_cnt; i++) {
 		/* Exclude invalid IA_NA entries */
-		if (!e[i].valid) {
+		if (!ia_entries[i].valid) {
 			invalid_entries++;
 			continue;
 		}
 
-		if (e[i].t1 < l_t1)
-			l_t1 = e[i].t1;
+		if (ia_entries[i].t1 < l_t1)
+			l_t1 = ia_entries[i].t1;
 
-		if (e[i].t2 < l_t2)
-			l_t2 = e[i].t2;
+		if (ia_entries[i].t2 < l_t2)
+			l_t2 = ia_entries[i].t2;
 
-		if (e[i].valid > l_t3)
-			l_t3 = e[i].valid;
+		if (ia_entries[i].valid > l_t3)
+			l_t3 = ia_entries[i].valid;
 	}
 
-	e = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entries);
-	ia_pd_entries /= sizeof(*e);
+	pd_entries = odhcp6c_get_state(STATE_IA_PD, &ia_pd_entry_cnt);
+	ia_pd_entry_cnt /= sizeof(*pd_entries);
 
-	for (i = 0; i < ia_pd_entries; i++) {
+	for (i = 0; i < ia_pd_entry_cnt; i++) {
 		/* Exclude invalid IA_PD entries */
-		if (!e[i].valid) {
+		if (!pd_entries[i].valid) {
 			invalid_entries++;
 			continue;
 		}
 
-		if (e[i].t1 < l_t1)
-			l_t1 = e[i].t1;
+		if (pd_entries[i].t1 < l_t1)
+			l_t1 = pd_entries[i].t1;
 
-		if (e[i].t2 < l_t2)
-			l_t2 = e[i].t2;
+		if (pd_entries[i].t2 < l_t2)
+			l_t2 = pd_entries[i].t2;
 
-		if (e[i].valid > l_t3)
-			l_t3 = e[i].valid;
+		if (pd_entries[i].valid > l_t3)
+			l_t3 = pd_entries[i].valid;
 	}
 
-	if (ia_pd_entries + ia_na_entries - invalid_entries) {
+	if (ia_pd_entry_cnt + ia_na_entry_cnt - invalid_entries) {
 		t1 = l_t1;
 		t2 = l_t2;
 		t3 = l_t3;
@@ -1879,7 +1880,7 @@ static unsigned int dhcpv6_calc_refresh_timers(void)
 		syslog(LOG_INFO, "T1 %"PRId64"s, T2 %"PRId64"s, T3 %"PRId64"s", t1, t2, t3);
 	}
 
-	return (unsigned int)(ia_pd_entries + ia_na_entries);
+	return (unsigned int)(ia_pd_entry_cnt + ia_na_entry_cnt);
 }
 
 static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
