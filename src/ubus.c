@@ -531,7 +531,8 @@ static int states_to_blob(void)
 	char *buf = NULL;
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
 	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, addr_len;
-	size_t s46_mapt_len, s46_mape_len, s46_lw_len, capt_port_len, passthru_len;
+	size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
+	size_t capt_port_ra_len, capt_port_dhcpv6_len;
 	struct in6_addr *addr = odhcp6c_get_state(STATE_SERVER_ADDR, &addr_len);
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
@@ -545,7 +546,8 @@ static int states_to_blob(void)
 	uint8_t *s46_mapt = odhcp6c_get_state(STATE_S46_MAPT, &s46_mapt_len);
 	uint8_t *s46_mape = odhcp6c_get_state(STATE_S46_MAPE, &s46_mape_len);
 	uint8_t *s46_lw = odhcp6c_get_state(STATE_S46_LW, &s46_lw_len);
-	uint8_t *capt_port = odhcp6c_get_state(STATE_CAPT_PORT, &capt_port_len);
+	uint8_t *capt_port_ra = odhcp6c_get_state(STATE_CAPT_PORT_RA, &capt_port_ra_len);
+	uint8_t *capt_port_dhcpv6 = odhcp6c_get_state(STATE_CAPT_PORT_DHCPV6, &capt_port_dhcpv6_len);
 	uint8_t *passthru = odhcp6c_get_state(STATE_PASSTHRU, &passthru_len);
 
 	size_t prefix_len, address_len, ra_pref_len,
@@ -558,6 +560,15 @@ static int states_to_blob(void)
 	uint8_t *ra_search = odhcp6c_get_state(STATE_RA_SEARCH, &ra_search_len);
 
  	blob_buf_init(&b, BLOBMSG_TYPE_TABLE);
+
+	/* RFC8910 §3 */
+	if (capt_port_ra_len > 0 && capt_port_dhcpv6_len > 0) {
+		if (capt_port_ra_len != capt_port_dhcpv6_len ||
+			!memcmp(capt_port_dhcpv6, capt_port_ra, capt_port_dhcpv6_len))
+			syslog(LOG_ERR,
+				"%s received via different vectors differ: preferring URI from DHCPv6",
+				CAPT_PORT_URI_STR);
+	}
 
 	blobmsg_add_string(&b, "DHCPV6_STATE", dhcpv6_state_to_str(dhcpv6_get_state()));
 
@@ -573,7 +584,10 @@ static int states_to_blob(void)
 	CHECK(s46_to_blob(STATE_S46_MAPE, s46_mape, s46_mape_len));
 	CHECK(s46_to_blob(STATE_S46_MAPT, s46_mapt, s46_mapt_len));
 	CHECK(s46_to_blob(STATE_S46_LW, s46_lw, s46_lw_len));
-	blobmsg_add_string(&b, CAPT_PORT_URI_STR, (char *)capt_port);
+	if (capt_port_dhcpv6_len > 0)
+		blobmsg_add_string(&b, CAPT_PORT_URI_STR, (char *)capt_port_dhcpv6);
+	else if (capt_port_ra_len > 0)
+		blobmsg_add_string(&b, CAPT_PORT_URI_STR, (char *)capt_port_ra);
 	CHECK(bin_to_blob(custom, custom_len));
 
 	if (odhcp6c_is_bound()) {

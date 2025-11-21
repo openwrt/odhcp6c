@@ -582,8 +582,8 @@ bool ra_process(void)
 
 					memcpy(copy, buf, uri_len);
 					copy[uri_len] = '\0';
-					odhcp6c_clear_state(STATE_CAPT_PORT);
-					odhcp6c_add_state(STATE_CAPT_PORT, copy, uri_len);
+					odhcp6c_clear_state(STATE_CAPT_PORT_RA);
+					odhcp6c_add_state(STATE_CAPT_PORT_RA, copy, uri_len);
 					free(copy);
 				}
 			}

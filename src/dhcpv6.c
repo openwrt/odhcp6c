@@ -1372,7 +1372,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 		odhcp6c_clear_state(STATE_S46_MAPT);
 		odhcp6c_clear_state(STATE_S46_MAPE);
 		odhcp6c_clear_state(STATE_S46_LW);
-		odhcp6c_clear_state(STATE_CAPT_PORT);
+		odhcp6c_clear_state(STATE_CAPT_PORT_DHCPV6);
 		odhcp6c_clear_state(STATE_PASSTHRU);
 		odhcp6c_clear_state(STATE_CUSTOM_OPTS);
 
@@ -1550,7 +1550,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 						continue;
 					memcpy(copy, odata, olen);
 					copy[uri_len] = '\0';
-					odhcp6c_add_state(STATE_CAPT_PORT, odata, olen);
+					odhcp6c_add_state(STATE_CAPT_PORT_DHCPV6, odata, olen);
 					free(copy);
 				}
 				break;
