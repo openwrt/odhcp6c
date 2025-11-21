@@ -89,6 +89,7 @@ The script is called with the following parameters: `<interface>` `<state>`
 | `RA_RETRANSMIT` 					| ND Retransmit time												|
 | `AFTR`							| The DS-Lite AFTR domain name										|
 | `MAPE` / `MAPT` / `LW4O6` 		| Softwire rules for MAPE, MAPT and LW4O6							|
+| `CAPTIVE_PORTAL_URI` 				| RFC8910 captive portal API URI received from upstream				|
 | `PASSTHRU` 						| The content of the last packet relayed							|
 
 
