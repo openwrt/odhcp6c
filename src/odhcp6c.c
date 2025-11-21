@@ -166,7 +166,7 @@ int main(_o_unused int argc, char* const argv[])
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
 	// Allocate resources
 	const char *pidfile = NULL;
-	const char *script = "/usr/sbin/odhcp6c-update";
+	const char *script = "/lib/netifd/dhcpv6.script";
 	ssize_t l;
 	uint8_t buf[134], *o_data;
 	char *optpos;
@@ -785,7 +785,7 @@ static int usage(void)
 	"	-i <iface-id>	Use a custom interface identifier for RA handling\n"
 	"	-r <options>	Options to be requested (comma-separated)\n"
 	"	-R		Do not request any options except those specified with -r\n"
-	"	-s <script>	Status update script (/usr/sbin/odhcp6c-update)\n"
+	"	-s <script>	Status update script (/lib/netifd/dhcpv6.script)\n"
 	"	-E		Only use UBUS event and disable status update script\n"
 	"	-a		Don't send Accept Reconfigure option\n"
 	"	-f		Don't send Client FQDN option\n"
