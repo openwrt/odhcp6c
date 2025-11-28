@@ -537,18 +537,18 @@ bool ra_process(void)
 				}
 			} else if (opt->type == ND_OPT_DNSSL && opt->len > 1) {
 				uint32_t *valid = (uint32_t*)&opt->data[2];
-				uint8_t *buf = &opt->data[6];
-				uint8_t *end = &buf[(opt->len - 1) * 8];
+				uint8_t *ds_buf = &opt->data[6];
+				uint8_t *end = &ds_buf[(opt->len - 1) * 8];
 
 				entry->router = from.sin6_addr;
 				entry->valid = ntohl(*valid);
 
-				while (buf < end) {
-					int len = dn_expand(buf, end, buf, (char*)entry->auxtarget, 256);
-					if (len < 1)
+				while (ds_buf < end) {
+					int ds_len = dn_expand(ds_buf, end, ds_buf, (char*)entry->auxtarget, 256);
+					if (ds_len < 1)
 						break;
 
-					buf = &buf[len];
+					ds_buf = &ds_buf[ds_len];
 					entry->auxlen = strlen((char*)entry->auxtarget);
 
 					if (entry->auxlen == 0)
@@ -564,7 +564,7 @@ bool ra_process(void)
 					continue;
 
 				struct icmpv6_opt_captive_portal *capt_port = (struct icmpv6_opt_captive_portal*)opt;
-				uint8_t *buf = &capt_port->data[0];
+				uint8_t *cp_buf = &capt_port->data[0];
 				size_t ref_len = sizeof(URN_IETF_CAPT_PORT_UNRESTR) - 1;
 
 				/* RFC8910 §2:
@@ -572,7 +572,7 @@ bool ra_process(void)
 				 * condition by using this option with the IANA-assigned URI for
 				 * this purpose. Clients observing the URI value ... may forego
 				 * time-consuming forms of captive portal detection. */
-				if (memcmp(buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
+				if (memcmp(cp_buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
 					/* URI are not guaranteed to be \0 terminated if data is unpadded */
 					size_t uri_len = (capt_port->len * 8) - 2;
 					/* Allocate new buffer including room for '\0' */
@@ -580,7 +580,7 @@ bool ra_process(void)
 					if (!copy)
 						continue;
 
-					memcpy(copy, buf, uri_len);
+					memcpy(copy, cp_buf, uri_len);
 					copy[uri_len] = '\0';
 					odhcp6c_clear_state(STATE_CAPT_PORT_RA);
 					odhcp6c_add_state(STATE_CAPT_PORT_RA, copy, uri_len);
