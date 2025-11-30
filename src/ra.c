@@ -56,9 +56,10 @@ static int sock = -1, rtnl = -1;
 static int if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
-static struct in6_addr lladdr = IN6ADDR_ANY_INIT;
+static struct in6_addr ra_addr = IN6ADDR_ANY_INIT;
 static unsigned int ra_options = 0;
 static unsigned int ra_holdoff_interval = 0;
+static ra_ifid_mode_t ra_ifid_mode = RA_IFID_LLA;
 static int ra_hoplimit = 0;
 static int ra_mtu = 0;
 static int ra_reachable = 0;
@@ -75,12 +76,14 @@ struct {
 static void ra_send_rs(_o_unused int signal);
 
 int ra_init(const char *ifname, const struct in6_addr *ifid,
-		unsigned int options, unsigned int holdoff_interval)
+	    ra_ifid_mode_t ifid_mode, unsigned int options,
+	    unsigned int holdoff_interval)
 {
 	struct ifreq ifr;
 
 	ra_options = options;
 	ra_holdoff_interval = holdoff_interval;
+	ra_ifid_mode = ifid_mode;
 
 	const pid_t ourpid = getpid();
 	sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
@@ -99,8 +102,9 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		goto failure;
 
+	strncpy(if_name, ifname, sizeof(if_name) - 1);
 	if_index = ifr.ifr_ifindex;
-	lladdr = *ifid;
+	ra_addr = *ifid;
 
 	rtnl = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC, NETLINK_ROUTE);
 	if (rtnl < 0)
@@ -327,6 +331,130 @@ static bool ra_set_retransmit(int val)
 	return false;
 }
 
+static bool ra_generate_addr_eui64(void)
+{
+	struct ifreq ifr;
+	int sock;
+
+	sock = socket(AF_INET6, SOCK_DGRAM, 0);
+	if (sock < 0) {
+		syslog(LOG_ERR,
+		       "%s: error creating EUI64 socket",
+		       if_name);
+		return false;
+	}
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name) - 1);
+
+	if (ioctl(sock, SIOCGIFHWADDR, &ifr) != 0) {
+		syslog(LOG_ERR,
+		       "%s: error getting EUI64 HW address",
+		       if_name);
+		close(sock);
+		return false;
+	}
+
+	close(sock);
+
+	if (!odhcp6c_is_valid_ether_addr((uint8_t *) ifr.ifr_hwaddr.sa_data)) {
+		syslog(LOG_ERR,
+		       "%s: invalid EUI64 HW address",
+		       if_name);
+		return false;
+	}
+
+	ra_addr.s6_addr[0] = 0xfe;
+	ra_addr.s6_addr[1] = 0x80;
+	ra_addr.s6_addr[8] = ifr.ifr_hwaddr.sa_data[0] ^ 0x2;
+	ra_addr.s6_addr[9] = ifr.ifr_hwaddr.sa_data[1];
+	ra_addr.s6_addr[10] = ifr.ifr_hwaddr.sa_data[2];
+	ra_addr.s6_addr[11] = 0xff;
+	ra_addr.s6_addr[12] = 0xfe;
+	ra_addr.s6_addr[13] = ifr.ifr_hwaddr.sa_data[3];
+	ra_addr.s6_addr[14] = ifr.ifr_hwaddr.sa_data[4];
+	ra_addr.s6_addr[15] = ifr.ifr_hwaddr.sa_data[5];
+
+	return true;
+}
+
+static bool ra_generate_addr_ll(void)
+{
+	struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
+	socklen_t alen = sizeof(addr);
+	int sock;
+
+	sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+	if (sock < 0) {
+		syslog(LOG_ERR,
+		       "%s: error creating LLA socket",
+		       if_name);
+		return false;
+	}
+
+	if (connect(sock, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
+		syslog(LOG_ERR,
+		       "%s: error connecting LLA socket",
+		       if_name);
+		close(sock);
+		return false;
+	}
+
+	if (getsockname(sock, (struct sockaddr*) &addr, &alen) != 0) {
+		syslog(LOG_ERR,
+		       "%s: error getting address from LLA socket",
+		       if_name);
+		close(sock);
+		return false;
+	}
+
+	close(sock);
+
+	ra_addr = addr.sin6_addr;
+
+	return true;
+}
+
+static bool ra_generate_addr_rand(void)
+{
+	if (odhcp6c_random(&ra_addr.s6_addr[8], 8) != 8) {
+		ra_addr.s6_addr32[2] = 0;
+		ra_addr.s6_addr32[3] = 0;
+		syslog(LOG_ERR,
+		       "%s: error generating random interface address",
+		       if_name);
+		return false;
+	}
+
+	ra_addr.s6_addr[0] = 0xfe;
+	ra_addr.s6_addr[1] = 0x80;
+
+	return true;
+}
+
+static void ra_generate_addr(void)
+{
+	bool addr_lla = false;
+
+	switch (ra_ifid_mode) {
+	case RA_IFID_EUI64:
+		addr_lla |= !ra_generate_addr_eui64();
+		break;
+	case RA_IFID_FIXED:
+		/* nothing to do */
+		break;
+	case RA_IFID_LLA:
+		addr_lla = true;
+		break;
+	case RA_IFID_RANDOM:
+		addr_lla |= !ra_generate_addr_rand();
+		break;
+	}
+
+	if (addr_lla)
+		ra_generate_addr_ll();
+}
+
 int ra_get_hoplimit(void)
 {
 	return ra_hoplimit;
@@ -362,19 +490,8 @@ bool ra_process(void)
 
 	memset(entry, 0, sizeof(*entry));
 
-	if (IN6_IS_ADDR_UNSPECIFIED(&lladdr)) {
-		struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
-		socklen_t alen = sizeof(addr);
-		int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
-
-		if (sock >= 0) {
-			if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
-					!getsockname(sock, (struct sockaddr*)&addr, &alen))
-				lladdr = addr.sin6_addr;
-
-			close(sock);
-		}
-	}
+	if (IN6_IS_ADDR_UNSPECIFIED(&ra_addr))
+		ra_generate_addr();
 
 	while (true) {
 		struct sockaddr_in6 from;
@@ -396,7 +513,7 @@ bool ra_process(void)
 		if (len <= 0)
 			break;
 
-		if (IN6_IS_ADDR_UNSPECIFIED(&lladdr))
+		if (IN6_IS_ADDR_UNSPECIFIED(&ra_addr))
 			continue;
 
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL;
@@ -516,8 +633,8 @@ bool ra_process(void)
 						pinfo->nd_opt_pi_prefix_len != 64)
 					continue;
 
-				entry->target.s6_addr32[2] = lladdr.s6_addr32[2];
-				entry->target.s6_addr32[3] = lladdr.s6_addr32[3];
+				entry->target.s6_addr32[2] = ra_addr.s6_addr32[2];
+				entry->target.s6_addr32[3] = ra_addr.s6_addr32[3];
 
 				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry,
 								ra_holdoff_interval);

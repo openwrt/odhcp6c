@@ -68,6 +68,9 @@
 #define DHCPV6_DEC_INIT_RT 1
 #define DHCPV6_DEC_MAX_RC 4
 
+#define DHCPV6_IFACEID_EUI64 "eui64"
+#define DHCPV6_IFACEID_RANDOM "random"
+
 #define RA_MIN_ADV_INTERVAL 3   /* RFC 4861 paragraph 6.2.1 */
 
 /* RFC8910 §2 */
@@ -592,5 +595,22 @@ void odhcp6c_expire(bool expire_ia_pd);
 uint32_t odhcp6c_elapsed(void);
 struct odhcp6c_opt *odhcp6c_find_opt(const uint16_t code);
 struct odhcp6c_opt *odhcp6c_find_opt_by_name(const char *name);
+
+static inline bool odhcp6c_is_multicast_ether_addr(const uint8_t *addr)
+{
+	return addr[0] & 0x01;
+}
+
+static inline bool odhcp6c_is_zero_ether_addr(const uint8_t *addr)
+{
+	return (addr[0] | addr[1] | addr[2] |
+		addr[3] | addr[4] | addr[5]) == 0;
+}
+
+static inline bool odhcp6c_is_valid_ether_addr(const uint8_t *addr)
+{
+	return !odhcp6c_is_multicast_ether_addr(addr) &&
+	       !odhcp6c_is_zero_ether_addr(addr);
+}
 
 #endif /* _ODHCP6C_H_ */

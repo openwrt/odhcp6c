@@ -48,6 +48,13 @@ struct icmpv6_opt_route_info {
 	uint8_t prefix[];
 };
 
+typedef enum ra_ifid_mode {
+	RA_IFID_EUI64,
+	RA_IFID_FIXED,
+	RA_IFID_RANDOM,
+	RA_IFID_LLA,
+} ra_ifid_mode_t;
+
 #define ND_OPT_ROUTE_INFORMATION 24
 #define ND_OPT_CAPTIVE_PORTAL 37
 
@@ -59,7 +66,8 @@ struct icmpv6_opt_route_info {
 
 
 int ra_init(const char *ifname, const struct in6_addr *ifid,
-		unsigned int options, unsigned int holdoff_interval);
+	    ra_ifid_mode_t ifid_mode, unsigned int options,
+	    unsigned int holdoff_interval);
 bool ra_link_up(void);
 bool ra_process(void);
 
