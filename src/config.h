@@ -90,7 +90,7 @@ struct config_dhcp {
 	enum odhcp6c_ia_mode ia_na_mode;
 	enum odhcp6c_ia_mode ia_pd_mode;
 	unsigned int client_options;
-	int allow_slaac_only;
+	bool allow_slaac_only;
 	unsigned int oro_user_cnt;
 	struct config_dhcp_rtx message_rtx[CONFIG_DHCP_MAX];
 	uint32_t irt_default;
@@ -110,7 +110,7 @@ bool config_set_request_addresses(char *mode);
 bool config_set_request_prefix(unsigned int length, unsigned int id);
 void config_set_force_prefix(bool enable);
 void config_set_stateful_only(bool enable);
-void config_set_allow_slaac_only(int value);
+void config_set_allow_slaac_only(bool value);
 void config_clear_requested_options(void) ;
 bool config_add_requested_options(unsigned int option);
 void config_clear_send_options(void);

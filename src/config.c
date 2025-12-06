@@ -85,7 +85,7 @@ void config_dhcp_reset(void) {
 	config_dhcp.ia_na_mode = IA_MODE_TRY;
 	config_dhcp.ia_pd_mode = IA_MODE_NONE;
 	config_dhcp.client_options = DHCPV6_CLIENT_FQDN | DHCPV6_ACCEPT_RECONFIGURE;
-	config_dhcp.allow_slaac_only = 0;
+	config_dhcp.allow_slaac_only = true;
 	config_dhcp.oro_user_cnt = 0;
 	memset(config_dhcp.message_rtx, 0, sizeof(config_dhcp.message_rtx));
 	config_dhcp.message_rtx[CONFIG_DHCP_SOLICIT].delay_max = DHCPV6_MAX_DELAY;
@@ -146,7 +146,7 @@ void config_set_client_options(enum dhcpv6_config option, bool enable) {
 bool config_set_request_addresses(char* mode) {
 	if (!strcmp(mode, "force")) {
 		config_dhcp.ia_na_mode = IA_MODE_FORCE;
-		config_dhcp.allow_slaac_only = -1;
+		config_dhcp.allow_slaac_only = false;
 	} else if (!strcmp(mode, "none")) {
 		config_dhcp.ia_na_mode = IA_MODE_NONE;
 	} else if (!strcmp(mode, "try")) {
@@ -182,7 +182,7 @@ bool config_set_request_prefix(unsigned int length, unsigned int id) {
 
 void config_set_force_prefix(bool enable) {
 	if (enable) {
-		config_dhcp.allow_slaac_only = -1;
+		config_dhcp.allow_slaac_only = false;
 		config_dhcp.ia_pd_mode = IA_MODE_FORCE;
 	} else {
 		config_dhcp.ia_pd_mode = IA_MODE_NONE;
@@ -193,7 +193,7 @@ void config_set_stateful_only(bool enable) {
 	config_dhcp.stateful_only_mode = enable;
 }
 
-void config_set_allow_slaac_only(int value) {
+void config_set_allow_slaac_only(bool value) {
 	config_dhcp.allow_slaac_only = value;
 }
 

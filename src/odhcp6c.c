@@ -186,10 +186,10 @@ int main(_o_unused int argc, char* const argv[])
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
 
-	while ((c = getopt(argc, argv, "S::DN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:fav")) != -1) {
 		switch (c) {
 		case 'S':
-			config_set_allow_slaac_only((optarg) ? atoi(optarg) : -1);
+			config_set_allow_slaac_only(false);
 			break;
 
 		case 'D':
@@ -881,7 +881,7 @@ bool odhcp6c_signal_process(void)
 			signal_usr2 = true;
 		}
 
-		if (ra_updated && (bound || config_dhcp->allow_slaac_only >= 0)) {
+		if (ra_updated && (bound || config_dhcp->allow_slaac_only)) {
 			notify_state_change("ra-updated", (!ra && !bound) ?
 					script_sync_delay : script_accu_delay, false);
 			ra = true;
