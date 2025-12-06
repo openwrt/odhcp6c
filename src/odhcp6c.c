@@ -431,9 +431,6 @@ int main(_o_unused int argc, char* const argv[])
 		}
 	}
 
-	if (config_dhcp->allow_slaac_only > 0)
-		script_sync_delay = config_dhcp->allow_slaac_only;
-
 	openlog("odhcp6c", logopt, LOG_DAEMON);
 	if (!verbosity)
 		setlogmask(LOG_UPTO(LOG_WARNING));
