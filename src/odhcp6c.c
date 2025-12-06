@@ -230,9 +230,6 @@ int main(_o_unused int argc, char* const argv[])
 			if (config_dhcp->ia_pd_mode == IA_MODE_NONE)
 				config_dhcp->ia_pd_mode = IA_MODE_TRY;
 
-			if (config_dhcp->allow_slaac_only >= 0 && config_dhcp->allow_slaac_only < 10)
-				config_dhcp->allow_slaac_only = 10;
-
 			struct odhcp6c_request_prefix prefix = { 0 };
 
 			optpos = strchr(optarg, '/');

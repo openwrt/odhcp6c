@@ -168,9 +168,6 @@ bool config_set_request_prefix(unsigned int length, unsigned int id) {
 		config_dhcp.ia_pd_mode = length > 128 ? IA_MODE_NONE : IA_MODE_TRY;
 
 	if (length <= 128) {
-		if (config_dhcp.allow_slaac_only >= 0 && config_dhcp.allow_slaac_only < 10)
-			config_dhcp.allow_slaac_only = 10;
-
 		prefix.length = length;
 		prefix.iaid = htonl(id);
 
