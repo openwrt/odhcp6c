@@ -178,6 +178,31 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	if (fcntl(sock, F_SETFL, val | O_ASYNC) < 0)
 		goto failure;
 
+	// flush any received messages that may not have had all the options (particularly the bind) applied to them
+	uint8_t buf[1500] _o_aligned(4);
+	union {
+		struct cmsghdr hdr;
+		uint8_t buf[CMSG_SPACE(sizeof(int))];
+	} cmsg_buf;
+
+	while (true) {
+		struct sockaddr_in6 from;
+		struct iovec iov = {buf, sizeof(buf)};
+		struct msghdr msg = {
+			.msg_name = (void *) &from,
+			.msg_namelen = sizeof(from),
+			.msg_iov = &iov,
+			.msg_iovlen = 1,
+			.msg_control = cmsg_buf.buf,
+			.msg_controllen = sizeof(cmsg_buf),
+			.msg_flags = 0
+		};
+
+		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
+		if (len <= 0)
+			break;
+	}
+
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
 	ra_send_rs(SIGALRM);
