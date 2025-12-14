@@ -776,7 +776,7 @@ static int usage(void)
 	const char buf[] =
 	"Usage: odhcp6c [options] <interface>\n"
 	"\nFeature options:\n"
-	"	-S <time>	Wait at least <time> sec for a DHCP-server (0)\n"
+	"	-S		Don't allow configuration via SLAAC (RAs) only\n"
 	"	-D		Discard advertisements without any address or prefix proposed\n"
 	"	-N <mode>	Mode for requesting addresses [try|force|none]\n"
 	"	-P <[pfx/]len>	Request IPv6-Prefix (0 = auto)\n"
