@@ -553,6 +553,15 @@ int init_dhcpv6(const char *ifname)
 	na_mode = config_dhcp->ia_na_mode;
 	pd_mode = config_dhcp->ia_pd_mode;
 	stateful_only_mode = config_dhcp->stateful_only_mode;
+
+	// If SLAAC-only operation is requested, explicitly disable
+	// both IA modes so the state machine enters stateless mode
+	// and sends INFORMATION-REQUEST instead of SOLICIT/REQUEST.
+	if (config_dhcp->allow_slaac_only) {
+		na_mode = IA_MODE_NONE;
+		pd_mode = IA_MODE_NONE;
+	}
+
 	auth_protocol = config_dhcp->auth_protocol;
 
 	sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
@@ -684,6 +693,14 @@ enum {
 int dhcpv6_get_ia_mode(void)
 {
 	int mode = DHCPV6_UNKNOWN;
+
+	// Honour RA-relay/SLAAC-only configuration: force stateless mode
+	// when the configuration explicitly allows SLAAC-only operation.
+	// This ensures an INFORMATION-REQUEST is sent to obtain stateless
+	// configuration (e.g., DNS) even if IA_NA/IA_PD are not requested.
+	struct config_dhcp *cfg = config_dhcp_get();
+	if (cfg && cfg->allow_slaac_only)
+		return DHCPV6_STATELESS;
 
 	if (na_mode == IA_MODE_NONE && pd_mode == IA_MODE_NONE)
 		mode = DHCPV6_STATELESS;
