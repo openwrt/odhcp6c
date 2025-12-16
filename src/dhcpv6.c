@@ -2064,12 +2064,25 @@ int dhcpv6_promote_server_cand(void)
 	if (!cand_len)
 		return -1;
 
-	if (!cand->ia_pd_len && cand->has_noaddravail && na_mode == IA_MODE_TRY) {
-		na_mode = IA_MODE_NONE;
+	if (!cand->ia_pd_len && cand->has_noaddravail) {
+		bool override = false;
 
-		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
-		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
-		return -1;
+		if (na_mode == IA_MODE_TRY) {
+			na_mode = IA_MODE_NONE;
+			override = true;
+		}
+
+		if (pd_mode == IA_MODE_TRY) {
+			pd_mode = IA_MODE_NONE;
+			override = true;
+		}
+
+		if (override) {
+			dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
+			dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
+
+			return -1;
+		}
 	}
 
 	hdr[0] = htons(DHCPV6_OPT_SERVERID);
