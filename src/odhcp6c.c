@@ -518,6 +518,7 @@ int main(_o_unused int argc, char* const argv[])
 			odhcp6c_clear_state(STATE_SIP_FQDN);
 			odhcp6c_clear_state(STATE_CAPT_PORT_DHCPV6);
 			bound = false;
+			res = -1;
 
 			size_t oro_len = 0;
 			odhcp6c_get_state(STATE_ORO, &oro_len);
