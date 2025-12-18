@@ -262,6 +262,9 @@ static struct dhcpv6_stats dhcpv6_stats = {0};
 // config
 static struct config_dhcp* config_dhcp = NULL;
 
+// store unique ifname hash to use as IA->IAID
+static uint32_t ifname_hash_iaid = 0;
+
 static uint32_t ntohl_unaligned(const uint8_t *data)
 {
 	uint32_t buf;
@@ -542,6 +545,12 @@ void dhcpv6_reset_stats(void)
 	memset(&dhcpv6_stats, 0, sizeof(dhcpv6_stats));
 }
 
+uint32_t hash_ifname(const char *s) {
+	uint32_t h = 0;
+	while (*s) h = h * 31 + *s++;
+	return h;
+}
+
 int init_dhcpv6(const char *ifname)
 {
 	config_dhcp = config_dhcp_get();
@@ -565,6 +574,8 @@ int init_dhcpv6(const char *ifname)
 	strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name) - 1);
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		goto failure;
+
+	ifname_hash_iaid = hash_ifname(ifname);
 
 	ifindex = ifr.ifr_ifindex;
 
@@ -838,7 +849,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 	struct dhcpv6_ia_hdr hdr_ia_na = {
 		.type = htons(DHCPV6_OPT_IA_NA),
 		.len = htons(sizeof(hdr_ia_na) - DHCPV6_OPT_HDR_SIZE),
-		.iaid = htonl(ifindex),
+		.iaid = htonl(ifname_hash_iaid),
 		.t1 = 0,
 		.t2 = 0,
 	};
@@ -1392,7 +1403,7 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 						continue;
 
 					// Test ID
-					if (ia_hdr->iaid != htonl(ifindex) && otype == DHCPV6_OPT_IA_NA)
+					if (ia_hdr->iaid != htonl(ifname_hash_iaid) && otype == DHCPV6_OPT_IA_NA)
 						continue;
 
 					uint16_t code = DHCPV6_Success;
