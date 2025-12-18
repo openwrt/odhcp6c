@@ -60,6 +60,7 @@ static volatile bool signal_usr1 = false;
 static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
+static bool client_id_param = false;
 static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
@@ -281,6 +282,8 @@ int main(_o_unused int argc, char* const argv[])
 				if (odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4)) {
 					syslog(LOG_ERR, "Failed to override client-ID");
 					return 1;
+				} else {
+					client_id_param = true;
 				}
 			} else {
 				help = true;
@@ -722,7 +725,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_RESET:
-			odhcp6c_clear_state(STATE_CLIENT_ID);
+			if (!client_id_param)
+				odhcp6c_clear_state(STATE_CLIENT_ID);
 
 			if (bound) {
 				bound = false;
