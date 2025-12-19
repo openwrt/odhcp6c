@@ -19,6 +19,7 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <syslog.h>
 
 #ifndef _o_aligned
 #define _o_aligned(n) __attribute__((aligned(n)))
@@ -37,6 +38,16 @@
 #endif /* _o_unused */
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+void __iflog(int lvl, const char *fmt, ...);
+#define debug(fmt, ...) __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define info(fmt, ...) __iflog(LOG_INFO, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define notice(fmt, ...) __iflog(LOG_NOTICE, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define warn(fmt, ...) __iflog(LOG_WARNING, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define error(fmt, ...) __iflog(LOG_ERR, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define critical(fmt, ...) __iflog(LOG_CRIT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define alert(fmt, ...) __iflog(LOG_ALERT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define emergency(fmt, ...) __iflog(LOG_EMERG, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNSSL 31

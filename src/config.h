@@ -83,7 +83,9 @@ enum config_dhcp_msg {
 };
 
 struct config_dhcp {
+	bool log_syslog;
 	bool release;
+	int log_level;
 	int dscp;
 	int sk_prio;
 	bool stateful_only_mode;
