@@ -64,7 +64,6 @@
 #include <resolv.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 
 #include "config.h"
 #include "odhcp6c.h"
@@ -78,6 +77,7 @@ struct config_dhcp *config_dhcp_get(void) {
 }
 
 void config_dhcp_reset(void) {
+	config_dhcp.log_level = LOG_WARNING;
 	config_dhcp.release = true;
 	config_dhcp.dscp = 0;
 	config_dhcp.sk_prio = 0;
@@ -119,7 +119,7 @@ void config_set_release(bool enable) {
 
 bool config_set_dscp(unsigned int value) {
 	if (value > 63) {
-		syslog(LOG_ERR, "Invalid DSCP value");
+		error("Invalid DSCP value");
 		return false;
 	}
 	config_dhcp.dscp = value;
@@ -128,7 +128,7 @@ bool config_set_dscp(unsigned int value) {
 
 bool config_set_sk_priority(unsigned int priority) {
 	if (priority > 6) {
-		syslog(LOG_ERR, "Invalid SK priority value");
+		error("Invalid SK priority value");
 		return false;
 	}
 	config_dhcp.sk_prio = priority;
@@ -152,7 +152,7 @@ bool config_set_request_addresses(char* mode) {
 	} else if (!strcmp(mode, "try")) {
 		config_dhcp.ia_na_mode = IA_MODE_TRY;
 	} else {
-		syslog(LOG_ERR, "Invalid IA_NA Request Addresses mode");
+		error("Invalid IA_NA Request Addresses mode");
 		return false;
 	}
 
@@ -172,7 +172,7 @@ bool config_set_request_prefix(unsigned int length, unsigned int id) {
 		prefix.iaid = htonl(id);
 
 		if (odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix))) {
-			syslog(LOG_ERR, "Failed to set request IPv6-Prefix");
+			error("Failed to set request IPv6-Prefix");
 			return false;
 		}
 	}
@@ -203,13 +203,13 @@ void config_clear_requested_options(void) {
 
 bool config_add_requested_options(unsigned int option) {
 	if (option > UINT16_MAX) {
-		syslog(LOG_ERR, "Invalid requested option");
+		error("Invalid requested option");
 		return false;
 	}
 
 	option = htons(option);
 	if (odhcp6c_insert_state(STATE_ORO, 0, &option, 2)) {
-		syslog(LOG_ERR, "Failed to set requested option");
+		error("Failed to set requested option");
 		return false;
 	}
 	config_dhcp.oro_user_cnt++;
@@ -227,7 +227,7 @@ bool config_add_send_options(char* option) {
 bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value)
 {
 	if (msg >= CONFIG_DHCP_MAX || value > UINT8_MAX) {
-		syslog(LOG_ERR, "Invalid retransmission Maximum Delay value");
+		error("Invalid retransmission Maximum Delay value");
 		return false;
 	}
 	config_dhcp.message_rtx[msg].delay_max = value;
@@ -237,7 +237,7 @@ bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value)
 bool config_set_rtx_timeout_init(enum config_dhcp_msg msg, unsigned int value)
 {
 	if (msg >= CONFIG_DHCP_MAX || value > UINT8_MAX || value == 0) {
-		syslog(LOG_ERR, "Invalid retransmission Initial Timeout value");
+		error("Invalid retransmission Initial Timeout value");
 		return false;
 	}
 	config_dhcp.message_rtx[msg].timeout_init = value;
@@ -247,7 +247,7 @@ bool config_set_rtx_timeout_init(enum config_dhcp_msg msg, unsigned int value)
 bool config_set_rtx_timeout_max(enum config_dhcp_msg msg, unsigned int value)
 {
 	if (msg >= CONFIG_DHCP_MAX || value > UINT16_MAX) {
-		syslog(LOG_ERR, "Invalid retransmission Maximum Timeout value");
+		error("Invalid retransmission Maximum Timeout value");
 		return false;
 	}
 	config_dhcp.message_rtx[msg].timeout_max = value;
@@ -257,7 +257,7 @@ bool config_set_rtx_timeout_max(enum config_dhcp_msg msg, unsigned int value)
 bool config_set_rtx_rc_max(enum config_dhcp_msg msg, unsigned int value)
 {
 	if (msg >= CONFIG_DHCP_MAX || value > UINT8_MAX) {
-		syslog(LOG_ERR, "Invalid retransmission Retry Attempt value");
+		error("Invalid retransmission Retry Attempt value");
 		return false;
 	}
 	config_dhcp.message_rtx[msg].rc_max = value;
@@ -267,7 +267,7 @@ bool config_set_rtx_rc_max(enum config_dhcp_msg msg, unsigned int value)
 bool config_set_irt_default(unsigned int value)
 {
 	if (value == 0) {
-		syslog(LOG_ERR, "Invalid Default Information Refresh Time value");
+		error("Invalid Default Information Refresh Time value");
 		return false;
 	}
 	config_dhcp.irt_default = value;
@@ -277,7 +277,7 @@ bool config_set_irt_default(unsigned int value)
 bool config_set_irt_min(unsigned int value)
 {
 	if (value == 0) {
-		syslog(LOG_ERR, "Invalid Minimum Information Refresh Time value");
+		error("Invalid Minimum Information Refresh Time value");
 		return false;
 	}
 	config_dhcp.irt_min = value;
@@ -287,7 +287,7 @@ bool config_set_irt_min(unsigned int value)
 bool config_set_rand_factor(unsigned int value)
 {
 	if (value > 999 || value < 10) {
-		syslog(LOG_ERR, "Invalid Random Factor value");
+		error("Invalid Random Factor value");
 		return false;
 	}
 	config_dhcp.rand_factor = value;
@@ -303,7 +303,7 @@ bool config_set_auth_protocol(const char* protocol)
 	} else if (!strcmp(protocol, "ReconfigureKeyAuthentication")) {
 		config_dhcp.auth_protocol = AUTH_PROT_RKAP;
 	} else {
-		syslog(LOG_ERR, "Invalid Authentication protocol");
+		error("Invalid Authentication protocol");
 		return false;
 	}
 
@@ -493,7 +493,7 @@ int config_add_opt(const uint16_t code, const uint8_t *data, const uint16_t len)
 
 	if (odhcp6c_add_state(STATE_OPTS, &opt_hdr, sizeof(opt_hdr)) ||
 			odhcp6c_add_state(STATE_OPTS, data, len)) {
-		syslog(LOG_ERR, "Failed to add option %hu", code);
+		error("Failed to add option %hu", code);
 		return 1;
 	}
 

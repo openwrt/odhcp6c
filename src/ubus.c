@@ -65,7 +65,6 @@
 #include <resolv.h>
 #include <stdio.h>
 #include <sys/types.h>
-#include <syslog.h>
 
 #include "config.h"
 #include "odhcp6c.h"
@@ -76,7 +75,7 @@
 		int ret = (stmt); \
 		if (ret != UBUS_STATUS_OK) \
 		{ \
-			syslog(LOG_ERR, "%s failed: %s (%d)", #stmt, ubus_strerror(ret), ret); \
+			error("%s failed: %s (%d)", #stmt, ubus_strerror(ret), ret); \
 			return ret; \
 		} \
 	} while (0)
@@ -195,7 +194,7 @@ static void ubus_disconnect_cb(struct ubus_context *ubus)
 
 	ret = ubus_reconnect(ubus, NULL);
 	if (ret) {
-		syslog(LOG_ERR, "Cannot reconnect to ubus: %s", ubus_strerror(ret));
+		error("Cannot reconnect to ubus: %s", ubus_strerror(ret));
 		ubus_destroy(ubus);
 	}
 }
@@ -227,7 +226,7 @@ struct ubus_context *ubus_get_ctx(void)
 
 void ubus_destroy(struct ubus_context *ubus)
 {
-	syslog(LOG_NOTICE, "Disconnecting from ubus");
+	notice("Disconnecting from ubus");
 
 	if (ubus != NULL)
 		ubus_free(ubus);
@@ -565,7 +564,7 @@ static int states_to_blob(void)
 	if (capt_port_ra_len > 0 && capt_port_dhcpv6_len > 0) {
 		if (capt_port_ra_len != capt_port_dhcpv6_len ||
 			!memcmp(capt_port_dhcpv6, capt_port_ra, capt_port_dhcpv6_len))
-			syslog(LOG_ERR,
+			error(
 				"%s received via different vectors differ: preferring URI from DHCPv6",
 				CAPT_PORT_URI_STR);
 	}

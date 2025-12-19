@@ -28,7 +28,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -231,7 +230,7 @@ static void ra_send_rs(_o_unused int signal)
 		len = sizeof(struct icmp6_hdr);
 
 	if (sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
-		syslog(LOG_ERR, "Failed to send RS (%s)",  strerror(errno));
+		error("Failed to send RS (%s)",  strerror(errno));
 
 	if (++rs_attempt <= 3)
 		alarm(4);
@@ -281,7 +280,7 @@ bool ra_link_up(void)
 	} while (read > 0);
 
 	if (ret) {
-		syslog(LOG_NOTICE, "carrier => %i event on %s", (int)!nocarrier, if_name);
+		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
 
 		rs_attempt = 0;
 		ra_send_rs(SIGALRM);
@@ -363,7 +362,7 @@ static bool ra_generate_addr_eui64(void)
 
 	sock = socket(AF_INET6, SOCK_DGRAM, 0);
 	if (sock < 0) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: error creating EUI64 socket",
 		       if_name);
 		return false;
@@ -373,7 +372,7 @@ static bool ra_generate_addr_eui64(void)
 	strncpy(ifr.ifr_name, if_name, sizeof(ifr.ifr_name) - 1);
 
 	if (ioctl(sock, SIOCGIFHWADDR, &ifr) != 0) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: error getting EUI64 HW address",
 		       if_name);
 		close(sock);
@@ -383,7 +382,7 @@ static bool ra_generate_addr_eui64(void)
 	close(sock);
 
 	if (!odhcp6c_is_valid_ether_addr((uint8_t *) ifr.ifr_hwaddr.sa_data)) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: invalid EUI64 HW address",
 		       if_name);
 		return false;
@@ -411,14 +410,14 @@ static bool ra_generate_addr_ll(void)
 
 	sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 	if (sock < 0) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: error creating LLA socket",
 		       if_name);
 		return false;
 	}
 
 	if (connect(sock, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: error connecting LLA socket",
 		       if_name);
 		close(sock);
@@ -426,7 +425,7 @@ static bool ra_generate_addr_ll(void)
 	}
 
 	if (getsockname(sock, (struct sockaddr*) &addr, &alen) != 0) {
-		syslog(LOG_ERR,
+		error(
 		       "%s: error getting address from LLA socket",
 		       if_name);
 		close(sock);
@@ -445,7 +444,7 @@ static bool ra_generate_addr_rand(void)
 	if (odhcp6c_random(&ra_addr.s6_addr[8], 8) != 8) {
 		ra_addr.s6_addr32[2] = 0;
 		ra_addr.s6_addr32[3] = 0;
-		syslog(LOG_ERR,
+		error(
 		       "%s: error generating random interface address",
 		       if_name);
 		return false;

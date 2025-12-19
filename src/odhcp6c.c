@@ -27,10 +27,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <syslog.h>
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
@@ -66,6 +66,25 @@ static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
 struct config_dhcp *config_dhcp = NULL;
+
+void __iflog(int lvl, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (lvl > config_dhcp->log_level)
+		return;
+
+	va_start(ap, fmt);
+
+	if (config_dhcp->log_syslog) {
+		vsyslog(lvl, fmt, ap);
+	} else {
+		vfprintf(stderr, fmt, ap);
+		fprintf(stderr, "\n");
+	}
+
+	va_end(ap);
+}
 
 static unsigned int script_sync_delay = 10;
 static unsigned int script_accu_delay = 1;
@@ -174,7 +193,6 @@ int main(_o_unused int argc, char* const argv[])
 	uint16_t opttype;
 	struct odhcp6c_opt *opt;
 	int ia_pd_iaid_index = 0;
-	int verbosity = 0;
 	bool help = false, daemonize = false;
 	int logopt = LOG_PID;
 	int c;
@@ -183,11 +201,12 @@ int main(_o_unused int argc, char* const argv[])
 	unsigned int ra_holdoff_interval = RA_MIN_ADV_INTERVAL;
 	ra_ifid_mode_t ra_ifid_mode = RA_IFID_LLA;
 	bool terminate = false;
+	bool deprecated_opt = false;
 
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
 
-	while ((c = getopt(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:fav")) != -1) {
+	while ((c = getopt(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:")) != -1) {
 		switch (c) {
 		case 'S':
 			config_set_allow_slaac_only(false);
@@ -205,7 +224,7 @@ int main(_o_unused int argc, char* const argv[])
 		case 'V':
 			opt = odhcp6c_find_opt(DHCPV6_OPT_VENDOR_CLASS);
 			if (!opt) {
-				syslog(LOG_ERR, "Failed to set vendor-class option");
+				error("Failed to set vendor-class option");
 				return 1;
 			}
 
@@ -238,7 +257,7 @@ int main(_o_unused int argc, char* const argv[])
 				strncpy((char *)buf, optarg, optpos - optarg);
 				buf[optpos - optarg] = '\0';
 				if (inet_pton(AF_INET6, (char *)buf, &prefix.addr) <= 0) {
-					syslog(LOG_ERR, "invalid argument: '%s'", optarg);
+					error("invalid argument: '%s'", optarg);
 					return 1;
 				}
 				optpos++;
@@ -251,7 +270,7 @@ int main(_o_unused int argc, char* const argv[])
 			prefix.length = strtoul(optpos, &iaid_begin, 10);
 
 			if (*iaid_begin != '\0' && *iaid_begin != ',' && *iaid_begin != ':') {
-				syslog(LOG_ERR, "invalid argument: '%s'", optarg);
+				error("invalid argument: '%s'", optarg);
 				return 1;
 			}
 
@@ -263,7 +282,7 @@ int main(_o_unused int argc, char* const argv[])
 				prefix.iaid = htonl(++ia_pd_iaid_index);
 
 			if (odhcp6c_add_state(STATE_IA_PD_INIT, &prefix, sizeof(prefix))) {
-				syslog(LOG_ERR, "Failed to set request IPv6-Prefix");
+				error("Failed to set request IPv6-Prefix");
 				return 1;
 			}
 			break;
@@ -280,7 +299,7 @@ int main(_o_unused int argc, char* const argv[])
 				buf[2] = 0;
 				buf[3] = l;
 				if (odhcp6c_add_state(STATE_CLIENT_ID, buf, l + 4)) {
-					syslog(LOG_ERR, "Failed to override client-ID");
+					error("Failed to override client-ID");
 					return 1;
 				} else {
 					client_id_param = true;
@@ -301,7 +320,7 @@ int main(_o_unused int argc, char* const argv[])
 				ifid.s6_addr[1] = 0x80;
 			} else {
 				/* Do not error on bad values; fall back to default */
-				syslog(LOG_ERR, "Invalid interface-ID: %s", optarg);
+				error("Invalid interface-ID: %s", optarg);
 			}
 			break;
 
@@ -315,7 +334,7 @@ int main(_o_unused int argc, char* const argv[])
 					optarg = &optpos[1];
 
 				if (odhcp6c_add_state(STATE_ORO, &opttype, 2)) {
-					syslog(LOG_ERR, "Failed to add requested option");
+					error("Failed to add requested option");
 					return 1;
 				}
 			}
@@ -328,7 +347,7 @@ int main(_o_unused int argc, char* const argv[])
 		case 'u':
 			opt = odhcp6c_find_opt(DHCPV6_OPT_USER_CLASS);
 			if (!opt) {
-				syslog(LOG_ERR, "Failed to set user-class option");
+				error("Failed to set user-class option");
 				return 1;
 			}
 
@@ -361,7 +380,7 @@ int main(_o_unused int argc, char* const argv[])
 
 		case 'E':
 #ifndef WITH_UBUS
-			syslog(LOG_ERR, "Failed to use ubus event: ENABLE_UBUS compilation flag missing");
+			error("Failed to use ubus event: ENABLE_UBUS compilation flag missing");
 			return 1;
 #endif /* WITH_UBUS */
 			script = NULL;
@@ -412,7 +431,12 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case 'v':
-			++verbosity;
+			/* deprecated - remove -v options from start scripts first */
+			deprecated_opt = true;
+			break;
+
+		case 'l':
+			config_dhcp->log_level = (atoi(optarg) & LOG_PRIMASK);
 			break;
 
 		case 'x':
@@ -432,8 +456,7 @@ int main(_o_unused int argc, char* const argv[])
 	}
 
 	openlog("odhcp6c", logopt, LOG_DAEMON);
-	if (!verbosity)
-		setlogmask(LOG_UPTO(LOG_WARNING));
+	setlogmask(LOG_UPTO(config_dhcp->log_level));
 
 	ifname = argv[optind];
 
@@ -450,7 +473,7 @@ int main(_o_unused int argc, char* const argv[])
 	if (daemonize) {
 		openlog("odhcp6c", LOG_PID, LOG_DAEMON); // Disable LOG_PERROR
 		if (daemon(0, 0)) {
-			syslog(LOG_ERR, "Failed to daemonize: %s",
+			error("Failed to daemonize: %s",
 					strerror(errno));
 			return 3;
 		}
@@ -465,12 +488,17 @@ int main(_o_unused int argc, char* const argv[])
 			fprintf(fp, "%i\n", getpid());
 			fclose(fp);
 		}
+	} else {
+		config_dhcp->log_syslog = false;
 	}
+
+	if (deprecated_opt)
+		warn("The -v flag is deprecated and will be removed. Use -l[0-7].");
 
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
 	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
 	    script_init(script, ifname)) {
-		syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+		error("failed to initialize: %s", strerror(errno));
 		return 4;
 	}
 
@@ -487,14 +515,14 @@ int main(_o_unused int argc, char* const argv[])
 #ifdef WITH_UBUS
 	char *err = ubus_init(ifname);
 	if (err) {
-		syslog(LOG_ERR, "ubus error: %s", err);
+		error("ubus error: %s", err);
 		return 1;
 	}
 
 	struct ubus_context *ubus = ubus_get_ctx();
 	int ubus_socket = ubus->sock.fd;
 	if (ubus_socket < 0) {
-		syslog(LOG_ERR, "Invalid ubus file descriptor");
+		error("Invalid ubus file descriptor");
 		return 1;
 	}
 	fds[UBUS_FD_INDEX].fd = ubus_socket;
@@ -528,13 +556,13 @@ int main(_o_unused int argc, char* const argv[])
 			config_dhcp->oro_user_cnt = oro_len / sizeof(uint16_t);
 
 			if (init_dhcpv6(ifname)) {
-				syslog(LOG_ERR, "failed to initialize: %s", strerror(errno));
+				error("failed to initialize: %s", strerror(errno));
 				return 1;
 			}
 
 			fds[DHCPV6_FD_INDEX].fd = dhcpv6_get_socket();
 
-			syslog(LOG_NOTICE, "(re)starting transaction on %s", ifname);
+			notice("(re)starting transaction on %s", ifname);
 
 			signal_usr1 = signal_usr2 = false;
 
@@ -587,12 +615,12 @@ int main(_o_unused int argc, char* const argv[])
 			if (!bound) {
 				bound = true;
 				if (mode == DHCPV6_STATELESS) {
-					syslog(LOG_NOTICE, "entering stateless-mode on %s", ifname);
+					notice("entering stateless-mode on %s", ifname);
 					signal_usr1 = false;
 					notify_state_change("informed", script_sync_delay, true);
 				} else {
 					notify_state_change("bound", script_sync_delay, true);
-					syslog(LOG_NOTICE, "entering stateful-mode on %s", ifname);
+					notice("entering stateful-mode on %s", ifname);
 				}
 			}
 
@@ -812,7 +840,7 @@ static int usage(void)
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
 	"	-e		Write logmessages to stderr\n"
-	"	-v		Increase logging verbosity\n"
+	"	-l <level>	Set logging level (0-7)\n"
 	"	-h		Show this help\n\n";
 	fputs(buf, stderr);
 

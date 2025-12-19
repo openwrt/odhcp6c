@@ -28,7 +28,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -485,7 +484,7 @@ static int fd_set_nonblocking(int sockfd)
 {
 	int flags = fcntl(sockfd, F_GETFL, 0);
 	if (flags == -1) {
-		syslog(LOG_ERR,
+		error(
 			"Failed to get the dhcpv6 socket flags: fcntl F_GETFL failed (%s)",
 			strerror(errno));
 		return -1;
@@ -493,7 +492,7 @@ static int fd_set_nonblocking(int sockfd)
 
 	// Set the socket to non-blocking
 	if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) == -1) {
-		syslog(LOG_ERR,
+		error(
 			"Failed to set the dhcpv6 socket to non-blocking: fcntl F_SETFL failed (%s)",
 			strerror(errno));
 		return -1;
@@ -1019,7 +1018,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 	if (sendmsg(sock, &msg, 0) < 0) {
 		char in6_str[INET6_ADDRSTRLEN];
 
-		syslog(LOG_ERR, "Failed to send %s message to %s (%s)",
+		error("Failed to send %s message to %s (%s)",
 			dhcpv6_msg_to_str(req_msg_type),
 			inet_ntop(AF_INET6, (const void *)&srv.sin6_addr,
 				in6_str, sizeof(in6_str)), strerror(errno));
@@ -1196,7 +1195,7 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 				_o_fallthrough;
 			case DHCPV6_MSG_INFO_REQ:
 				msg = odata[0];
-				syslog(LOG_NOTICE, "Need to respond with %s in reply to %s",
+				notice("Need to respond with %s in reply to %s",
 				       dhcpv6_msg_to_str(msg), dhcpv6_msg_to_str(DHCPV6_MSG_RECONF));
 				break;
 
@@ -1724,7 +1723,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 	if (t1 > t2 && t1 > 0 && t2 > 0)
 		return 0;
 
-	syslog(LOG_INFO, "%s %04x T1 %d T2 %d", ntohs(ia_hdr->type) == DHCPV6_OPT_IA_PD ? "IA_PD" : "IA_NA", ntohl(ia_hdr->iaid), t1, t2);
+	info("%s %04x T1 %d T2 %d", ntohs(ia_hdr->type) == DHCPV6_OPT_IA_PD ? "IA_PD" : "IA_NA", ntohl(ia_hdr->iaid), t1, t2);
 
 	// Update address IA
 	dhcpv6_for_each_option(&ia_hdr[1], end, otype, olen, odata) {
@@ -1825,7 +1824,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 				if (odhcp6c_update_entry(STATE_IA_PD, &entry, 0))
 					updated_IAs++;
 
-				syslog(LOG_INFO, "%s/%d preferred %d valid %d",
+				info("%s/%d preferred %d valid %d",
 						inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
 						entry.length, entry.preferred , entry.valid);
 			}
@@ -1880,7 +1879,7 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 				if (odhcp6c_update_entry(STATE_IA_NA, &entry, 0))
 					updated_IAs++;
 
-				syslog(LOG_INFO, "%s preferred %d valid %d",
+				info("%s preferred %d valid %d",
 						inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
 						entry.preferred , entry.valid);
 			}
@@ -1947,7 +1946,7 @@ static unsigned int dhcpv6_calc_refresh_timers(void)
 		t2 = l_t2;
 		t3 = l_t3;
 
-		syslog(LOG_INFO, "T1 %"PRId64"s, T2 %"PRId64"s, T3 %"PRId64"s", t1, t2, t3);
+		info("T1 %"PRId64"s, T2 %"PRId64"s, T3 %"PRId64"s", t1, t2, t3);
 	}
 
 	return (unsigned int)(ia_pd_entry_cnt + ia_na_entry_cnt);
@@ -1972,7 +1971,7 @@ static void dhcpv6_log_status_code(const uint16_t code, const char *scope,
 
 	*dst = 0;
 
-	syslog(LOG_WARNING, "Server returned %s status '%s %s'",
+	warn("Server returned %s status '%s %s'",
 		scope, dhcpv6_status_code_to_str(code), buf);
 }
 
@@ -2198,7 +2197,7 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 		if (retx->timeout == 0)
 			return -1;
 
-		syslog(LOG_NOTICE, "Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
+		notice("Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
 			retx->name, retx->timeout, retx->max_rc);
 
 		// Generate transaction ID
@@ -2248,7 +2247,7 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 	case DHCPV6_MSG_UNKNOWN:
 		break;
 	default:
-		syslog(LOG_NOTICE, "Send %s message (elapsed %"PRIu64"ms, rc %d)",
+		notice("Send %s message (elapsed %"PRIu64"ms, rc %d)",
 				retx->name, elapsed, retx->rc);
 		_o_fallthrough;
 	case DHCPV6_MSG_SOLICIT:
@@ -2285,7 +2284,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg req_msg_type)
 	// Receive cycle
 	len = recvmsg(sock, &msg, 0);
 	if (len < 0) {
-		syslog(LOG_ERR, "Error occurred when reading the response of (%s) error(%s)",
+		error("Error occurred when reading the response of (%s) error(%s)",
 			retx->name, strerror(errno));
 		return -1;
 	}
@@ -2317,7 +2316,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg req_msg_type)
 	retx->round_start = odhcp6c_get_milli_time();
 	uint64_t elapsed = retx->round_start - retx->start;
 
-	syslog(LOG_NOTICE, "Got a valid %s after %"PRIu64"ms",
+	notice("Got a valid %s after %"PRIu64"ms",
 		dhcpv6_msg_to_str(hdr->msg_type), elapsed);
 
 	if (retx->handler_reply) {

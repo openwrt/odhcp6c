@@ -22,7 +22,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -500,7 +499,7 @@ void script_call(const char *status, int delay, bool resume)
 		if (capt_port_ra_len > 0 && capt_port_dhcpv6_len > 0) {
 			if (capt_port_ra_len != capt_port_dhcpv6_len ||
 				!memcmp(capt_port_dhcpv6, capt_port_ra, capt_port_dhcpv6_len))
-				syslog(LOG_ERR,
+				error(
 					"%s received via different vectors differ: preferring URI from DHCPv6",
 					CAPT_PORT_URI_STR);
 		}
