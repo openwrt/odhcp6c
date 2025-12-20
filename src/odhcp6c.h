@@ -272,23 +272,23 @@ typedef int(reply_handler)(enum dhcpv6_msg orig, const int rc,
 
 // retransmission strategy
 struct dhcpv6_retx {
-	uint8_t max_delay;
+	uint8_t max_delay; // Delay before starting transaction
 	uint8_t init_timeo;
 	uint16_t max_timeo;
-	uint8_t max_rc;
+	uint8_t max_rc; // Max Retry Count
 	char name[8];
 	reply_handler *handler_reply;
 	int(*handler_finish)(void);
 	bool is_retransmit;
-	uint64_t timeout;
-	uint8_t rc;
-	uint64_t start;
-	uint8_t tr_id[3];
-	int64_t rto;
-	uint64_t round_start;
-	uint64_t round_end;
-	int reply_ret;
-	uint64_t delay_msec;
+	uint64_t timeout; // Maximum duration (in seconds) for the entire DHCPv6 transaction. Varies based on the message type
+	uint8_t rc; // Retry Count
+	uint64_t start; // Transaction start time (in milliseconds)
+	uint8_t tr_id[3]; // Transaction ID
+	int64_t rto; // Retransmission TimeOut
+	uint64_t round_start; // the (RTT) time when a request was sent (in milliseconds)
+	uint64_t round_end; // the (RTT) time when a response was expected to arrive (in milliseconds)
+	int reply_ret; // Reply handler return value
+	uint64_t delay_msec; // Delay before starting the transaction
 };
 
 #define DHCPV6_OPT_HDR_SIZE 4
