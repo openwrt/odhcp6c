@@ -415,6 +415,7 @@ struct dhcpv6_stats {
 enum odhcp6c_state {
 	STATE_CLIENT_ID,
 	STATE_SERVER_ID,
+	STATE_OUR_FQDN,
 	STATE_SERVER_CAND,
 	STATE_SERVER_ADDR,
 	STATE_ORO,
