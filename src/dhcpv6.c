@@ -583,6 +583,30 @@ int init_dhcpv6(const char *ifname)
 	if (fd_set_nonblocking(sock) < 0)
 		goto failure;
 
+	// Build our FQDN
+	size_t fqdn_len;
+	odhcp6c_get_state(STATE_OUR_FQDN, &fqdn_len);
+	if(fqdn_len == 0) {
+		char fqdn_buf[256];
+		gethostname(fqdn_buf, sizeof(fqdn_buf));
+		struct {
+			uint16_t type;
+			uint16_t len;
+			uint8_t flags;
+			uint8_t data[256];
+		} fqdn = {0};
+		int dn_result = dn_comp(fqdn_buf, fqdn.data,
+				sizeof(fqdn.data), NULL, NULL);
+		fqdn_len = 0;
+		if (dn_result > 0) {
+			fqdn.type = htons(DHCPV6_OPT_FQDN);
+			fqdn.len = htons(1 + dn_result);
+			fqdn.flags = 0;
+			fqdn_len = DHCPV6_OPT_HDR_SIZE + 1 + dn_result;
+		}
+		odhcp6c_add_state(STATE_OUR_FQDN, &fqdn, fqdn_len);
+	}
+
 	// Create client DUID
 	size_t client_id_len;
 	odhcp6c_get_state(STATE_CLIENT_ID, &client_id_len);
@@ -707,19 +731,8 @@ int dhcpv6_get_ia_mode(void)
 static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t ecs)
 {
 	// Build FQDN
-	char fqdn_buf[256];
-	gethostname(fqdn_buf, sizeof(fqdn_buf));
-	struct {
-		uint16_t type;
-		uint16_t len;
-		uint8_t flags;
-		uint8_t data[256];
-	} fqdn;
-	size_t fqdn_len = 5 + dn_comp(fqdn_buf, fqdn.data,
-			sizeof(fqdn.data), NULL, NULL);
-	fqdn.type = htons(DHCPV6_OPT_FQDN);
-	fqdn.len = htons(fqdn_len - DHCPV6_OPT_HDR_SIZE);
-	fqdn.flags = 0;
+	size_t fqdn_len;
+	void *fqdn = odhcp6c_get_state(STATE_OUR_FQDN, &fqdn_len);
 
 	// Build Client ID
 	size_t cl_id_len;
@@ -934,7 +947,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 		[IOV_SRV_ID] = {srv_id, srv_id_len},
 		[IOV_OPTS] = { opts, opts_len },
 		[IOV_RECONF_ACCEPT] = {&reconf_accept, sizeof(reconf_accept)},
-		[IOV_FQDN] = {&fqdn, fqdn_len},
+		[IOV_FQDN] = {fqdn, fqdn_len},
 		[IOV_HDR_IA_NA] = {&hdr_ia_na, sizeof(hdr_ia_na)},
 		[IOV_IA_NA] = {ia_na, ia_na_len},
 		[IOV_IA_PD] = {ia_pd, ia_pd_len},
