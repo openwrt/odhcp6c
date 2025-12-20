@@ -1056,16 +1056,21 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 	void *server_id = odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 
 	dhcpv6_for_each_option(&response_buf[1], end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_CLIENTID) {
-			clientid_ok = (olen + 4U == client_id_len) && !memcmp(
-					&odata[-DHCPV6_OPT_HDR_SIZE], client_id, client_id_len);
-		} else if (otype == DHCPV6_OPT_SERVERID) {
+		switch (otype) {
+		case DHCPV6_OPT_CLIENTID:
+			clientid_ok = (olen + DHCPV6_OPT_HDR_SIZE_U == client_id_len) && !memcmp(
+					&odata[-DHCPV6_OPT_HDR_SIZE], client_id, client_id_len);			
+			break;
+
+		case DHCPV6_OPT_SERVERID:
 			if (server_id_len)
-				serverid_ok = (olen + 4U == server_id_len) && !memcmp(
+				serverid_ok = (olen + DHCPV6_OPT_HDR_SIZE_U == server_id_len) && !memcmp(
 						&odata[-DHCPV6_OPT_HDR_SIZE], server_id, server_id_len);
 			else
 				serverid_ok = true;
-		} else if (otype == DHCPV6_OPT_AUTH) {
+			break;
+
+		case DHCPV6_OPT_AUTH:
 			struct dhcpv6_auth *r = (void*)&odata[-DHCPV6_OPT_HDR_SIZE];
 			if (auth_present) {
 				options_valid = false;
@@ -1116,16 +1121,29 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 
 				rcauth_ok = !memcmp(r->data, config_dhcp->auth_token, token_len);
 			}
-		} else if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
+			break;
+		case DHCPV6_OPT_RECONF_MESSAGE:
+			if (olen != 1)
+				return false;
 			rcmsg = odata[0];
-		} else if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)) {
+			break;
+
+		case DHCPV6_OPT_IA_PD:
+		case DHCPV6_OPT_IA_NA:
 			ia_present = true;
 			if (olen < sizeof(struct dhcpv6_ia_hdr) - DHCPV6_OPT_HDR_SIZE)
 				options_valid = false;
-		} else if ((otype == DHCPV6_OPT_IA_ADDR) || (otype == DHCPV6_OPT_IA_PREFIX) ||
-				(otype == DHCPV6_OPT_PD_EXCLUDE)) {
+			break;
+
+		case DHCPV6_OPT_IA_ADDR:
+		case DHCPV6_OPT_IA_PREFIX:
+		case DHCPV6_OPT_PD_EXCLUDE:
 			// Options are not allowed on global level
 			options_valid = false;
+			break;
+
+		default:
+			break;
 		}
 	}
 
