@@ -2162,15 +2162,20 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 	uint64_t current_milli_time = 0;
 
 	if (!retx->is_retransmit) {
+		// Initial delay handling
 		if (retx->max_delay) {
 			if (retx->delay_msec == 0) {
+				// Initial delay before starting the transaction
 				retx->delay_msec = (dhcpv6_rand_delay((10000 * retx->max_delay) / 2) + (1000 * retx->max_delay) / 2);
 				dhcpv6_set_state_timeout(retx->delay_msec);
+				// Add current time to calculate absolute time
 				retx->delay_msec += odhcp6c_get_milli_time();
 				return 1;
 			} else {
+				// Wait until delay expires
 				current_milli_time = odhcp6c_get_milli_time();
 				if (current_milli_time < retx->delay_msec) {
+					// Still waiting
 					dhcpv6_set_state_timeout(retx->delay_msec - current_milli_time);
 					return 1;
 				}
@@ -2201,8 +2206,10 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 			odhcp6c_random(retx->tr_id, sizeof(retx->tr_id));
 		}
 
+		// Record start time
 		retx->start = odhcp6c_get_milli_time();
 		retx->round_start = retx->start;
+		// Reset retransmission timeout initial value
 		retx->rto = 0;
 	}
 
@@ -2213,12 +2220,15 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 		while (req_msg_type == DHCPV6_MSG_SOLICIT && delay <= 0)
 			delay = dhcpv6_rand_delay(retx->init_timeo * 1000);
 
+		// First timeout
 		retx->rto = (retx->init_timeo * 1000 + delay);
 	} else {
+		// Exponential back-off with randomization to avoid synchronization
 		retx->rto = (2 * retx->rto + dhcpv6_rand_delay(retx->rto));
 	}
 
 	if (retx->max_timeo && (retx->rto >= retx->max_timeo * 1000)) {
+		// Cap to max timeout if set and exceeded
 		retx->rto = retx->max_timeo * 1000 +
 			dhcpv6_rand_delay(retx->max_timeo * 1000);
 	}
@@ -2315,6 +2325,7 @@ int dhcpv6_receive_response(enum dhcpv6_msg req_msg_type)
 		len = retx->reply_ret;
 	}
 
+	// Clamp round end (Round Trip Time) to 1s max wait after receiving a valid response (in milliseconds)
 	if (len > 0 && retx->round_end - retx->round_start > 1000)
 		retx->round_end = 1000 + retx->round_start;
 
@@ -2341,6 +2352,7 @@ int dhcpv6_state_processing(enum dhcpv6_msg req_msg_type)
 			dhcpv6_next_state();
 		}
 	} else {
+		// This sets the response polling timeout (round_end - round_start) in milliseconds
 		dhcpv6_set_state_timeout(retx->round_end - retx->round_start);
 	}
 
