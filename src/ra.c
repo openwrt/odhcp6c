@@ -592,10 +592,16 @@ bool ra_process(void)
 
 		// Evaluate options
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
-			if (opt->type == ND_OPT_MTU) {
+			switch(opt->type) {
+			case ND_OPT_MTU:
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
 				changed |= ra_set_mtu(ntohl(*mtu));
-			} else if (opt->type == ND_OPT_ROUTE_INFORMATION && opt->len <= 3) {
+				break;
+
+			case ND_OPT_ROUTE_INFORMATION:
+				if (opt->len > 3)
+					return false;
+
 				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
 
 				if (ri->prefix_len > 128) {
@@ -623,7 +629,12 @@ bool ra_process(void)
 				if (entry->priority > 0)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 									ra_holdoff_interval);
-			} else if (opt->type == ND_OPT_PREFIX_INFORMATION && opt->len == 4) {
+				break;
+
+			case ND_OPT_PREFIX_INFORMATION:
+				if (opt->len != 4)
+					return false;
+
 				/*
 				 * We implement draft-ietf-6man-slaac-renum-11 here:
 				 * https://datatracker.ietf.org/doc/html/draft-ietf-6man-slaac-renum-11#section-5.4
@@ -648,8 +659,7 @@ bool ra_process(void)
 						|| entry->valid < entry->preferred)
 					continue;
 
-				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) &&
-				    !ptp_link)
+				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) && !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 									ra_holdoff_interval);
 
@@ -662,12 +672,18 @@ bool ra_process(void)
 
 				changed |= odhcp6c_update_entry(STATE_RA_PREFIX, entry,
 								ra_holdoff_interval);
-			} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 2) {
+
+				break;
+
+			case ND_OPT_RECURSIVE_DNS:
+				if (opt->len <= 2)
+					return false;
+
 				entry->router = from.sin6_addr;
 				entry->priority = 0;
 				entry->length = 128;
-				uint32_t *valid = (uint32_t*)&opt->data[2];
-				entry->valid = ntohl(*valid);
+				uint32_t *rdns_valid = (uint32_t*)&opt->data[2];
+				entry->valid = ntohl(*rdns_valid);
 				entry->preferred = 0;
 
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
@@ -676,13 +692,19 @@ bool ra_process(void)
 					changed |= odhcp6c_update_entry(STATE_RA_DNS, entry,
 									ra_holdoff_interval);
 				}
-			} else if (opt->type == ND_OPT_DNSSL && opt->len > 1) {
-				uint32_t *valid = (uint32_t*)&opt->data[2];
+
+				break;
+
+			case ND_OPT_DNSSL:
+				if (opt->len <= 1)
+					return false;
+
+				uint32_t *ds_valid = (uint32_t*)&opt->data[2];
 				uint8_t *ds_buf = &opt->data[6];
 				uint8_t *end = &ds_buf[(opt->len - 1) * 8];
 
 				entry->router = from.sin6_addr;
-				entry->valid = ntohl(*valid);
+				entry->valid = ntohl(*ds_valid);
 
 				while (ds_buf < end) {
 					int ds_len = dn_expand(ds_buf, end, ds_buf, (char*)entry->auxtarget, 256);
@@ -699,7 +721,9 @@ bool ra_process(void)
 									ra_holdoff_interval);
 					entry->auxlen = 0;
 				}
-			} else if (opt->type == ND_OPT_CAPTIVE_PORTAL) {
+				break;
+
+			case ND_OPT_CAPTIVE_PORTAL:
 				/* RFC8910 Captive-Portal §2.3 */
 				if (opt->len <= 1)
 					continue;
@@ -727,6 +751,10 @@ bool ra_process(void)
 					odhcp6c_add_state(STATE_CAPT_PORT_RA, copy, uri_len);
 					free(copy);
 				}
+				break;
+
+			default:
+				break;
 			}
 		}
 
