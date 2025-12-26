@@ -322,9 +322,10 @@ static int config_parse_opt_u8(const char *src, uint8_t **dst)
 {
 	int len = strlen(src);
 
-	*dst = realloc(*dst, len/2);
-	if (!*dst)
+	uint8_t *tmp = realloc(*dst, len/2);
+	if (!tmp)
 		return -1;
+	*dst = tmp;
 
 	return script_unhexlify(*dst, len, src);
 }
@@ -345,9 +346,10 @@ static int config_parse_opt_string(const char *src, uint8_t **dst, const bool ar
 
 		int len = strlen(src);
 
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
+		uint8_t *tmp = realloc(*dst, o_len + len);
+		if (!tmp)
 			return -1;
+		*dst = tmp;
 
 		memcpy(&((*dst)[o_len]), src, len);
 
@@ -381,9 +383,10 @@ static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const boo
 		if (len < 0)
 			return -1;
 
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
+		uint8_t *dst_tmp = realloc(*dst, o_len + len);
+		if (!dst_tmp)
 			return -1;
+		*dst = dst_tmp;
 
 		memcpy(&((*dst)[o_len]), tmp, len);
 
@@ -413,9 +416,10 @@ static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array
 			sep++;
 		}
 
-		*dst = realloc(*dst, o_len + len);
-		if (!*dst)
+		uint8_t *tmp = realloc(*dst, o_len + len);
+		if (!tmp)
 			return -1;
+		*dst = tmp;
 
 		if (inet_pton(AF_INET6, src, &((*dst)[o_len])) < 1)
 			return -1;
@@ -445,9 +449,10 @@ static int config_parse_opt_user_class(const char *src, uint8_t **dst, const boo
 		}
 		uint16_t str_len = strlen(src);
 
-		*dst = realloc(*dst, o_len + str_len + 2);
-		if (!*dst)
+		uint8_t *tmp = realloc(*dst, o_len + str_len + 2);
+		if (!tmp)
 			return -1;
+		*dst = tmp;
 
 		struct user_class {
 			uint16_t len;

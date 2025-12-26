@@ -51,6 +51,7 @@
 
 static void sighandler(int signal);
 static int usage(void);
+static void odhcp6c_cleanup(void);
 
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
@@ -66,6 +67,25 @@ static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
 struct config_dhcp *config_dhcp = NULL;
+
+static void odhcp6c_cleanup(void)
+{
+	for (int i = 0; i < _STATE_MAX; ++i) {
+		free(state_data[i]);
+		state_data[i] = NULL;
+		state_len[i] = 0;
+	}
+
+	if (config_dhcp && config_dhcp->auth_token) {
+		free(config_dhcp->auth_token);
+		config_dhcp->auth_token = NULL;
+	}
+
+	if (urandom_fd >= 0) {
+		close(urandom_fd);
+		urandom_fd = -1;
+	}
+}
 
 void __iflog(int lvl, const char *fmt, ...)
 {
@@ -205,6 +225,8 @@ int main(_o_unused int argc, char* const argv[])
 
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
+
+	atexit(odhcp6c_cleanup);
 
 	while ((c = getopt(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:")) != -1) {
 		switch (c) {
