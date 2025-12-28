@@ -957,11 +957,38 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 		cnt = IOV_HDR_IA_NA;
 
 	// Disable IAs if not used
-	if (req_msg_type != DHCPV6_MSG_SOLICIT && req_msg_type != DHCPV6_MSG_REQUEST && ia_na_len == 0)
+	if (na_mode == IA_MODE_NONE) {
 		iov[IOV_HDR_IA_NA].iov_len = 0;
+	} else if (ia_na_len == 0) {
+		/* RFC7550 §4.2
+		 *    Solution: a client SHOULD accept Advertise messages, even
+		 *    when not all IA option types are being offered. And, in
+		 *    this case, the client SHOULD include the not offered IA
+		 *    option types in its Request. A client SHOULD only ignore
+		 *    an Advertise message when none of the requested IA
+		 *    options include offered addresses or delegated prefixes.
+		 *    Note that ignored messages MUST still be processed for
+		 *    SOL_MAX_RT and INF_MAX_RT options as specified in
+		 *    [RFC7083].
+		 */
 
-	if (na_mode == IA_MODE_NONE)
-		iov[IOV_HDR_IA_NA].iov_len = 0;
+		switch (req_msg_type) {
+		case DHCPV6_MSG_REQUEST:
+			/* Some broken ISPs won't behave properly if IA_NA is
+			 * sent on Requests when they have provided an empty
+			 * IA_NA on Advertise.
+			 * Therefore we don't comply with RFC7550 and omit
+			 * IA_NA as a workaround.
+			 */
+			iov[IOV_HDR_IA_NA].iov_len = 0;
+			break;
+		case DHCPV6_MSG_SOLICIT:
+			break;
+		default:
+			iov[IOV_HDR_IA_NA].iov_len = 0;
+			break;
+		}
+	}
 
 	if ((req_msg_type != DHCPV6_MSG_SOLICIT && req_msg_type != DHCPV6_MSG_REQUEST) ||
 			!(client_options & DHCPV6_ACCEPT_RECONFIGURE))
