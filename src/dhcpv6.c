@@ -986,11 +986,11 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 		case DHCPV6_MSG_REPLY:
 		*/
 			/* leave FQDN as-is */
-		    break;
+			break;
 		default:
 			/* remaining MSG types cannot contain client FQDN */
 			iov[IOV_FQDN].iov_len = 0;
-		    break;
+			break;
 		}
 	}
 
