@@ -544,10 +544,21 @@ void dhcpv6_reset_stats(void)
 	memset(&dhcpv6_stats, 0, sizeof(dhcpv6_stats));
 }
 
-uint32_t hash_ifname(const char *s) {
-	uint32_t h = 0;
-	while (*s) h = h * 31 + *s++;
-	return h;
+static uint32_t dhcpv6_generate_iface_iaid(const char *ifname) {
+	uint8_t hash[16] = {0};
+	uint32_t iaid;
+	md5_ctx_t md5;
+
+	md5_begin(&md5);
+	md5_hash(ifname, strlen(ifname), &md5);
+	md5_end(hash, &md5);
+
+	iaid = hash[0] << 24;
+	iaid |= hash[1] << 16;
+	iaid |= hash[2] << 8;
+	iaid |= hash[3];
+
+	return iaid;
 }
 
 int init_dhcpv6(const char *ifname)
@@ -574,7 +585,7 @@ int init_dhcpv6(const char *ifname)
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		goto failure;
 
-	ifname_hash_iaid = hash_ifname(ifname);
+	ifname_hash_iaid = dhcpv6_generate_iface_iaid(ifname);
 
 	ifindex = ifr.ifr_ifindex;
 
