@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <libubox/md5.h>
+#include <libubox/network.h>
 #include <limits.h>
 #include <netinet/in.h>
 #include <net/if.h>
@@ -544,12 +545,6 @@ void dhcpv6_reset_stats(void)
 	memset(&dhcpv6_stats, 0, sizeof(dhcpv6_stats));
 }
 
-uint32_t hash_ifname(const char *s) {
-	uint32_t h = 0;
-	while (*s) h = h * 31 + *s++;
-	return h;
-}
-
 int init_dhcpv6(const char *ifname)
 {
 	config_dhcp = config_dhcp_get();
@@ -574,7 +569,7 @@ int init_dhcpv6(const char *ifname)
 	if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0)
 		goto failure;
 
-	ifname_hash_iaid = hash_ifname(ifname);
+	ifname_hash_iaid = network_generate_iface_iaid(ifname);
 
 	ifindex = ifr.ifr_ifindex;
 
