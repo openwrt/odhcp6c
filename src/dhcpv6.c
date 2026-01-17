@@ -822,13 +822,15 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 				if (pd_entries[j].iaid != iaid)
 					continue;
 
-				uint8_t ex_len = 0;
-				if (pd_entries[j].exclusion_length > 0)
-					ex_len = ((pd_entries[j].exclusion_length - pd_entries[j].length - 1) / 8) + 6;
-
+				uint8_t excl_subnet_id_nbits, excl_subnet_id_nbytes, excl_opt_len = 0;
+				if (pd_entries[j].exclusion_length > 0) {
+					excl_subnet_id_nbits = pd_entries[j].exclusion_length - pd_entries[j].length;
+					excl_subnet_id_nbytes = ((excl_subnet_id_nbits - 1) / 8)  + 1;
+					excl_opt_len = excl_subnet_id_nbytes + DHCPV6_OPT_HDR_SIZE + 1;
+				}
 				struct dhcpv6_ia_prefix p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
-					.len = htons(sizeof(p) - DHCPV6_OPT_HDR_SIZE_U + ex_len),
+					.len = htons(sizeof(p) - DHCPV6_OPT_HDR_SIZE_U + excl_opt_len),
 					.prefix = pd_entries[j].length,
 					.addr = pd_entries[j].target
 				};
@@ -841,21 +843,22 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 				memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
 				ia_pd_len += sizeof(p);
 
-				if (ex_len) {
+				if (excl_opt_len) {
 					ia_pd[ia_pd_len++] = 0;
 					ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
 					ia_pd[ia_pd_len++] = 0;
-					ia_pd[ia_pd_len++] = ex_len - DHCPV6_OPT_HDR_SIZE;
+					ia_pd[ia_pd_len++] = excl_opt_len - DHCPV6_OPT_HDR_SIZE;
 					ia_pd[ia_pd_len++] = pd_entries[j].exclusion_length;
 
-					uint32_t excl = ntohl(pd_entries[j].router.s6_addr32[1]);
-					excl >>= (64 - pd_entries[j].exclusion_length);
-					excl <<= 8 - ((pd_entries[j].exclusion_length - pd_entries[j].length) % 8);
+					uint32_t excluded_bits = ntohl(pd_entries[j].router.s6_addr32[1]);
+					excluded_bits >>= (64 - pd_entries[j].exclusion_length); /* Right align subnet ID bits */
+					excluded_bits <<= (32 - excl_subnet_id_nbits); /* Left align subnet ID bits */
 
-					for (size_t k = ex_len - 5; k > 0; --k, excl >>= 8)
-						ia_pd[ia_pd_len + k] = excl & 0xff;
-
-					ia_pd_len += ex_len - 5;
+					/* Copy subnet ID bits into the option MSB first */
+					for (size_t k = 0; k < excl_subnet_id_nbytes; ++k) {
+						ia_pd[ia_pd_len++] = excluded_bits >> 24;
+						excluded_bits <<= 8;
+					}
 				}
 
 				hdr->len = htons(ntohs(hdr->len) + ntohs(p.len) + 4U);
@@ -1826,9 +1829,10 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 
 					dhcpv6_log_status_code(code, "IA_PREFIX", status_msg, msg_len);
 					if (ret) *ret = 0; // renewal failed
-				} else if (stype == DHCPV6_OPT_PD_EXCLUDE && slen > 2) {
+				} else if (stype == DHCPV6_OPT_PD_EXCLUDE && slen >= 2) {
 					/*	RFC 6603 §4.2 Prefix Exclude option */
 					uint8_t exclude_length = sdata[0];
+					uint8_t *excl_subnet_id = &sdata[1];
 					if (exclude_length > 64)
 						exclude_length = 64;
 
@@ -1837,21 +1841,18 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 						continue;
 					}
 
-					uint8_t bytes_needed = ((exclude_length - entry.length - 1) / 8) + 1;
-					if (slen <= bytes_needed) {
+					uint8_t excl_subnet_id_nbits = exclude_length - entry.length;
+					uint8_t excl_subnet_id_nbytes = ((excl_subnet_id_nbits - 1) / 8) + 1;
+					if((excl_subnet_id + excl_subnet_id_nbytes) > (sdata + slen)) {
 						update_state = false;
 						continue;
 					}
 
-					// this decrements through the ipaddr bytes masking against 
-					// the address in the option until byte 0, the option length field.
 					uint32_t excluded_bits = 0;
-					do {
-						excluded_bits = excluded_bits << 8 | sdata[bytes_needed];
-					} while (--bytes_needed);
-
-					excluded_bits >>= 8 - ((exclude_length - entry.length) % 8);
-					excluded_bits <<= 64 - exclude_length;
+					for(size_t i = 0; i < excl_subnet_id_nbytes; i++)
+						excluded_bits = (excluded_bits << 8) | excl_subnet_id[i];
+					excluded_bits >>= (8 * excl_subnet_id_nbytes) - excl_subnet_id_nbits; /* Right align subnet ID bits */
+					excluded_bits <<= (64 - exclude_length); /* Shift subnet ID bits into the low-order bits of the prefix */
 
 					// Re-using router field to hold the prefix
 					entry.router = entry.target; // base prefix
@@ -1867,6 +1868,12 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end, int *ret)
 				info("%s/%d preferred %d valid %d",
 						inet_ntop(AF_INET6, &entry.target, buf, sizeof(buf)),
 						entry.length, entry.preferred , entry.valid);
+
+				if (entry.exclusion_length) {
+					info("PD_EXCLUDE %s/%d",
+						inet_ntop(AF_INET6, &entry.router, buf, sizeof(buf)),
+						entry.exclusion_length);
+				}
 			}
 
 			entry.priority = 0;
