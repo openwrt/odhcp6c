@@ -318,6 +318,11 @@ bool config_set_auth_token(const char* token)
 	return config_dhcp.auth_token != NULL;
 }
 
+void config_set_client_opt_cfg(struct odhcp6c_opt_cfg *opt_cfg)
+{
+	config_dhcp.strict_rfc7550 = opt_cfg->strict_rfc7550 != 0;
+}
+
 static int config_parse_opt_u8(const char *src, uint8_t **dst)
 {
 	int len = strlen(src);

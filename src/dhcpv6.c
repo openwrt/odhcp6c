@@ -985,13 +985,15 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 
 		switch (req_msg_type) {
 		case DHCPV6_MSG_REQUEST:
-			/* Some broken ISPs won't behave properly if IA_NA is
-			 * sent on Requests when they have provided an empty
-			 * IA_NA on Advertise.
-			 * Therefore we don't comply with RFC7550 and omit
-			 * IA_NA as a workaround.
-			 */
-			iov[IOV_HDR_IA_NA].iov_len = 0;
+			if (!config_dhcp->strict_rfc7550) {
+				/* Some broken ISPs won't behave properly if IA_NA is
+				 * sent on Requests when they have provided an empty
+				 * IA_NA on Advertise.
+				 * Therefore we don't comply with RFC7550 and omit
+				 * IA_NA as a workaround.
+				 */
+				iov[IOV_HDR_IA_NA].iov_len = 0;
+			}
 			break;
 		case DHCPV6_MSG_SOLICIT:
 			break;
@@ -2134,6 +2136,7 @@ int dhcpv6_promote_server_cand(void)
 	struct dhcpv6_server_cand *cand = odhcp6c_get_state(STATE_SERVER_CAND, &cand_len);
 	uint16_t hdr[2];
 	int ret = DHCPV6_STATELESS;
+	bool override_ia = false;
 
 	// Clear lingering candidate state info
 	odhcp6c_clear_state(STATE_SERVER_ID);
@@ -2143,25 +2146,47 @@ int dhcpv6_promote_server_cand(void)
 	if (!cand_len)
 		return -1;
 
-	if (!cand->ia_pd_len && cand->has_noaddravail) {
-		bool override = false;
+	if (config_dhcp->strict_rfc7550) {
+		if (!cand->ia_pd_len && cand->has_noaddravail) {
+			/* Some ISPs provide neither IA_NA nor IA_PD, so we
+			 * should fallback to SLAAC.
+			 */
 
-		if (na_mode == IA_MODE_TRY) {
+			if (na_mode == IA_MODE_TRY) {
+				na_mode = IA_MODE_NONE;
+				override_ia = true;
+			}
+
+			if (pd_mode == IA_MODE_TRY) {
+				pd_mode = IA_MODE_NONE;
+				override_ia = true;
+			}
+		}
+	} else {
+		if (cand->has_noaddravail && na_mode == IA_MODE_TRY) {
+			/* Some broken ISPs require a new Solicit message
+			 * without IA_NA if they haven't provided an address
+			 * on the Advertise message.
+			 */
 			na_mode = IA_MODE_NONE;
-			override = true;
+			override_ia = true;
 		}
 
-		if (pd_mode == IA_MODE_TRY) {
+		if (!cand->ia_pd_len && pd_mode == IA_MODE_TRY) {
+			/* Some broken ISPs require a new Solicit message
+			 * without IA_PD if they haven't provided a prefix
+			 * on the Advertise message.
+			 */
 			pd_mode = IA_MODE_NONE;
-			override = true;
+			override_ia = true;
 		}
+	}
 
-		if (override) {
-			dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
-			dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
+	if (override_ia) {
+		dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
+		dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
 
-			return -1;
-		}
+		return -1;
 	}
 
 	hdr[0] = htons(DHCPV6_OPT_SERVERID);

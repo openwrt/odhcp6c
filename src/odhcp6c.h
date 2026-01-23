@@ -552,6 +552,10 @@ struct odhcp6c_opt {
 	const char *str;
 };
 
+struct odhcp6c_opt_cfg {
+	int strict_rfc7550;
+};
+
 uint32_t hash_ifname(const char *s);
 int init_dhcpv6(const char *ifname);
 int dhcpv6_get_ia_mode(void);

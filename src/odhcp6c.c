@@ -17,6 +17,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <limits.h>
 #include <linux/if_addr.h>
 #include <net/if.h>
@@ -201,6 +202,15 @@ static struct odhcp6c_opt opts[] = {
 	{ .code = 0, .flags = 0, .str = NULL },
 };
 
+static struct odhcp6c_opt_cfg opt_cfg = {
+	.strict_rfc7550 = 0,
+};
+
+static struct option opt_long[] = {
+	{ "strict-rfc7550", no_argument, &opt_cfg.strict_rfc7550, 1 },
+	{ NULL, 0, NULL, 0 },
+};
+
 int main(_o_unused int argc, char* const argv[])
 {
 	static struct in6_addr ifid = IN6ADDR_ANY_INIT;
@@ -209,6 +219,7 @@ int main(_o_unused int argc, char* const argv[])
 	const char *script = "/lib/netifd/dhcpv6.script";
 	ssize_t l;
 	uint8_t buf[134], *o_data;
+	int optidx;
 	char *optpos;
 	uint16_t opttype;
 	struct odhcp6c_opt *opt;
@@ -228,8 +239,11 @@ int main(_o_unused int argc, char* const argv[])
 
 	atexit(odhcp6c_cleanup);
 
-	while ((c = getopt(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:")) != -1) {
+	while ((c = getopt_long(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:", opt_long, &optidx)) != -1) {
 		switch (c) {
+		case 0:
+			break;
+
 		case 'S':
 			config_set_allow_slaac_only(false);
 			break;
@@ -476,6 +490,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 		}
 	}
+
+	config_set_client_opt_cfg(&opt_cfg);
 
 	openlog("odhcp6c", logopt, LOG_DAEMON);
 	setlogmask(LOG_UPTO(config_dhcp->log_level));
@@ -858,6 +874,7 @@ static int usage(void)
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"	-U		Ignore Server Unicast option\n"
+	"       --strict-rfc7550 Enforce RFC7550 compliance\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"

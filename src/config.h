@@ -100,6 +100,7 @@ struct config_dhcp {
 	uint16_t rand_factor;
 	enum odhcp6c_auth_protocol auth_protocol;
 	char* auth_token;
+	bool strict_rfc7550;
 };
 
 struct config_dhcp *config_dhcp_get(void);
@@ -126,6 +127,7 @@ bool config_set_irt_min(unsigned int value);
 bool config_set_rand_factor(unsigned int value);
 bool config_set_auth_protocol(const char* protocol);
 bool config_set_auth_token(const char* token);
+void config_set_client_opt_cfg(struct odhcp6c_opt_cfg *opt_cfg);
 
 int config_add_opt(const uint16_t code, const uint8_t *data, const uint16_t len);
 int config_parse_opt_data(const char *data, uint8_t **dst, const unsigned int type, const bool array);
