@@ -338,7 +338,7 @@ static int config_parse_opt_u8(const char *src, uint8_t **dst)
 static int config_parse_opt_string(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
+	char *sep = strpbrk((char*)src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -362,7 +362,7 @@ static int config_parse_opt_string(const char *src, uint8_t **dst, const bool ar
 		src = sep;
 
 		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
+			sep = strpbrk((char*)src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -371,7 +371,7 @@ static int config_parse_opt_string(const char *src, uint8_t **dst, const bool ar
 static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
+	char *sep = strpbrk((char*)src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -399,7 +399,7 @@ static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const boo
 		src = sep;
 
 		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
+			sep = strpbrk((char*)src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -408,7 +408,7 @@ static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const boo
 static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
+	char *sep = strpbrk((char*)src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -433,7 +433,7 @@ static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array
 		src = sep;
 
 		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
+			sep = strpbrk((char*)src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -442,7 +442,7 @@ static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array
 static int config_parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
-	char *sep = strpbrk(src, ARRAY_SEP);
+	char *sep = strpbrk((char*)src, ARRAY_SEP);
 
 	if (sep && !array)
 		return -1;
@@ -471,7 +471,7 @@ static int config_parse_opt_user_class(const char *src, uint8_t **dst, const boo
 		src = sep;
 
 		if (sep)
-			sep = strpbrk(src, ARRAY_SEP);
+			sep = strpbrk((char*)src, ARRAY_SEP);
 	} while (src);
 
 	return o_len;
@@ -555,7 +555,7 @@ int config_parse_opt(const char *opt)
 	struct odhcp6c_opt *dopt = NULL;
 	int ret = -1;
 
-	data = strpbrk(opt, ":");
+	data = strpbrk((char*)opt, ":");
 	if (!data)
 		return -1;
 
