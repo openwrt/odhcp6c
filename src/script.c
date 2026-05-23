@@ -193,11 +193,14 @@ enum entry_type {
 static void entry_to_env(const char *name, const void *data, size_t len, enum entry_type type)
 {
 	size_t buf_len = strlen(name);
-	const struct odhcp6c_entry *e = data;
+	const uint8_t *start = data;
 	// Worst case: ENTRY_PREFIX with iaid != 1 and exclusion
 	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 44 + 15 + 10 +
 				      INET6_ADDRSTRLEN-1 + 11 + 1);
-	char *buf = malloc(buf_len + 2 + (len / sizeof(*e)) * max_entry_len);
+	/* An upper bound on the entry count: every entry occupies at least
+	 * sizeof(struct odhcp6c_entry) bytes (auxlen rounds up to 4-byte
+	 * stride, never below 0). */
+	char *buf = malloc(buf_len + 2 + (len / sizeof(struct odhcp6c_entry)) * max_entry_len);
 
 	if (!buf)
 		return;
@@ -205,7 +208,10 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
 
-	for (size_t i = 0; i < len / sizeof(*e); ++i) {
+	for (const struct odhcp6c_entry *e = (const struct odhcp6c_entry *)start;
+			(const uint8_t *)e < start + len &&
+			(const uint8_t *)odhcp6c_next_entry(e) <= start + len;
+			e = odhcp6c_next_entry(e)) {
 		/*
 		 * The only invalid entries allowed to be passed to the script are prefix and RA
 		 * entries. This will allow immediate removal of the old ipv6-prefix-assignment
@@ -214,43 +220,43 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		 * router "is not a default router and SHOULD NOT appear on the default router list"
 		 * (see RFC 4861, section 4.2).
 		 */
-		if (!e[i].valid && type != ENTRY_PREFIX && type != ENTRY_ROUTE)
+		if (!e->valid && type != ENTRY_PREFIX && type != ENTRY_ROUTE)
 			continue;
 
-		inet_ntop(AF_INET6, &e[i].target, &buf[buf_len], INET6_ADDRSTRLEN);
+		inet_ntop(AF_INET6, &e->target, &buf[buf_len], INET6_ADDRSTRLEN);
 		buf_len += strlen(&buf[buf_len]);
 
 		if (type != ENTRY_HOST) {
-			snprintf(&buf[buf_len], 6, "/%"PRIu16, e[i].length);
+			snprintf(&buf[buf_len], 6, "/%"PRIu16, e->length);
 			buf_len += strlen(&buf[buf_len]);
 
 			if (type == ENTRY_ROUTE) {
 				buf[buf_len++] = ',';
 
-				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
-					inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+				if (!IN6_IS_ADDR_UNSPECIFIED(&e->router)) {
+					inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
 					buf_len += strlen(&buf[buf_len]);
 				}
 
-				snprintf(&buf[buf_len], 23, ",%u,%u", e[i].valid, e[i].priority);
+				snprintf(&buf[buf_len], 23, ",%u,%u", e->valid, e->priority);
 				buf_len += strlen(&buf[buf_len]);
 			} else {
-				snprintf(&buf[buf_len], 45, ",%u,%u,%u,%u", e[i].preferred, e[i].valid, e[i].t1, e[i].t2);
+				snprintf(&buf[buf_len], 45, ",%u,%u,%u,%u", e->preferred, e->valid, e->t1, e->t2);
 				buf_len += strlen(&buf[buf_len]);
 			}
 
-			if (type == ENTRY_PREFIX && ntohl(e[i].iaid) != 1) {
-				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e[i].iaid));
+			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1) {
+				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e->iaid));
 				buf_len += strlen(&buf[buf_len]);
 			}
 
-			if (type == ENTRY_PREFIX && e[i].exclusion_length) {
+			if (type == ENTRY_PREFIX && e->exclusion_length) {
 				snprintf(&buf[buf_len], 11, ",excluded=");
 				buf_len += strlen(&buf[buf_len]);
 				// '.router' is dual-used: for prefixes it contains the prefix
-				inet_ntop(AF_INET6, &e[i].router, &buf[buf_len], INET6_ADDRSTRLEN);
+				inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
 				buf_len += strlen(&buf[buf_len]);
-				snprintf(&buf[buf_len], 12, "/%u", e[i].exclusion_length);
+				snprintf(&buf[buf_len], 12, "/%u", e->exclusion_length);
 				buf_len += strlen(&buf[buf_len]);
 			}
 		}
