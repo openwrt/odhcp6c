@@ -521,10 +521,17 @@ int main(_o_unused int argc, char* const argv[])
 			pidfile = (char*)buf;
 		}
 
-		FILE *fp = fopen(pidfile, "w");
-		if (fp) {
-			fprintf(fp, "%i\n", getpid());
-			fclose(fp);
+		int pidfd = open(pidfile,
+				O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC,
+				0644);
+		if (pidfd >= 0) {
+			FILE *fp = fdopen(pidfd, "w");
+			if (fp) {
+				fprintf(fp, "%i\n", getpid());
+				fclose(fp);
+			} else {
+				close(pidfd);
+			}
 		}
 	} else {
 		config_dhcp->log_syslog = false;
