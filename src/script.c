@@ -14,6 +14,7 @@
  */
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -460,6 +461,12 @@ void script_call(const char *status, int delay, bool resume)
 		strncpy(action, status, sizeof(action) - 1);
 
 	pid_t pid = fork();
+
+	if (pid < 0) {
+		error("Failed to fork script handler: %s", strerror(errno));
+		running = 0;
+		return;
+	}
 
 	if (pid > 0) {
 		running = pid;
