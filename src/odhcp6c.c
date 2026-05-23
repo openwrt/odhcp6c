@@ -67,6 +67,7 @@ static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
+static char *pidfile_path = NULL;
 struct config_dhcp *config_dhcp = NULL;
 
 static void odhcp6c_cleanup(void)
@@ -85,6 +86,12 @@ static void odhcp6c_cleanup(void)
 	if (urandom_fd >= 0) {
 		close(urandom_fd);
 		urandom_fd = -1;
+	}
+
+	if (pidfile_path) {
+		unlink(pidfile_path);
+		free(pidfile_path);
+		pidfile_path = NULL;
 	}
 }
 
@@ -538,6 +545,7 @@ int main(_o_unused int argc, char* const argv[])
 			if (fp) {
 				fprintf(fp, "%i\n", getpid());
 				fclose(fp);
+				pidfile_path = strdup(pidfile);
 			} else {
 				close(pidfd);
 			}
