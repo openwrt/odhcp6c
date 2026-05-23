@@ -143,26 +143,16 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 
 static void string_to_env(const char *name, const uint8_t *string, size_t len)
 {
-	size_t buf_len = strlen(name);
-	const uint8_t *string_end = string + len;
-	char *buf = realloc(NULL, len + buf_len + 2);
+	size_t name_len = strlen(name);
+	char *buf = malloc(name_len + 1 + len + 1);
 
-	memcpy(buf, name, buf_len);
-	buf[buf_len++] = '=';
+	if (!buf)
+		return;
 
-	while (string < string_end) {
-		int l = strlen((const char *)string);
-		if (l <= 0)
-			break;
-		string += l;
-		buf_len += strlen(&buf[buf_len]);
-		buf[buf_len++] = ' ';
-	}
-
-	if (buf[buf_len - 1] == ' ')
-		buf_len--;
-
-	buf[buf_len] = '\0';
+	memcpy(buf, name, name_len);
+	buf[name_len] = '=';
+	memcpy(&buf[name_len + 1], string, len);
+	buf[name_len + 1 + len] = '\0';
 	putenv(buf);
 }
 
