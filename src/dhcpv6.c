@@ -598,7 +598,8 @@ int init_dhcpv6(const char *ifname)
 	odhcp6c_get_state(STATE_OUR_FQDN, &fqdn_len);
 	if(fqdn_len == 0) {
 		char fqdn_buf[256];
-		gethostname(fqdn_buf, sizeof(fqdn_buf));
+		gethostname(fqdn_buf, sizeof(fqdn_buf) - 1);
+		fqdn_buf[sizeof(fqdn_buf) - 1] = '\0';
 		struct {
 			uint16_t type;
 			uint16_t len;
