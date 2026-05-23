@@ -1269,7 +1269,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 				 (otype == DHCPV6_OPT_IA_NA && na_mode != IA_MODE_NONE)) &&
 				olen > sizeof(struct dhcpv6_ia_hdr) - DHCPV6_OPT_HDR_SIZE) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-DHCPV6_OPT_HDR_SIZE]);
-			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr), NULL);
+			dhcpv6_parse_ia(ia_hdr, odata + olen, NULL);
 		}
 
 		switch (otype) {
