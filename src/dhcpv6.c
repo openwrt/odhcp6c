@@ -1132,7 +1132,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			auth_present = true;
 			if (auth_protocol == AUTH_PROT_RKAP) {
 				struct dhcpv6_auth_reconfigure *rkap = (void*)r->data;
-				if (r->protocol != AUTH_PROT_RKAP || r->algorithm != AUTH_ALG_HMACMD5 || r->len != 28 || rkap->reconf_type != RKAP_TYPE_HMACMD5)
+				if (olen != 28 || r->protocol != AUTH_PROT_RKAP || r->algorithm != AUTH_ALG_HMACMD5 || rkap->reconf_type != RKAP_TYPE_HMACMD5)
 					continue;
 
 				md5_ctx_t md5;
@@ -1164,10 +1164,10 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 
 				rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
 			} else if (auth_protocol == AUTH_PROT_TOKEN) {
-				if (r->protocol != AUTH_PROT_TOKEN || r->algorithm != AUTH_ALG_TOKEN || r->len < 12)
+				if (olen < 12 || r->protocol != AUTH_PROT_TOKEN || r->algorithm != AUTH_ALG_TOKEN)
 					continue;
 
-				uint16_t token_len = r->len - 11;
+				uint16_t token_len = olen - 11;
 				if (config_dhcp->auth_token == NULL || strlen(config_dhcp->auth_token) != token_len)
 					continue;
 
