@@ -234,7 +234,7 @@ void ubus_destroy(struct ubus_context *ubus)
 
 	/* Forces re-initialization when we're reusing the same definitions later on. */
 	odhcp6c_object.id = 0;
-	odhcp6c_object.id = 0;
+	odhcp6c_object_type.id = 0;
 }
 
 static int ipv6_to_blob(const char *name,
