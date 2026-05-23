@@ -988,12 +988,13 @@ int odhcp6c_insert_state(enum odhcp6c_state state, size_t offset, const void *da
 
 	uint8_t *n = odhcp6c_resize_state(state, len);
 
-	if (n) {
-		uint8_t *sdata = state_data[state];
+	if (!n)
+		return -1;
 
-		memmove(sdata + offset + len, sdata + offset, len_after);
-		memcpy(sdata + offset, data, len);
-	}
+	uint8_t *sdata = state_data[state];
+
+	memmove(sdata + offset + len, sdata + offset, len_after);
+	memcpy(sdata + offset, data, len);
 
 	return 0;
 }
