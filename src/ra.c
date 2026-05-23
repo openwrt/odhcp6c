@@ -738,12 +738,12 @@ bool ra_process(void)
 				 * condition by using this option with the IANA-assigned URI for
 				 * this purpose. Clients observing the URI value ... may forego
 				 * time-consuming forms of captive portal detection. */
+				odhcp6c_clear_state(STATE_CAPT_PORT_RA);
 				if (uri_len >= ref_len &&
 				    memcmp(cp_buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len) == 0)
 					break;
 
 				/* URI are not guaranteed to be \0 terminated if data is unpadded */
-				odhcp6c_clear_state(STATE_CAPT_PORT_RA);
 				odhcp6c_add_state(STATE_CAPT_PORT_RA, cp_buf, uri_len);
 				break;
 
