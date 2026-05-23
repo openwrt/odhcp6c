@@ -387,8 +387,10 @@ struct dhcpv6_s46_rule {
 
 #define dhcpv6_for_each_option(start, end, otype, olen, odata)\
 	for (uint8_t *_o = (uint8_t*)(start); _o + 4 <= (uint8_t*)(end) &&\
-		((otype) = _o[0] << 8 | _o[1]) && ((odata) = (void*)&_o[4]) &&\
-		((olen) = _o[2] << 8 | _o[3]) + (odata) <= (uint8_t*)(end); \
+		((otype) = _o[0] << 8 | _o[1],\
+		 (odata) = (void*)&_o[4],\
+		 (olen) = _o[2] << 8 | _o[3],\
+		 (odata) + (olen) <= (uint8_t*)(end)); \
 		_o += 4 + (_o[2] << 8 | _o[3]))
 
 
