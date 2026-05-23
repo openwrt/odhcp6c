@@ -1222,29 +1222,38 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 	uint16_t otype, olen;
 	uint8_t *odata;
 	enum dhcpv6_msg msg = DHCPV6_MSG_UNKNOWN;
+	bool reconf_msg_seen = false;
 
 	dhcpv6_for_each_option(opt, end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
-			switch (odata[0]) {
-			case DHCPV6_MSG_REBIND:
-				if (t2 != UINT32_MAX)
-					t2 = 0;
-				_o_fallthrough;
-			case DHCPV6_MSG_RENEW:
-				if (t1 != UINT32_MAX)
-					t1 = 0;
-				_o_fallthrough;
-			case DHCPV6_MSG_INFO_REQ:
-				msg = odata[0];
-				notice("Need to respond with %s in reply to %s",
-				       dhcpv6_msg_to_str(msg), dhcpv6_msg_to_str(DHCPV6_MSG_RECONF));
-				break;
+		if (otype != DHCPV6_OPT_RECONF_MESSAGE)
+			continue;
 
-			default:
-				break;
-			}
+		/* RFC 8415 §21.19: the Reconfigure Message option MUST appear
+		 * exactly once. Drop the message if it appears more than once
+		 * or carries an unexpected length. */
+		if (reconf_msg_seen || olen != 1)
+			return -1;
+
+		reconf_msg_seen = true;
+
+		switch (odata[0]) {
+		case DHCPV6_MSG_REBIND:
+		case DHCPV6_MSG_RENEW:
+		case DHCPV6_MSG_INFO_REQ:
+			msg = odata[0];
+			notice("Need to respond with %s in reply to %s",
+			       dhcpv6_msg_to_str(msg), dhcpv6_msg_to_str(DHCPV6_MSG_RECONF));
+			break;
+
+		default:
+			return -1;
 		}
 	}
+
+	if (msg == DHCPV6_MSG_REBIND && t2 != UINT32_MAX)
+		t2 = 0;
+	if ((msg == DHCPV6_MSG_REBIND || msg == DHCPV6_MSG_RENEW) && t1 != UINT32_MAX)
+		t1 = 0;
 
 	if (msg != DHCPV6_MSG_UNKNOWN)
 		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
