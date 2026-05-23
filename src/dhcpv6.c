@@ -1119,7 +1119,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			if (server_id_len)
 				serverid_ok = (olen + DHCPV6_OPT_HDR_SIZE_U == server_id_len) && !memcmp(
 						&odata[-DHCPV6_OPT_HDR_SIZE], server_id, server_id_len);
-			else
+			else if (req_msg_type != DHCPV6_MSG_UNKNOWN)
 				serverid_ok = true;
 			break;
 
