@@ -600,7 +600,7 @@ bool ra_process(void)
 
 			case ND_OPT_ROUTE_INFORMATION:
 				if (opt->len > 3)
-					return false;
+					continue;
 
 				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
 
@@ -633,7 +633,7 @@ bool ra_process(void)
 
 			case ND_OPT_PREFIX_INFORMATION:
 				if (opt->len != 4)
-					return false;
+					continue;
 
 				/*
 				 * We implement draft-ietf-6man-slaac-renum-11 here:
@@ -677,7 +677,7 @@ bool ra_process(void)
 
 			case ND_OPT_RECURSIVE_DNS:
 				if (opt->len <= 2)
-					return false;
+					continue;
 
 				entry->router = from.sin6_addr;
 				entry->priority = 0;
@@ -697,7 +697,7 @@ bool ra_process(void)
 
 			case ND_OPT_DNSSL:
 				if (opt->len <= 1)
-					return false;
+					continue;
 
 				uint32_t *ds_valid = (uint32_t*)&opt->data[2];
 				uint8_t *ds_buf = &opt->data[6];
