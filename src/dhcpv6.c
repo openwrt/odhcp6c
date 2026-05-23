@@ -15,6 +15,7 @@
 
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <endian.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -251,6 +252,8 @@ static int dhcpv6_state_timeout = 0;
 // Authentication options
 static enum odhcp6c_auth_protocol auth_protocol = AUTH_PROT_RKAP;
 static uint8_t reconf_key[16];
+static uint64_t reconf_replay;
+static bool reconf_replay_seen;
 
 // client options
 static unsigned int client_options = 0;
@@ -1136,6 +1139,16 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 				if (olen != 28 || r->protocol != AUTH_PROT_RKAP || r->algorithm != AUTH_ALG_HMACMD5 || rkap->reconf_type != RKAP_TYPE_HMACMD5)
 					continue;
 
+				/* RFC 8415 §20.4.3: the replay-detection field must be
+				 * monotonically increasing per (client, server-id) pair.
+				 * Drop any Reconfigure whose replay value does not exceed
+				 * the highest one we have already accepted. */
+				uint64_t replay;
+				memcpy(&replay, &r->replay, sizeof(replay));
+				replay = be64toh(replay);
+				if (reconf_replay_seen && replay <= reconf_replay)
+					continue;
+
 				md5_ctx_t md5;
 				uint8_t serverhash[16], secretbytes[64];
 				uint32_t hash[4];
@@ -1164,6 +1177,10 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 				md5_end(hash, &md5);
 
 				rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
+				if (rcauth_ok) {
+					reconf_replay = replay;
+					reconf_replay_seen = true;
+				}
 			} else if (auth_protocol == AUTH_PROT_TOKEN) {
 				if (olen < 12 || r->protocol != AUTH_PROT_TOKEN || r->algorithm != AUTH_ALG_TOKEN)
 					continue;
@@ -2195,6 +2212,8 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_add_state(STATE_SERVER_ID, cand->duid, cand->duid_len);
 	accept_reconfig = cand->wants_reconfigure;
 	memset(reconf_key, 0, sizeof(reconf_key));
+	reconf_replay = 0;
+	reconf_replay_seen = false;
 
 	if (cand->ia_na_len) {
 		odhcp6c_add_state(STATE_IA_NA, cand->ia_na, cand->ia_na_len);
