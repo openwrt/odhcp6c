@@ -730,6 +730,7 @@ bool ra_process(void)
 
 				struct icmpv6_opt_captive_portal *capt_port = (struct icmpv6_opt_captive_portal*)opt;
 				uint8_t *cp_buf = &capt_port->data[0];
+				size_t uri_len = (capt_port->len * 8) - 2;
 				size_t ref_len = sizeof(URN_IETF_CAPT_PORT_UNRESTR) - 1;
 
 				/* RFC8910 §2:
@@ -737,20 +738,13 @@ bool ra_process(void)
 				 * condition by using this option with the IANA-assigned URI for
 				 * this purpose. Clients observing the URI value ... may forego
 				 * time-consuming forms of captive portal detection. */
-				if (memcmp(cp_buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
-					/* URI are not guaranteed to be \0 terminated if data is unpadded */
-					size_t uri_len = (capt_port->len * 8) - 2;
-					/* Allocate new buffer including room for '\0' */
-					uint8_t *copy = malloc(uri_len + 1);
-					if (!copy)
-						continue;
+				if (uri_len >= ref_len &&
+				    memcmp(cp_buf, URN_IETF_CAPT_PORT_UNRESTR, ref_len) == 0)
+					break;
 
-					memcpy(copy, cp_buf, uri_len);
-					copy[uri_len] = '\0';
-					odhcp6c_clear_state(STATE_CAPT_PORT_RA);
-					odhcp6c_add_state(STATE_CAPT_PORT_RA, copy, uri_len);
-					free(copy);
-				}
+				/* URI are not guaranteed to be \0 terminated if data is unpadded */
+				odhcp6c_clear_state(STATE_CAPT_PORT_RA);
+				odhcp6c_add_state(STATE_CAPT_PORT_RA, cp_buf, uri_len);
 				break;
 
 			default:
