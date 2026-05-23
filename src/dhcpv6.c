@@ -553,10 +553,10 @@ static uint32_t dhcpv6_generate_iface_iaid(const char *ifname) {
 	md5_hash(ifname, strlen(ifname), &md5);
 	md5_end(hash, &md5);
 
-	iaid = hash[0] << 24;
-	iaid |= hash[1] << 16;
-	iaid |= hash[2] << 8;
-	iaid |= hash[3];
+	iaid = (uint32_t)hash[0] << 24;
+	iaid |= (uint32_t)hash[1] << 16;
+	iaid |= (uint32_t)hash[2] << 8;
+	iaid |= (uint32_t)hash[3];
 
 	return iaid;
 }
