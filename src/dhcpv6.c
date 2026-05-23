@@ -1621,19 +1621,9 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 				 * condition by using this option with the IANA-assigned URI for
 				 * this purpose. Clients observing the URI value ... may forego
 				 * time-consuming forms of captive portal detection. */
-				if (memcmp(odata, URN_IETF_CAPT_PORT_UNRESTR, ref_len)) {
-					/* RFC8910 §2.2:
-					 * Note that the URI parameter is not null terminated.
-					 * Allocate new buffer including room for '\0' */
-					size_t uri_len = olen + 1;
-					uint8_t *copy = malloc(uri_len);
-					if (!copy)
-						continue;
-					memcpy(copy, odata, olen);
-					copy[uri_len] = '\0';
+				if (olen < ref_len ||
+				    memcmp(odata, URN_IETF_CAPT_PORT_UNRESTR, ref_len) != 0)
 					odhcp6c_add_state(STATE_CAPT_PORT_DHCPV6, odata, olen);
-					free(copy);
-				}
 				break;
 
 			default:
