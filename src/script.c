@@ -422,10 +422,11 @@ void script_call(const char *status, int delay, bool resume)
 	if (!argv[0])
 		return;
 
-	if (running) {
+	pid_t prev = running;
+	if (prev > 0) {
 		time_t diff = now - started;
 
-		kill(running, SIGTERM);
+		kill(prev, SIGTERM);
 
 		if (diff > delay)
 			delay -= diff;
