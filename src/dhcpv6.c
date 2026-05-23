@@ -1566,10 +1566,10 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 
 			case DHCPV6_OPT_AUTH:
 				struct dhcpv6_auth *r = (void*)&odata[-DHCPV6_OPT_HDR_SIZE];
-				if (auth_protocol == AUTH_PROT_RKAP) {
+				if (auth_protocol == AUTH_PROT_RKAP && olen == 28) {
 					struct dhcpv6_auth_reconfigure *rkap = (void*)r->data;
-					if (r->protocol == AUTH_PROT_RKAP || r->algorithm == AUTH_ALG_HMACMD5 ||
-						r->len == 28 || rkap->reconf_type == RKAP_TYPE_KEY)
+					if (r->protocol == AUTH_PROT_RKAP && r->algorithm == AUTH_ALG_HMACMD5 &&
+						rkap->reconf_type == RKAP_TYPE_KEY)
 						memcpy(reconf_key, rkap->key, sizeof(rkap->key));
 				}
 				break;
