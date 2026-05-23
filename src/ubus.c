@@ -799,6 +799,9 @@ static int ubus_handle_reconfigure_dhcp(_o_unused struct ubus_context *ctx, _o_u
 		config_clear_send_options();
 
 		blobmsg_for_each_attr(elem, cur, index) {
+			if (blobmsg_type(elem) != BLOBMSG_TYPE_STRING)
+				return UBUS_STATUS_INVALID_ARGUMENT;
+
 			string = blobmsg_get_string(elem);
 			if (string == NULL || !config_add_send_options(string))
 				return UBUS_STATUS_INVALID_ARGUMENT;
