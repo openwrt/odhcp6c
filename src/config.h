@@ -117,7 +117,7 @@ void config_set_allow_slaac_only(bool value);
 void config_clear_requested_options(void) ;
 bool config_add_requested_options(unsigned int option);
 void config_clear_send_options(void);
-bool config_add_send_options(char *option);
+bool config_add_send_options(const char *option);
 bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value);
 bool config_set_rtx_timeout_init(enum config_dhcp_msg msg, unsigned int value);
 bool config_set_rtx_timeout_max(enum config_dhcp_msg msg, unsigned int value);

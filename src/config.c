@@ -220,8 +220,17 @@ void config_clear_send_options(void) {
 	odhcp6c_clear_state(STATE_OPTS);
 }
 
-bool config_add_send_options(char* option) {
-	return (config_parse_opt(option) == 0);
+bool config_add_send_options(const char *option) {
+	char *dup = strdup(option);
+	bool ok;
+
+	if (!dup)
+		return false;
+
+	ok = (config_parse_opt(dup) == 0);
+	free(dup);
+
+	return ok;
 }
 
 bool config_set_rtx_delay_max(enum config_dhcp_msg msg, unsigned int value)
