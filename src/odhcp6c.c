@@ -1180,13 +1180,20 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
 			continue;
 
-		for (i = 0; i < strlen(addr_buf); i++) {
-			if (!isxdigit(addr_buf[i]) || isupper(addr_buf[i]))
-				break;
+		size_t addr_len = strlen(addr_buf);
+		bool valid = (addr_len == 2 * sizeof(inet6_addr.s6_addr));
+
+		for (i = 0; valid && i < addr_len; i++) {
+			if (!isxdigit((unsigned char)addr_buf[i]) ||
+			    isupper((unsigned char)addr_buf[i]))
+				valid = false;
 		}
 
+		if (!valid)
+			continue;
+
 		memset(&inet6_addr, 0, sizeof(inet6_addr));
-		for (i = 0; i < (strlen(addr_buf) / 2); i++) {
+		for (i = 0; i < (addr_len / 2); i++) {
 			unsigned char byte;
 			static const char hex[] = "0123456789abcdef";
 			byte = ((index(hex, addr_buf[i * 2]) - hex) << 4) |
