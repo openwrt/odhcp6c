@@ -516,7 +516,7 @@ void script_call(const char *status, int delay, bool resume)
 		/* RFC8910 §3 */
 		if (capt_port_ra_len > 0 && capt_port_dhcpv6_len > 0) {
 			if (capt_port_ra_len != capt_port_dhcpv6_len ||
-				!memcmp(capt_port_dhcpv6, capt_port_ra, capt_port_dhcpv6_len))
+				memcmp(capt_port_dhcpv6, capt_port_ra, capt_port_dhcpv6_len))
 				error(
 					"%s received via different vectors differ: preferring URI from DHCPv6",
 					CAPT_PORT_URI_STR);
