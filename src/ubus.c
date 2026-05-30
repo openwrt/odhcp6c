@@ -299,56 +299,63 @@ static int bin_to_blob(uint8_t *opts, size_t len)
 
 static int entry_to_blob(const char *name, const void *data, size_t len, enum entry_type type)
 {
-	const struct odhcp6c_entry *e = data;
+	const uint8_t *start = data;
 
 	void *arr = blobmsg_open_array(&b, name);
 
-	for (size_t i = 0; i < len / sizeof(*e); ++i) {
-		void *entry = blobmsg_open_table(&b, name);
-
+	for (const struct odhcp6c_entry *e = (const struct odhcp6c_entry *)start;
+			(const uint8_t *)e < start + len &&
+			(const uint8_t *)odhcp6c_next_entry(e) <= start + len;
+			e = odhcp6c_next_entry(e)) {
 		/*
 		 * The only invalid entries allowed to be passed to the script are prefix entries.
 		 * This will allow immediate removal of the old ipv6-prefix-assignment that might
 		 * otherwise be kept for up to 2 hours (see L-13 requirement of RFC 7084).
+		 *
+		 * Skip before opening the table: a "continue" after
+		 * blobmsg_open_table() would leave an unclosed nested table and
+		 * corrupt the emitted blob.
 		 */
-		if (!e[i].valid && type != ENTRY_PREFIX)
+		if (!e->valid && type != ENTRY_PREFIX)
 			continue;
+
+		void *entry = blobmsg_open_table(&b, name);
 
 		char *buf = blobmsg_alloc_string_buffer(&b, "target", INET6_ADDRSTRLEN);
 		CHECK_ALLOC(buf);
-		inet_ntop(AF_INET6, &e[i].target, buf, INET6_ADDRSTRLEN);
+		inet_ntop(AF_INET6, &e->target, buf, INET6_ADDRSTRLEN);
 		blobmsg_add_string_buffer(&b);
 
 		if (type != ENTRY_HOST) {
-			blobmsg_add_u32(&b, "length", e[i].length);
+			blobmsg_add_u32(&b, "length", e->length);
 			if (type == ENTRY_ROUTE) {
-				if (!IN6_IS_ADDR_UNSPECIFIED(&e[i].router)) {
+				if (!IN6_IS_ADDR_UNSPECIFIED(&e->router)) {
 					buf = blobmsg_alloc_string_buffer(&b, "router", INET6_ADDRSTRLEN);
 					CHECK_ALLOC(buf);
-					inet_ntop(AF_INET6, &e[i].router, buf, INET6_ADDRSTRLEN);
+					inet_ntop(AF_INET6, &e->router, buf, INET6_ADDRSTRLEN);
 					blobmsg_add_string_buffer(&b);
 				}
 
-				blobmsg_add_u32(&b, "valid", e[i].valid);
-				blobmsg_add_u32(&b, "priority", e[i].priority);
+				blobmsg_add_u32(&b, "valid", e->valid);
+				blobmsg_add_u32(&b, "priority", e->priority);
 			} else {
-				blobmsg_add_u32(&b, "valid", e[i].valid);
-				blobmsg_add_u32(&b, "preferred", e[i].preferred);
-				blobmsg_add_u32(&b, "t1", e[i].t1);
-				blobmsg_add_u32(&b, "t2", e[i].t2);
+				blobmsg_add_u32(&b, "valid", e->valid);
+				blobmsg_add_u32(&b, "preferred", e->preferred);
+				blobmsg_add_u32(&b, "t1", e->t1);
+				blobmsg_add_u32(&b, "t2", e->t2);
 			}
 
-			if (type == ENTRY_PREFIX && ntohl(e[i].iaid) != 1) {
-				blobmsg_add_u32(&b, "iaid", ntohl(e[i].iaid));
+			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1) {
+				blobmsg_add_u32(&b, "iaid", ntohl(e->iaid));
 			}
 
-			if (type == ENTRY_PREFIX && e[i].exclusion_length) {
+			if (type == ENTRY_PREFIX && e->exclusion_length) {
 				buf = blobmsg_alloc_string_buffer(&b, "excluded", INET6_ADDRSTRLEN);
 				CHECK_ALLOC(buf);
 				// '.router' is dual-used: for prefixes it contains the prefix
-				inet_ntop(AF_INET6, &e[i].router, buf, INET6_ADDRSTRLEN);
+				inet_ntop(AF_INET6, &e->router, buf, INET6_ADDRSTRLEN);
 				blobmsg_add_string_buffer(&b);
-				blobmsg_add_u32(&b, "excluded_length", e[i].exclusion_length);
+				blobmsg_add_u32(&b, "excluded_length", e->exclusion_length);
 			}
 		}
 
