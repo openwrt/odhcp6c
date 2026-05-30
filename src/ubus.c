@@ -437,8 +437,10 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 			prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
 
 			if (prefix6len > sizeof(in6) ||
-				olen < sizeof(struct dhcpv6_s46_rule) + prefix6len)
+				olen < sizeof(struct dhcpv6_s46_rule) + prefix6len) {
+				blobmsg_close_table(&b, option);
 				continue;
+			}
 
 			memcpy(&in6, rule->ipv6_prefix, prefix6len);
 
@@ -494,8 +496,10 @@ static int s46_to_blob(enum odhcp6c_state state, const uint8_t *data, size_t len
 			prefix6len = (prefix6len % 8 == 0) ? prefix6len / 8 : prefix6len / 8 + 1;
 
 			if (prefix6len > sizeof(in6) ||
-				olen < sizeof(struct dhcpv6_s46_v4v6bind) + prefix6len)
+				olen < sizeof(struct dhcpv6_s46_v4v6bind) + prefix6len) {
+				blobmsg_close_table(&b, option);
 				continue;
+			}
 
 			memcpy(&in6, bind->bind_ipv6_prefix, prefix6len);
 
