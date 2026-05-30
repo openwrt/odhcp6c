@@ -245,8 +245,17 @@ int main(_unused int argc, char* const argv[])
 
 			optpos = strchr(optarg, '/');
 			if (optpos) {
-				strncpy((char *)buf, optarg, optpos - optarg);
-				buf[optpos - optarg] = '\0';
+				size_t addr_len = optpos - optarg;
+
+				/* Leave room for the terminating NUL; reject anything
+				 * that cannot be a valid IPv6 literal instead of
+				 * overflowing buf. */
+				if (addr_len >= sizeof(buf)) {
+					syslog(LOG_ERR, "invalid argument: '%s'", optarg);
+					return 1;
+				}
+				strncpy((char *)buf, optarg, addr_len);
+				buf[addr_len] = '\0';
 				if (inet_pton(AF_INET6, (char *)buf, &prefix.addr) <= 0) {
 					syslog(LOG_ERR, "invalid argument: '%s'", optarg);
 					return 1;
