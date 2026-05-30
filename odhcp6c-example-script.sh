@@ -29,16 +29,7 @@ setup_interface () {
 		[ "$duplicate" = 0 ] && RDNSS="$RDNSS $radns"
 	done
 
-	local dnspart=""
-	for dns in $RDNSS; do
-		if [ -z "$dnspart" ]; then
-			dnspart="\"$dns\""
-		else
-			dnspart="$dnspart, \"$dns\""
-		fi
-	done
-
-	update_resolv "$device" "$dns"
+	update_resolv "$device" "$RDNSS"
 
 	local prefixpart=""
 	for entry in $PREFIXES; do
