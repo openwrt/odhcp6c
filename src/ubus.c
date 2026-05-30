@@ -583,10 +583,21 @@ static int states_to_blob(void)
 	CHECK(s46_to_blob(STATE_S46_MAPE, s46_mape, s46_mape_len));
 	CHECK(s46_to_blob(STATE_S46_MAPT, s46_mapt, s46_mapt_len));
 	CHECK(s46_to_blob(STATE_S46_LW, s46_lw, s46_lw_len));
-	if (capt_port_dhcpv6_len > 0)
-		blobmsg_add_string(&b, CAPT_PORT_URI_STR, (char *)capt_port_dhcpv6);
-	else if (capt_port_ra_len > 0)
-		blobmsg_add_string(&b, CAPT_PORT_URI_STR, (char *)capt_port_ra);
+	if (capt_port_dhcpv6_len > 0 || capt_port_ra_len > 0) {
+		const uint8_t *uri = capt_port_dhcpv6_len > 0 ? capt_port_dhcpv6 : capt_port_ra;
+		size_t uri_len = capt_port_dhcpv6_len > 0 ? capt_port_dhcpv6_len : capt_port_ra_len;
+
+		/* The captive-portal URI is stored unterminated: it is copied
+		 * verbatim from the DHCPv6 option / RA option payload, which is
+		 * not guaranteed to be NUL-terminated. It must therefore not be
+		 * passed to blobmsg_add_string(), which would call strlen() and
+		 * read past the end of the (attacker-controlled) state buffer. */
+		buf = blobmsg_alloc_string_buffer(&b, CAPT_PORT_URI_STR, uri_len + 1);
+		CHECK_ALLOC(buf);
+		memcpy(buf, uri, uri_len);
+		buf[uri_len] = '\0';
+		blobmsg_add_string_buffer(&b);
+	}
 	CHECK(bin_to_blob(custom, custom_len));
 
 	if (odhcp6c_is_bound()) {
