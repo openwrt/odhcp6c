@@ -96,27 +96,53 @@ void script_hexlify(char *dst, const uint8_t *src, size_t len)
 }
 
 /*
- * Sanitize a value that originates from untrusted network input before it is
- * exported to the environment of the (root) status script. DHCPv6 replies and
- * ICMPv6 Router Advertisements are attacker-controlled, so option payloads may
- * contain newlines or other non-printable bytes. Replace anything that is not a
- * printable ASCII character, or that could trigger shell quoting/expansion, with
- * '_'. This is defense in depth: the consuming script should still quote
- * variables and should not rely on this for full shell-safety.
+ * Prepare an already-assembled "NAME=value" buffer that originates from
+ * untrusted network input before it is exported to the environment of the
+ * (root) status script.
  *
- * Operates on the already-assembled "NAME=value" buffer; only the bytes after
- * the first '=' are sanitized so the variable name is preserved.
+ * The variable NAME (the bytes before the first '=') is validated, not
+ * rewritten. It is only accepted if it is a non-empty run of the portable
+ * environment-variable charset ([A-Za-z_][A-Za-z0-9_]*). Silently rewriting an
+ * invalid name could map a value onto an unexpected variable, so a missing or
+ * invalid name causes the whole entry to be rejected: the function returns
+ * false and the caller must not putenv() it. Rejecting a single entry (rather
+ * than aborting the process) avoids handing an attacker a denial-of-service
+ * trigger. The names used in this file are compile-time constants, so this is
+ * defense in depth against future call sites.
+ *
+ * The value (the bytes after the first '=') is sanitized in place. DHCPv6
+ * replies and ICMPv6 Router Advertisements are attacker-controlled, so option
+ * payloads may contain newlines or other non-printable bytes. Any byte that is
+ * not printable ASCII, or that could trigger shell quoting/expansion, is
+ * replaced with '_'. This cannot remove embedded NUL bytes (they already
+ * terminate the C string) and does not by itself guarantee shell-safety: the
+ * consuming script must still quote variables.
+ *
+ * Returns true if the entry is safe to export, false if it must be discarded.
  */
-static void script_sanitize_env_value(char *env)
+static bool script_sanitize_env(char *env)
 {
 	char *p = strchr(env, '=');
 
-	if (!p)
-		p = env; /* defensive: no '=' found, sanitize whole string */
-	else
-		p++; /* skip past '=' */
+	/* A well-formed entry must have a non-empty NAME before the '='. */
+	if (p == NULL || p == env)
+		return false;
 
-	for (; *p; p++) {
+	/* Validate the NAME without modifying it. */
+	for (char *n = env; n < p; n++) {
+		unsigned char c = (unsigned char)*n;
+
+		if (c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+			continue;
+		/* Digits are allowed, but not as the first character. */
+		if (n != env && c >= '0' && c <= '9')
+			continue;
+
+		return false;
+	}
+
+	/* Sanitize the value portion in place. */
+	for (p++; *p; p++) {
 		unsigned char c = (unsigned char)*p;
 
 		/* Reject non-printable and non-ASCII bytes */
@@ -137,6 +163,8 @@ static void script_sanitize_env_value(char *env)
 			break;
 		}
 	}
+
+	return true;
 }
 
 static void ipv6_to_env(const char *name,
@@ -192,8 +220,10 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 
 	buf[buf_len] = '\0';
 	/* DNS names from server; dn_expand output may contain attacker bytes. */
-	script_sanitize_env_value(buf);
-	putenv(buf);
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void string_to_env(const char *name, const uint8_t *string, size_t len)
@@ -209,8 +239,10 @@ static void string_to_env(const char *name, const uint8_t *string, size_t len)
 	memcpy(&buf[name_len + 1], string, len);
 	buf[name_len + 1 + len] = '\0';
 	/* Value is server-supplied (e.g. captive-portal URI); sanitize it. */
-	script_sanitize_env_value(buf);
-	putenv(buf);
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void bin_to_env(uint8_t *opts, size_t len)
@@ -350,8 +382,10 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 
 	*c = '\0';
 	/* DNS search list from RA; auxtarget bytes are attacker-controlled. */
-	script_sanitize_env_value(buf);
-	putenv(buf);
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void int_to_env(const char *name, int value)
@@ -494,8 +528,10 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 
 	fclose(fp);
 	/* Built from inet_ntop/fprintf on untrusted option data; sanitize for defense in depth. */
-	script_sanitize_env_value(str);
-	putenv(str);
+	if (script_sanitize_env(str))
+		putenv(str);
+	else
+		free(str);
 }
 
 void script_call(const char *status, int delay, bool resume)
