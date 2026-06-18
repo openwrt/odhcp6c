@@ -14,6 +14,7 @@
  */
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <netdb.h>
@@ -94,6 +95,50 @@ void script_hexlify(char *dst, const uint8_t *src, size_t len)
 	*dst = 0;
 }
 
+/*
+ * Sanitize a value that originates from untrusted network input before it is
+ * exported to the environment of the (root) status script. DHCPv6 replies and
+ * ICMPv6 Router Advertisements are attacker-controlled, so option payloads may
+ * contain NUL, newlines, or shell-significant bytes. Replace anything that is
+ * not a printable, shell-safe ASCII character with '_'. This is defense in
+ * depth: the consuming script should still quote variables, but odhcp6c must
+ * not hand it raw attacker bytes.
+ *
+ * Operates on the already-assembled "NAME=value" buffer; only the bytes after
+ * the first '=' are sanitized so the variable name is preserved.
+ */
+static void script_sanitize_env_value(char *env)
+{
+	char *p = strchr(env, '=');
+
+	if (!p)
+		p = env; /* defensive: no '=' found, sanitize whole string */
+	else
+		p++; /* skip past '=' */
+
+	for (; *p; p++) {
+		unsigned char c = (unsigned char)*p;
+
+		/* Reject non-printable and non-ASCII bytes */
+		if (c < 0x20 || c > 0x7e) {
+			*p = '_';
+			continue;
+		}
+
+		/* Reject shell-significant characters */
+		switch (c) {
+		case '`': case '$': case '\\': case '"': case '\'':
+			*p = '_';
+			break;
+		default:
+			/* Replace whitespace other than a single regular space */
+			if (c != ' ' && isspace(c))
+				*p = '_';
+			break;
+		}
+	}
+}
+
 static void ipv6_to_env(const char *name,
 		const struct in6_addr *addr, size_t cnt)
 {
@@ -116,6 +161,7 @@ static void ipv6_to_env(const char *name,
 		buf_len--;
 
 	buf[buf_len] = '\0';
+	/* Values come solely from inet_ntop(AF_INET6, ...) — charset is safe. */
 	putenv(buf);
 }
 
@@ -145,6 +191,8 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 		buf_len--;
 
 	buf[buf_len] = '\0';
+	/* DNS names from server; dn_expand output may contain attacker bytes. */
+	script_sanitize_env_value(buf);
 	putenv(buf);
 }
 
@@ -160,6 +208,8 @@ static void string_to_env(const char *name, const uint8_t *string, size_t len)
 	buf[name_len] = '=';
 	memcpy(&buf[name_len + 1], string, len);
 	buf[name_len + 1 + len] = '\0';
+	/* Value is server-supplied (e.g. captive-portal URI); sanitize it. */
+	script_sanitize_env_value(buf);
 	putenv(buf);
 }
 
@@ -178,6 +228,7 @@ static void bin_to_env(uint8_t *opts, size_t len)
 		snprintf(buf, 14, "OPTION_%hu=", otype);
 		buf_len += strlen(buf);
 
+		/* Value is hexlified by script_hexlify — charset is safe. */
 		script_hexlify(&buf[buf_len], odata, olen);
 		putenv(buf);
 	}
@@ -268,6 +319,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		buf_len--;
 
 	buf[buf_len] = '\0';
+	/* All fields emitted via inet_ntop or snprintf("%u"/"%08x") — charset is safe. */
 	putenv(buf);
 }
 
@@ -297,6 +349,8 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 		c--;
 
 	*c = '\0';
+	/* DNS search list from RA; auxtarget bytes are attacker-controlled. */
+	script_sanitize_env_value(buf);
 	putenv(buf);
 }
 
@@ -309,6 +363,7 @@ static void int_to_env(const char *name, int value)
 		return;
 
 	snprintf(buf, len, "%s=%d", name, value);
+	/* Value is snprintf("%d") — charset is safe. */
 	putenv(buf);
 }
 
@@ -438,6 +493,8 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	}
 
 	fclose(fp);
+	/* Built from inet_ntop/fprintf on untrusted option data; sanitize for defense in depth. */
+	script_sanitize_env_value(str);
 	putenv(str);
 }
 
