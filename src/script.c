@@ -99,10 +99,10 @@ void script_hexlify(char *dst, const uint8_t *src, size_t len)
  * Sanitize a value that originates from untrusted network input before it is
  * exported to the environment of the (root) status script. DHCPv6 replies and
  * ICMPv6 Router Advertisements are attacker-controlled, so option payloads may
- * contain NUL, newlines, or shell-significant bytes. Replace anything that is
- * not a printable, shell-safe ASCII character with '_'. This is defense in
- * depth: the consuming script should still quote variables, but odhcp6c must
- * not hand it raw attacker bytes.
+ * contain newlines or other non-printable bytes. Replace anything that is not a
+ * printable ASCII character, or that could trigger shell quoting/expansion, with
+ * '_'. This is defense in depth: the consuming script should still quote
+ * variables and should not rely on this for full shell-safety.
  *
  * Operates on the already-assembled "NAME=value" buffer; only the bytes after
  * the first '=' are sanitized so the variable name is preserved.
