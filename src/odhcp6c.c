@@ -50,6 +50,7 @@
 #include "odhcp6c.h"
 #include "ra.h"
 #include "script.h"
+#include "seccomp.h"
 #include "ubus.h"
 
 #ifndef ODHCP6C_USER
@@ -773,6 +774,16 @@ int main(_o_unused int argc, char* const argv[])
 		error("privsep: failed to drop privileges, aborting");
 		return 4;
 	}
+
+	/*
+	 * Confine the worker with a seccomp-BPF syscall allow-list as the last
+	 * initialization step: all fds are open and privileges are dropped, but
+	 * no attacker data has been read yet. No-op unless built with SECCOMP.
+	 * Only the unprivileged worker is filtered; the monitor (which needs
+	 * fork/execve) returned earlier via script_monitor_loop().
+	 */
+	if (privsep)
+		seccomp_apply();
 
 	notify_state_change("started", 0, false);
 

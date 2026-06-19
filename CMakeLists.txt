@@ -11,6 +11,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	src/odhcp6c.c
 	src/ra.c
 	src/script.c
+	src/seccomp.c
 )
 
 
@@ -63,6 +64,28 @@ if(LIBCAP_NG)
 	find_library(libcapng cap-ng)
 	target_link_libraries(${PROJECT_NAME} PRIVATE ${libcapng})
 endif(LIBCAP_NG)
+
+# Seccomp-BPF confinement: restrict the network-facing privsep worker to a
+# minimal syscall allow-list via libseccomp. Opt-in; with SECCOMP=OFF (default)
+# seccomp_apply() is a no-op and no extra link dependency is added.
+option(SECCOMP "Confine the worker with a seccomp-BPF syscall filter" OFF)
+# Make a failed filter load non-fatal (warn + continue) for bring-up on new
+# architectures. Default is fail-closed: the worker exits if the filter cannot
+# be loaded.
+option(SECCOMP_FAIL_OPEN "Continue unconfined if the seccomp filter fails to load" OFF)
+if(SECCOMP)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_SECCOMP)
+	if(SECCOMP_FAIL_OPEN)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_SECCOMP_FAIL_OPEN)
+	endif(SECCOMP_FAIL_OPEN)
+	find_path(seccomp_include_dir seccomp.h)
+	find_library(libseccomp seccomp)
+	if(NOT seccomp_include_dir OR NOT libseccomp)
+		message(FATAL_ERROR "SECCOMP=ON but libseccomp was not found (install libseccomp-dev or disable SECCOMP)")
+	endif()
+	target_include_directories(${PROJECT_NAME} PRIVATE ${seccomp_include_dir})
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${libseccomp})
+endif(SECCOMP)
 
 
 # Installation
