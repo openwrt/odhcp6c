@@ -151,7 +151,9 @@ with `--privsep off` (or `HARNESS_PRIVSEP=off`). The integration workflow
      RA-injection-only scenarios. Words are split unquoted, so values containing
      spaces must be injected with `harness_inject` instead (see below).
    - `scenario_odhcp6c` — echo the odhcp6c argument list **ending in the
-     interface** (use `$HARNESS_VETH_CLIENT`). Default: `--no-privsep <iface>`.
+     interface** (use `$HARNESS_VETH_CLIENT`). Default: `<iface>`. Do **not**
+     pin the privsep mode here (no hardcoded `--no-privsep`); the `--privsep`
+     axis selects it so each scenario runs in both modes.
    - `scenario_drive` — perform the lifecycle: `wait_for_action <action>
      [timeout]`, `wait_for_log <regex> [timeout] [min-count]`,
      `harness_odhcp6c_signal <USR1|TERM|…>`, and one-shot crafted injections via

@@ -24,7 +24,8 @@
 #   scenario_backend     echo the backend + args, e.g. "scapy ra --prefix ..."
 #                        (empty / unset => no server backend, RA-injection only)
 #   scenario_odhcp6c     echo the odhcp6c argument list, ending in the interface
-#                        (default: "--no-privsep <iface>")
+#                        (default: "<iface>"). Do NOT pin the privsep mode here;
+#                        the --privsep axis controls it (see below).
 #   scenario_drive       perform the lifecycle (waits, signals, injections) and
 #                        leave captured records in $HARNESS_CAPTURE
 #   scenario_assert      run assertions (default: assert against expect.txt)
@@ -93,7 +94,9 @@ harness_require_paths "$LIB" "$ODHCP6C_ARG"
 
 # ---- default scenario hooks (overridable by scenario.sh) ----
 scenario_backend()  { :; }
-scenario_odhcp6c()  { echo "--no-privsep $HARNESS_VETH_CLIENT"; }
+# Default to just the interface so the --privsep axis (below) is free to select
+# the mode. Pinning --no-privsep here would defeat the both-modes CI matrix.
+scenario_odhcp6c()  { echo "$HARNESS_VETH_CLIENT"; }
 scenario_assert() {
 	if [ -f "$SCN_DIR/expect.txt" ]; then
 		harness_assert_expect "$SCN_DIR/expect.txt"
