@@ -607,13 +607,20 @@ bool ra_process(void)
 				if (ri->len == 0)
 					continue;
 
+				/*
+				 * RFC 4191 §2.1/2.3: the Length field depends on the
+				 * Prefix Length. A prefix of 65-128 bits requires Length 3
+				 * (16 prefix octets), a prefix of 1-64 bits requires
+				 * Length 2 or 3 (>= 8 prefix octets). Reject options whose
+				 * Prefix Length is not covered by the prefix octets present.
+				 */
 				if (ri->prefix_len > 128) {
 					continue;
 				} else if (ri->prefix_len > 64) {
-					if (ri->len < 2)
+					if (ri->len < 3)
 						continue;
 				} else if (ri->prefix_len > 0) {
-					if (ri->len < 1)
+					if (ri->len < 2)
 						continue;
 				}
 
