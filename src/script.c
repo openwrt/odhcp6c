@@ -277,8 +277,8 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 {
 	const uint8_t *start = data;
 	char addr[INET6_ADDRSTRLEN];
-	char *str;
-	size_t strsize;
+	char *str = NULL;
+	size_t strsize = 0;
 
 	FILE *fp = open_memstream(&str, &strsize);
 	if (!fp)
@@ -335,7 +335,10 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		fputc(' ', fp);
 	}
 
-	fclose(fp);
+	if (fclose(fp)) {
+		free(str);
+		return;
+	}
 
 	if (strsize > 0 && str[strsize - 1] == ' ')
 		str[strsize - 1] = '\0';
