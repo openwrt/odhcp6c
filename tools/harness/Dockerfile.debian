@@ -48,7 +48,7 @@ RUN git clone --depth=1 https://github.com/openwrt/libubox.git /tmp/libubox \
 WORKDIR /src
 COPY . /src
 
-RUN cmake -S . -B build -DUBUS=OFF $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
+RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel \
     && cp build/odhcp6c /usr/local/bin/odhcp6c
 

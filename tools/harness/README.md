@@ -96,6 +96,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | Option | Meaning |
 | --- | --- |
 | `--odhcp6c <path>` | binary under test (default: `$ODHCP6C_BIN` / autodetect) |
+| `--privsep <on\|off>` | run with privilege separation (default `on`, the production default) or force `--no-privsep`; defaults to `${HARNESS_PRIVSEP:-on}` |
 | `--trace <mode>` | `none` (default), `strace`, or `seccomp-log` |
 | `--timeout <s>` | per-wait timeout (default 30) |
 | `--outdir <dir>` | keep artifacts here instead of a temp dir |
@@ -129,8 +130,13 @@ action (`$2`), interface (`$1`), and the full set of exported variables
 
 Under privilege separation the script is exec'd by the monitor, so the stub
 additionally validates that the monitor builds the environment correctly across
-the privilege boundary. Scenarios can run odhcp6c with privsep enabled (the
-production default) by omitting `--no-privsep` in `scenario_odhcp6c()`. 
+the privilege boundary. Scenarios run odhcp6c with privsep enabled (the
+production default) by omitting `--no-privsep` in `scenario_odhcp6c()`. To
+exercise the single-process path too, force `--no-privsep` for every scenario
+with `--privsep off` (or `HARNESS_PRIVSEP=off`). The integration workflow
+(`.github/workflows/integration.yml`) runs the full scenario set in both
+`privsep on` and `privsep off` modes against the hardened build
+(`-DHARDENING=ON -DSECCOMP=ON`).
 
 ---
 

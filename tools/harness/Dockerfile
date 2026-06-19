@@ -67,9 +67,10 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/harness-requirem
 WORKDIR /src
 COPY . /src
 
-# Minimal build: no ubus (avoids ubusd); enable seccomp where the option exists
-# (it is a no-op on trees without it). The harness points ODHCP6C_BIN at this.
-RUN cmake -S . -B build -DUBUS=OFF $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
+# Minimal build: no ubus (avoids ubusd); enable the exploit-mitigation
+# (hardening) flags and seccomp where the option exists (both are no-ops on
+# trees without them). The harness points ODHCP6C_BIN at this.
+RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel \
     && cp build/odhcp6c /usr/local/bin/odhcp6c
 

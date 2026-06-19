@@ -47,11 +47,17 @@ jobs:
   # Per-PR gate: musl (Alpine) + glibc (Debian), amd64.
   # ---------------------------------------------------------------------------
   scenarios:
-    name: scenarios (${{ matrix.libc }})
+    name: scenarios (${{ matrix.libc }}, privsep ${{ matrix.privsep }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        libc:
+          - musl
+          - glibc
+        privsep:
+          - 'on'
+          - 'off'
         include:
           - libc: musl
             dockerfile: tools/harness/Dockerfile
@@ -64,22 +70,23 @@ jobs:
         run: |
           docker build -f "${{ matrix.dockerfile }}" -t odhcp6c-harness:${{ matrix.libc }} .
 
-      - name: Run scenarios
+      - name: Run scenarios (privsep ${{ matrix.privsep }})
         run: |
           set -eu
           mkdir -p artifacts
           rc=0
           for s in $SCENARIOS; do
-            echo "::group::scenario $s (${{ matrix.libc }})"
+            echo "::group::scenario $s (${{ matrix.libc }}, privsep ${{ matrix.privsep }})"
             if docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
                  --security-opt apparmor=unconfined \
+                 -e HARNESS_PRIVSEP=${{ matrix.privsep }} \
                  -v "$PWD/artifacts:/artifacts" \
                  odhcp6c-harness:${{ matrix.libc }} \
                  tools/harness/run-scenario.sh --timeout 30 \
                  --outdir "/artifacts/$s" "$s"; then
               echo "PASS: $s"
             else
-              echo "::error::scenario failed: $s (${{ matrix.libc }})"
+              echo "::error::scenario failed: $s (${{ matrix.libc }}, privsep ${{ matrix.privsep }})"
               rc=1
             fi
             echo "::endgroup::"
@@ -90,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scenarios-${{ matrix.libc }}
+          name: scenarios-${{ matrix.libc }}-privsep-${{ matrix.privsep }}
           path: artifacts/
           if-no-files-found: ignore
 
@@ -131,7 +138,7 @@ jobs:
   # authoritative musl environment for the N-2 syscall list).
   # ---------------------------------------------------------------------------
   multiarch:
-    name: scenarios (qemu ${{ matrix.platform }})
+    name: scenarios (qemu ${{ matrix.platform }}, privsep ${{ matrix.privsep }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
@@ -141,6 +148,9 @@ jobs:
           - linux/arm/v7
           - linux/arm64
           - linux/386
+        privsep:
+          - 'on'
+          - 'off'
     steps:
       - uses: actions/checkout@v4
 
@@ -155,23 +165,24 @@ jobs:
           docker buildx build --platform "${{ matrix.platform }}" \
             -f tools/harness/Dockerfile -t odhcp6c-harness:qemu --load .
 
-      - name: Run scenarios (${{ matrix.platform }})
+      - name: Run scenarios (${{ matrix.platform }}, privsep ${{ matrix.privsep }})
         run: |
           set -eu
           mkdir -p artifacts
           rc=0
           for s in $SCENARIOS; do
-            echo "::group::scenario $s (${{ matrix.platform }})"
+            echo "::group::scenario $s (${{ matrix.platform }}, privsep ${{ matrix.privsep }})"
             if docker run --rm --platform "${{ matrix.platform }}" \
                  --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
                  --security-opt apparmor=unconfined \
+                 -e HARNESS_PRIVSEP=${{ matrix.privsep }} \
                  -v "$PWD/artifacts:/artifacts" \
                  odhcp6c-harness:qemu \
                  tools/harness/run-scenario.sh --timeout 60 \
                  --outdir "/artifacts/$s" "$s"; then
               echo "PASS: $s"
             else
-              echo "::error::scenario failed: $s (${{ matrix.platform }})"
+              echo "::error::scenario failed: $s (${{ matrix.platform }}, privsep ${{ matrix.privsep }})"
               rc=1
             fi
             echo "::endgroup::"
