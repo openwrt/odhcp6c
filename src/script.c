@@ -874,9 +874,10 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 		running_script = true;
 	}
 
-	if (resume || !running_script || !action[0])
+	if (resume || !running_script || !action[0]) {
 		strncpy(action, act, sizeof(action) - 1);
-
+		action[sizeof(action) - 1] = '\0';
+	}
 	pid_t pid = fork();
 
 	if (pid < 0) {
@@ -926,6 +927,11 @@ static void monitor_handle_request(uint8_t *buf, size_t len)
 
 	if (req.magic != SCRIPT_REQ_MAGIC) {
 		error("monitor: rejecting request with bad magic");
+		return;
+	}
+
+	if (req.pad[0] || req.pad[1] || req.pad[2]) {
+		error("monitor: rejecting request with non-zero padding");
 		return;
 	}
 

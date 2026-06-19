@@ -41,7 +41,7 @@
 #define SCRIPT_REQ_MAGIC 0x6f366970u
 
 /* Hard caps the monitor enforces on every request. */
-#define SCRIPT_ACTION_MAX 16		/* max action length (excl. NUL) */
+#define SCRIPT_ACTION_MAX 15		/* max action length (excl. NUL) */
 #define SCRIPT_ENV_MAX_COUNT 256	/* max number of env entries */
 #define SCRIPT_ENV_MAX_TOTAL 65536	/* max total env bytes (incl. NULs) */
 #define SCRIPT_ENV_ENTRY_MAX 4096	/* max length of one "NAME=value" (incl. NUL) */
