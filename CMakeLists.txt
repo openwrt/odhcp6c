@@ -50,6 +50,20 @@ if(${UBUS})
 	target_link_libraries(${PROJECT_NAME} PRIVATE ${libubus})
 endif(${UBUS})
 
+# Privilege separation: retain CAP_NET_RAW + CAP_NET_BIND_SERVICE in the
+# unprivileged worker so it can re-create the DHCPv6 socket after a reset.
+option(LIBCAP_NG "Drop privileges using libcap-ng" OFF)
+# Unprivileged user the worker drops to (falls back to "nobody" if absent).
+set(ODHCP6C_USER "nobody" CACHE STRING "Unprivileged user for the privsep worker")
+if(LIBCAP_NG)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_LIBCAP_NG)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE ODHCP6C_USER="${ODHCP6C_USER}")
+	find_path(capng_include_dir cap-ng.h)
+	target_include_directories(${PROJECT_NAME} PRIVATE ${capng_include_dir})
+	find_library(libcapng cap-ng)
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${libcapng})
+endif(LIBCAP_NG)
+
 
 # Installation
 install(TARGETS ${PROJECT_NAME} DESTINATION sbin/)
