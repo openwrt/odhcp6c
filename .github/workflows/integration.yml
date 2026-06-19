@@ -1,0 +1,224 @@
+name: integration
+
+# DHCPv6/RA integration harness (tools/harness). Runs odhcp6c end-to-end inside a
+# netns+veth fabric against a controllable DHCPv6 server + RA sender and asserts
+# on the status-script environment. See tools/harness/README.md.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'tools/harness/**'
+      - '.github/workflows/integration.yml'
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'tools/harness/**'
+      - '.github/workflows/integration.yml'
+  schedule:
+    # Nightly: the heavier QEMU multi-arch + OpenWrt-rootfs cells.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+# Scenarios that run hermetically even where client datagram egress is
+# restricted (receive-driven RA scenarios) versus the full set. The per-PR gate
+# runs the full set in the container (no egress restriction there).
+env:
+  SCENARIOS: >-
+    stateful-basic
+    stateless-info
+    renew-rebind
+    ra-slaac
+    ra-options-edge
+    captive-portal
+    release-on-stop
+    s46-mape
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Per-PR gate: musl (Alpine) + glibc (Debian), amd64.
+  # ---------------------------------------------------------------------------
+  scenarios:
+    name: scenarios (${{ matrix.libc }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - libc: musl
+            dockerfile: tools/harness/Dockerfile
+          - libc: glibc
+            dockerfile: tools/harness/Dockerfile.debian
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build harness image (${{ matrix.libc }})
+        run: |
+          docker build -f "${{ matrix.dockerfile }}" -t odhcp6c-harness:${{ matrix.libc }} .
+
+      - name: Run scenarios
+        run: |
+          set -eu
+          mkdir -p artifacts
+          rc=0
+          for s in $SCENARIOS; do
+            echo "::group::scenario $s (${{ matrix.libc }})"
+            if docker run --rm --cap-add=NET_ADMIN \
+                 -v "$PWD/artifacts:/artifacts" \
+                 odhcp6c-harness:${{ matrix.libc }} \
+                 tools/harness/run-scenario.sh --timeout 30 \
+                 --outdir "/artifacts/$s" "$s"; then
+              echo "PASS: $s"
+            else
+              echo "::error::scenario failed: $s (${{ matrix.libc }})"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: Upload artifacts (records + logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenarios-${{ matrix.libc }}
+          path: artifacts/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Trace mode: emit a machine-readable syscall list for N-2 reconciliation.
+  # ---------------------------------------------------------------------------
+  trace:
+    name: syscall trace (strace)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build harness image
+        run: docker build -f tools/harness/Dockerfile -t odhcp6c-harness:musl .
+
+      - name: Capture syscalls (strace, both privsep processes)
+        run: |
+          set -eu
+          mkdir -p trace-artifacts
+          docker run --rm \
+            --cap-add=NET_ADMIN --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            -v "$PWD/trace-artifacts:/artifacts" \
+            odhcp6c-harness:musl \
+            tools/harness/run-scenario.sh --trace=strace --timeout 30 \
+            --outdir /artifacts/renew-rebind renew-rebind
+
+      - name: Upload syscall lists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: syscalls-strace
+          path: trace-artifacts/**/trace/syscalls.*.txt
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Nightly / dispatch: QEMU-emulated architectures + OpenWrt rootfs (the
+  # authoritative musl environment for the N-2 syscall list).
+  # ---------------------------------------------------------------------------
+  multiarch:
+    name: scenarios (qemu ${{ matrix.platform }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/arm/v7
+          - linux/arm64
+          - linux/386
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build harness image (${{ matrix.platform }})
+        run: |
+          docker buildx build --platform "${{ matrix.platform }}" \
+            -f tools/harness/Dockerfile -t odhcp6c-harness:qemu --load .
+
+      - name: Run scenarios (${{ matrix.platform }})
+        run: |
+          set -eu
+          mkdir -p artifacts
+          rc=0
+          for s in $SCENARIOS; do
+            echo "::group::scenario $s (${{ matrix.platform }})"
+            if docker run --rm --platform "${{ matrix.platform }}" \
+                 --cap-add=NET_ADMIN \
+                 -v "$PWD/artifacts:/artifacts" \
+                 odhcp6c-harness:qemu \
+                 tools/harness/run-scenario.sh --timeout 60 \
+                 --outdir "/artifacts/$s" "$s"; then
+              echo "PASS: $s"
+            else
+              echo "::error::scenario failed: $s (${{ matrix.platform }})"
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenarios-qemu-${{ strategy.job-index }}
+          path: artifacts/
+          if-no-files-found: ignore
+
+  # OpenWrt x86-64 rootfs cell: the authoritative musl environment. Imported via
+  # `docker import` of the published rootfs.tar.gz. Kept non-blocking until the
+  # rootfs URL is pinned for the target OpenWrt release.
+  openwrt-rootfs:
+    name: scenarios (openwrt rootfs)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import OpenWrt x86-64 rootfs
+        run: |
+          set -eu
+          # Pin to the desired OpenWrt release rootfs. Example (x86-64 generic):
+          URL="https://downloads.openwrt.org/releases/23.05.3/targets/x86/64/openwrt-23.05.3-x86-64-generic-rootfs.tar.gz"
+          curl -fsSL -o rootfs.tar.gz "$URL"
+          docker import rootfs.tar.gz openwrt-rootfs:latest
+
+      - name: Build + run scenarios in OpenWrt rootfs
+        run: |
+          set -eu
+          # OpenWrt ships odhcp6c; build the binary-under-test and run the
+          # harness using the rootfs as the base image.
+          docker build -f tools/harness/Dockerfile.openwrt -t odhcp6c-harness:openwrt . \
+            || { echo "OpenWrt harness image not yet provisioned; see README"; exit 1; }
+          mkdir -p artifacts
+          rc=0
+          for s in $SCENARIOS; do
+            docker run --rm --cap-add=NET_ADMIN \
+              -v "$PWD/artifacts:/artifacts" \
+              odhcp6c-harness:openwrt \
+              tools/harness/run-scenario.sh --timeout 60 \
+              --outdir "/artifacts/$s" "$s" || rc=1
+          done
+          exit $rc
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenarios-openwrt
+          path: artifacts/
+          if-no-files-found: ignore

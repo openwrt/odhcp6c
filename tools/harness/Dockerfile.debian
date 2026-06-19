@@ -1,0 +1,37 @@
+# tools/harness/Dockerfile.debian
+#
+# glibc variant of the harness image (Debian). Functionally identical to the
+# Alpine/musl default in tools/harness/Dockerfile -- only the base image and
+# package manager differ. Use this cell to catch glibc-vs-musl behavioural
+# differences (notably in getaddrinfo, resolver, and syscall wrappers).
+#
+# Build (from the repository root):
+#   docker build -f tools/harness/Dockerfile.debian -t odhcp6c-harness:glibc .
+#
+# Run identically to the Alpine image (see tools/harness/Dockerfile header).
+
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake pkg-config \
+        libubox-dev \
+        iproute2 \
+        python3 python3-scapy \
+        odhcpd \
+        strace \
+        libseccomp-dev seccomp \
+        ca-certificates tcpdump \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . /src
+
+RUN cmake -S . -B build -DUBUS=OFF $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
+    && cmake --build build --parallel \
+    && cp build/odhcp6c /usr/local/bin/odhcp6c
+
+ENV ODHCP6C_BIN=/usr/local/bin/odhcp6c
+ENV PYTHON=python3
+
+CMD ["sh", "-c", "tools/harness/run-scenario.sh --list"]
