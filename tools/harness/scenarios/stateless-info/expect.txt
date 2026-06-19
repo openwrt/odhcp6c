@@ -1,0 +1,6 @@
+# action    key       op            value
+informed    RDNSS     contains      2001:db8:1::53
+informed    DOMAINS   contains      example.test
+# Stateless mode must not produce an address or a delegated prefix.
+informed    ADDRESSES empty
+informed    PREFIXES  empty
