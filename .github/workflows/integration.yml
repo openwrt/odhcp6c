@@ -22,6 +22,10 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+# Least privilege: scenarios only read the checkout and upload artifacts.
+permissions:
+  contents: read
+
 # Scenarios that run hermetically even where client datagram egress is
 # restricted (receive-driven RA scenarios) versus the full set. The per-PR gate
 # runs the full set in the container (no egress restriction there).
