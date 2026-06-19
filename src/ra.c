@@ -609,22 +609,38 @@ bool ra_process(void)
 
 				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
 
+				if (ri->len == 0)
+					continue;
+
+				/*
+				 * RFC 4191 §2.1/2.3: the Length field depends on the
+				 * Prefix Length. A prefix of 65-128 bits requires Length 3
+				 * (16 prefix octets), a prefix of 1-64 bits requires
+				 * Length 2 or 3 (>= 8 prefix octets). Reject options whose
+				 * Prefix Length is not covered by the prefix octets present.
+				 */
 				if (ri->prefix_len > 128) {
 					continue;
 				} else if (ri->prefix_len > 64) {
-					if (ri->len < 2)
+					if (ri->len < 3)
 						continue;
 				} else if (ri->prefix_len > 0) {
-					if (ri->len < 1)
+					if (ri->len < 2)
 						continue;
 				}
+
+				size_t copy_len = (size_t)(ri->len - 1) * 8;
+				if ((uint8_t *)ri->prefix + copy_len > &buf[len])
+					continue;
 
 				entry->router = from.sin6_addr;
 				entry->target = any;
 				entry->priority = pref_to_priority(ri->flags);
 				entry->length = ri->prefix_len;
 				entry->valid = ntohl(ri->lifetime);
-				memcpy(&entry->target, ri->prefix, (ri->len - 1) * 8);
+				if (copy_len > sizeof(entry->target))
+					copy_len = sizeof(entry->target);
+				memcpy(&entry->target, ri->prefix, copy_len);
 
 				if (IN6_IS_ADDR_LINKLOCAL(&entry->target)
 						|| IN6_IS_ADDR_LOOPBACK(&entry->target)
