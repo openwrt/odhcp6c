@@ -14,6 +14,7 @@
  */
 
 #include <arpa/inet.h>
+#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <netdb.h>
@@ -94,6 +95,78 @@ void script_hexlify(char *dst, const uint8_t *src, size_t len)
 	*dst = 0;
 }
 
+/*
+ * Prepare an already-assembled "NAME=value" buffer that originates from
+ * untrusted network input before it is exported to the environment of the
+ * (root) status script.
+ *
+ * The variable NAME (the bytes before the first '=') is validated, not
+ * rewritten. It is only accepted if it is a non-empty run of the portable
+ * environment-variable charset ([A-Za-z_][A-Za-z0-9_]*). Silently rewriting an
+ * invalid name could map a value onto an unexpected variable, so a missing or
+ * invalid name causes the whole entry to be rejected: the function returns
+ * false and the caller must not putenv() it. Rejecting a single entry (rather
+ * than aborting the process) avoids handing an attacker a denial-of-service
+ * trigger. The names used in this file are compile-time constants, so this is
+ * defense in depth against future call sites.
+ *
+ * The value (the bytes after the first '=') is sanitized in place. DHCPv6
+ * replies and ICMPv6 Router Advertisements are attacker-controlled, so option
+ * payloads may contain newlines or other non-printable bytes. Any byte that is
+ * not printable ASCII, or that could trigger shell quoting/expansion, is
+ * replaced with '_'. This cannot remove embedded NUL bytes (they already
+ * terminate the C string) and does not by itself guarantee shell-safety: the
+ * consuming script must still quote variables.
+ *
+ * Returns true if the entry is safe to export, false if it must be discarded.
+ */
+static bool script_sanitize_env(char *env)
+{
+	char *p = strchr(env, '=');
+
+	/* A well-formed entry must have a non-empty NAME before the '='. */
+	if (p == NULL || p == env)
+		return false;
+
+	/* Validate the NAME without modifying it. */
+	for (char *n = env; n < p; n++) {
+		unsigned char c = (unsigned char)*n;
+
+		if (c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+			continue;
+		/* Digits are allowed, but not as the first character. */
+		if (n != env && c >= '0' && c <= '9')
+			continue;
+
+		return false;
+	}
+
+	/* Sanitize the value portion in place. */
+	for (p++; *p; p++) {
+		unsigned char c = (unsigned char)*p;
+
+		/* Reject non-printable and non-ASCII bytes */
+		if (c < 0x20 || c > 0x7e) {
+			*p = '_';
+			continue;
+		}
+
+		/* Reject shell-significant characters */
+		switch (c) {
+		case '`': case '$': case '\\': case '"': case '\'':
+			*p = '_';
+			break;
+		default:
+			/* Replace whitespace other than a single regular space */
+			if (c != ' ' && isspace(c))
+				*p = '_';
+			break;
+		}
+	}
+
+	return true;
+}
+
 static void ipv6_to_env(const char *name,
 		const struct in6_addr *addr, size_t cnt)
 {
@@ -116,6 +189,7 @@ static void ipv6_to_env(const char *name,
 		buf_len--;
 
 	buf[buf_len] = '\0';
+	/* Values come solely from inet_ntop(AF_INET6, ...) — charset is safe. */
 	putenv(buf);
 }
 
@@ -145,7 +219,11 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 		buf_len--;
 
 	buf[buf_len] = '\0';
-	putenv(buf);
+	/* DNS names from server; dn_expand output may contain attacker bytes. */
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void string_to_env(const char *name, const uint8_t *string, size_t len)
@@ -160,7 +238,11 @@ static void string_to_env(const char *name, const uint8_t *string, size_t len)
 	buf[name_len] = '=';
 	memcpy(&buf[name_len + 1], string, len);
 	buf[name_len + 1 + len] = '\0';
-	putenv(buf);
+	/* Value is server-supplied (e.g. captive-portal URI); sanitize it. */
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void bin_to_env(uint8_t *opts, size_t len)
@@ -178,6 +260,7 @@ static void bin_to_env(uint8_t *opts, size_t len)
 		snprintf(buf, 14, "OPTION_%hu=", otype);
 		buf_len += strlen(buf);
 
+		/* Value is hexlified by script_hexlify — charset is safe. */
 		script_hexlify(&buf[buf_len], odata, olen);
 		putenv(buf);
 	}
@@ -192,21 +275,17 @@ enum entry_type {
 
 static void entry_to_env(const char *name, const void *data, size_t len, enum entry_type type)
 {
-	size_t buf_len = strlen(name);
 	const uint8_t *start = data;
-	// Worst case: ENTRY_PREFIX with iaid != 1 and exclusion
-	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 44 + 15 + 10 +
-				      INET6_ADDRSTRLEN-1 + 11 + 1);
-	/* An upper bound on the entry count: every entry occupies at least
-	 * sizeof(struct odhcp6c_entry) bytes (auxlen rounds up to 4-byte
-	 * stride, never below 0). */
-	char *buf = malloc(buf_len + 2 + (len / sizeof(struct odhcp6c_entry)) * max_entry_len);
+	char addr[INET6_ADDRSTRLEN];
+	char *str = NULL;
+	size_t strsize = 0;
 
-	if (!buf)
+	FILE *fp = open_memstream(&str, &strsize);
+	if (!fp)
 		return;
 
-	memcpy(buf, name, buf_len);
-	buf[buf_len++] = '=';
+	fputs(name, fp);
+	fputc('=', fp);
 
 	for (const struct odhcp6c_entry *e = (const struct odhcp6c_entry *)start;
 			(const uint8_t *)e < start + len &&
@@ -223,52 +302,49 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		if (!e->valid && type != ENTRY_PREFIX && type != ENTRY_ROUTE)
 			continue;
 
-		inet_ntop(AF_INET6, &e->target, &buf[buf_len], INET6_ADDRSTRLEN);
-		buf_len += strlen(&buf[buf_len]);
+		inet_ntop(AF_INET6, &e->target, addr, sizeof(addr));
+		fputs(addr, fp);
 
 		if (type != ENTRY_HOST) {
-			snprintf(&buf[buf_len], 6, "/%"PRIu16, e->length);
-			buf_len += strlen(&buf[buf_len]);
+			fprintf(fp, "/%"PRIu16, e->length);
 
 			if (type == ENTRY_ROUTE) {
-				buf[buf_len++] = ',';
+				fputc(',', fp);
 
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e->router)) {
-					inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
-					buf_len += strlen(&buf[buf_len]);
+					inet_ntop(AF_INET6, &e->router, addr, sizeof(addr));
+					fputs(addr, fp);
 				}
 
-				snprintf(&buf[buf_len], 23, ",%u,%u", e->valid, e->priority);
-				buf_len += strlen(&buf[buf_len]);
+				fprintf(fp, ",%u,%u", e->valid, e->priority);
 			} else {
-				snprintf(&buf[buf_len], 45, ",%u,%u,%u,%u", e->preferred, e->valid, e->t1, e->t2);
-				buf_len += strlen(&buf[buf_len]);
+				fprintf(fp, ",%u,%u,%u,%u", e->preferred, e->valid, e->t1, e->t2);
 			}
 
-			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1) {
-				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e->iaid));
-				buf_len += strlen(&buf[buf_len]);
-			}
+			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1)
+				fprintf(fp, ",class=%08x", ntohl(e->iaid));
 
 			if (type == ENTRY_PREFIX && e->exclusion_length) {
-				snprintf(&buf[buf_len], 11, ",excluded=");
-				buf_len += strlen(&buf[buf_len]);
-				// '.router' is dual-used: for prefixes it contains the prefix
-				inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
-				buf_len += strlen(&buf[buf_len]);
-				snprintf(&buf[buf_len], 12, "/%u", e->exclusion_length);
-				buf_len += strlen(&buf[buf_len]);
+				fputs(",excluded=", fp);
+				/* .router is dual-used: for prefixes it contains the excluded prefix */
+				inet_ntop(AF_INET6, &e->router, addr, sizeof(addr));
+				fprintf(fp, "%s/%u", addr, e->exclusion_length);
 			}
 		}
 
-		buf[buf_len++] = ' ';
+		fputc(' ', fp);
 	}
 
-	if (buf[buf_len - 1] == ' ')
-		buf_len--;
+	if (fclose(fp)) {
+		free(str);
+		return;
+	}
 
-	buf[buf_len] = '\0';
-	putenv(buf);
+	if (strsize > 0 && str[strsize - 1] == ' ')
+		str[strsize - 1] = '\0';
+
+	/* All fields emitted via inet_ntop or fprintf("%u"/"%08x") — charset is safe. */
+	putenv(str);
 }
 
 static void search_to_env(const char *name, const uint8_t *start, size_t len)
@@ -297,7 +373,11 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 		c--;
 
 	*c = '\0';
-	putenv(buf);
+	/* DNS search list from RA; auxtarget bytes are attacker-controlled. */
+	if (script_sanitize_env(buf))
+		putenv(buf);
+	else
+		free(buf);
 }
 
 static void int_to_env(const char *name, int value)
@@ -309,6 +389,7 @@ static void int_to_env(const char *name, int value)
 		return;
 
 	snprintf(buf, len, "%s=%d", name, value);
+	/* Value is snprintf("%d") — charset is safe. */
 	putenv(buf);
 }
 
@@ -438,7 +519,11 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	}
 
 	fclose(fp);
-	putenv(str);
+	/* Built from inet_ntop/fprintf on untrusted option data; sanitize for defense in depth. */
+	if (script_sanitize_env(str))
+		putenv(str);
+	else
+		free(str);
 }
 
 void script_call(const char *status, int delay, bool resume)
