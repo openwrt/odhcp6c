@@ -26,6 +26,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "odhcp6c.h"
@@ -47,6 +48,13 @@ static char action[16] = "";
 static char *argv[4] = {NULL, NULL, action, NULL};
 static volatile pid_t running = 0;
 static time_t started;
+static int started_delay = 0;
+
+/*
+ * Upper bound (milliseconds) for draining a still-executing script child before
+ * launching the next one, so a misbehaving script cannot wedge the caller.
+ */
+#define SCRIPT_DRAIN_TIMEOUT_MS 5000
 
 /*
  * Pid of the worker, used by the monitor to forward termination signals.
@@ -138,6 +146,28 @@ static void script_sighandle(int signal)
 				running = 0;
 		}
 	}
+}
+
+/*
+ * Wait (bounded) for the in-flight script child to exit so its status
+ * notification is delivered before the next script starts. The SIGCHLD handler
+ * reaps the child and clears `running`. This is used when a previous script has
+ * already moved past its scheduled delay and begun executing: cancelling it
+ * would silently drop a notification (e.g. the terminal "unbound" -> "stopped"
+ * sequence on shutdown). A misbehaving script must not wedge the caller, so
+ * fall back to SIGTERM after the timeout.
+ */
+static void script_drain_running(void)
+{
+	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
+			waited += 10) {
+		struct timespec ts = { 0, 10L * 1000 * 1000 };
+
+		nanosleep(&ts, NULL);
+	}
+
+	if (running > 0)
+		kill(running, SIGTERM);
 }
 
 int script_init(const char *path, const char *ifname)
@@ -783,14 +813,24 @@ void script_call(const char *status, int delay, bool resume)
 	if (prev > 0) {
 		time_t diff = now - started;
 
-		kill(prev, SIGTERM);
+		if (diff < started_delay) {
+			/* Still in its pre-exec delay window: a newer state
+			 * supersedes it, so cancel and replace it (state
+			 * batching). */
+			kill(prev, SIGTERM);
 
-		if (diff > delay)
-			delay -= diff;
-		else
-			delay = 0;
+			if (diff > delay)
+				delay -= diff;
+			else
+				delay = 0;
 
-		running_script = true;
+			running_script = true;
+		} else {
+			/* Already executing: let it finish so its notification
+			 * is not lost (e.g. the terminal unbound -> stopped
+			 * sequence) before starting the next one. */
+			script_drain_running();
+		}
 	}
 
 	if (resume || !running_script || !action[0])
@@ -807,6 +847,7 @@ void script_call(const char *status, int delay, bool resume)
 	if (pid > 0) {
 		running = pid;
 		started = now;
+		started_delay = delay;
 
 		if (!resume)
 			action[0] = 0;
@@ -853,15 +894,29 @@ static bool script_action_allowed(const char *act, size_t len)
 
 static void monitor_sighandle(int signal)
 {
-	(void)signal;
+	if (monitor_worker_pid <= 0)
+		return;
 
-	/*
-	 * Ask the worker to begin its graceful DHCPV6_EXIT/RELEASE path. The
-	 * worker's final notifications arrive over the channel and the monitor
-	 * exits once the channel reaches EOF.
-	 */
-	if (monitor_worker_pid > 0)
+	switch (signal) {
+	case SIGUSR1:
+	case SIGUSR2:
+		/*
+		 * Reconfiguration signals (renew/rebind) are handled by the
+		 * worker, which owns the DHCPv6 state machine. Forward them so
+		 * that callers (e.g. init scripts) signalling the launcher PID
+		 * reach the worker in privsep mode.
+		 */
+		kill(monitor_worker_pid, signal);
+		break;
+	default:
+		/*
+		 * Ask the worker to begin its graceful DHCPV6_EXIT/RELEASE
+		 * path. The worker's final notifications arrive over the
+		 * channel and the monitor exits once the channel reaches EOF.
+		 */
 		kill(monitor_worker_pid, SIGTERM);
+		break;
+	}
 }
 
 /*
@@ -881,14 +936,24 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 	if (prev > 0) {
 		time_t diff = now - started;
 
-		kill(prev, SIGTERM);
+		if (diff < started_delay) {
+			/* Still in its pre-exec delay window: a newer state
+			 * supersedes it, so cancel and replace it (state
+			 * batching). */
+			kill(prev, SIGTERM);
 
-		if (diff > delay)
-			delay -= diff;
-		else
-			delay = 0;
+			if (diff > delay)
+				delay -= diff;
+			else
+				delay = 0;
 
-		running_script = true;
+			running_script = true;
+		} else {
+			/* Already executing: let it finish so its notification
+			 * is not lost (e.g. the terminal unbound -> stopped
+			 * sequence) before starting the next one. */
+			script_drain_running();
+		}
 	}
 
 	if (resume || !running_script || !action[0]) {
@@ -906,6 +971,7 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 	if (pid > 0) {
 		running = pid;
 		started = now;
+		started_delay = delay;
 
 		if (!resume)
 			action[0] = 0;
@@ -1046,12 +1112,17 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 	argv[1] = (char *)ifname;
 	monitor_worker_pid = worker_pid;
 
-	/* Forward termination to the worker; ignore the worker-only signals. */
+	/*
+	 * Forward termination and reconfiguration signals to the worker; the
+	 * worker owns the DHCPv6 state machine and the SIGUSR1/SIGUSR2 handlers
+	 * (renew/rebind), so init scripts signalling the launcher PID still
+	 * reach it in privsep mode.
+	 */
 	signal(SIGTERM, monitor_sighandle);
 	signal(SIGINT, monitor_sighandle);
 	signal(SIGHUP, monitor_sighandle);
-	signal(SIGUSR1, SIG_IGN);
-	signal(SIGUSR2, SIG_IGN);
+	signal(SIGUSR1, monitor_sighandle);
+	signal(SIGUSR2, monitor_sighandle);
 	signal(SIGIO, SIG_IGN);
 	/* SIGCHLD is reaped by script_sighandle(), installed in script_init(). */
 
