@@ -275,21 +275,17 @@ enum entry_type {
 
 static void entry_to_env(const char *name, const void *data, size_t len, enum entry_type type)
 {
-	size_t buf_len = strlen(name);
 	const uint8_t *start = data;
-	// Worst case: ENTRY_PREFIX with iaid != 1 and exclusion
-	const size_t max_entry_len = (INET6_ADDRSTRLEN-1 + 5 + 44 + 15 + 10 +
-				      INET6_ADDRSTRLEN-1 + 11 + 1);
-	/* An upper bound on the entry count: every entry occupies at least
-	 * sizeof(struct odhcp6c_entry) bytes (auxlen rounds up to 4-byte
-	 * stride, never below 0). */
-	char *buf = malloc(buf_len + 2 + (len / sizeof(struct odhcp6c_entry)) * max_entry_len);
+	char addr[INET6_ADDRSTRLEN];
+	char *str;
+	size_t strsize;
 
-	if (!buf)
+	FILE *fp = open_memstream(&str, &strsize);
+	if (!fp)
 		return;
 
-	memcpy(buf, name, buf_len);
-	buf[buf_len++] = '=';
+	fputs(name, fp);
+	fputc('=', fp);
 
 	for (const struct odhcp6c_entry *e = (const struct odhcp6c_entry *)start;
 			(const uint8_t *)e < start + len &&
@@ -306,53 +302,46 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 		if (!e->valid && type != ENTRY_PREFIX && type != ENTRY_ROUTE)
 			continue;
 
-		inet_ntop(AF_INET6, &e->target, &buf[buf_len], INET6_ADDRSTRLEN);
-		buf_len += strlen(&buf[buf_len]);
+		inet_ntop(AF_INET6, &e->target, addr, sizeof(addr));
+		fputs(addr, fp);
 
 		if (type != ENTRY_HOST) {
-			snprintf(&buf[buf_len], 6, "/%"PRIu16, e->length);
-			buf_len += strlen(&buf[buf_len]);
+			fprintf(fp, "/%"PRIu16, e->length);
 
 			if (type == ENTRY_ROUTE) {
-				buf[buf_len++] = ',';
+				fputc(',', fp);
 
 				if (!IN6_IS_ADDR_UNSPECIFIED(&e->router)) {
-					inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
-					buf_len += strlen(&buf[buf_len]);
+					inet_ntop(AF_INET6, &e->router, addr, sizeof(addr));
+					fputs(addr, fp);
 				}
 
-				snprintf(&buf[buf_len], 23, ",%u,%u", e->valid, e->priority);
-				buf_len += strlen(&buf[buf_len]);
+				fprintf(fp, ",%u,%u", e->valid, e->priority);
 			} else {
-				snprintf(&buf[buf_len], 45, ",%u,%u,%u,%u", e->preferred, e->valid, e->t1, e->t2);
-				buf_len += strlen(&buf[buf_len]);
+				fprintf(fp, ",%u,%u,%u,%u", e->preferred, e->valid, e->t1, e->t2);
 			}
 
-			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1) {
-				snprintf(&buf[buf_len], 16, ",class=%08x", ntohl(e->iaid));
-				buf_len += strlen(&buf[buf_len]);
-			}
+			if (type == ENTRY_PREFIX && ntohl(e->iaid) != 1)
+				fprintf(fp, ",class=%08x", ntohl(e->iaid));
 
 			if (type == ENTRY_PREFIX && e->exclusion_length) {
-				snprintf(&buf[buf_len], 11, ",excluded=");
-				buf_len += strlen(&buf[buf_len]);
-				// '.router' is dual-used: for prefixes it contains the prefix
-				inet_ntop(AF_INET6, &e->router, &buf[buf_len], INET6_ADDRSTRLEN);
-				buf_len += strlen(&buf[buf_len]);
-				snprintf(&buf[buf_len], 12, "/%u", e->exclusion_length);
-				buf_len += strlen(&buf[buf_len]);
+				fputs(",excluded=", fp);
+				/* .router is dual-used: for prefixes it contains the excluded prefix */
+				inet_ntop(AF_INET6, &e->router, addr, sizeof(addr));
+				fprintf(fp, "%s/%u", addr, e->exclusion_length);
 			}
 		}
 
-		buf[buf_len++] = ' ';
+		fputc(' ', fp);
 	}
 
-	if (buf[buf_len - 1] == ' ')
-		buf_len--;
+	fclose(fp);
 
-	buf[buf_len] = '\0';
-	/* All fields emitted via inet_ntop or snprintf("%u"/"%08x") — charset is safe. */
-	putenv(buf);
+	if (strsize > 0 && str[strsize - 1] == ' ')
+		str[strsize - 1] = '\0';
+
+	/* All fields emitted via inet_ntop or fprintf("%u"/"%08x") — charset is safe. */
+	putenv(str);
 }
 
 static void search_to_env(const char *name, const uint8_t *start, size_t len)
