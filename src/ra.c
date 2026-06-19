@@ -48,6 +48,11 @@
 #define IFF_LOWER_UP 0x10000
 #endif
 
+/* Size of the auxtarget buffer appended after *entry; used for both the
+ * alloca() and the dn_expand() cap in the ND_OPT_DNSSL handler so the two
+ * values cannot drift apart. */
+#define RA_DNSSL_MAXNAME 256
+
 static bool nocarrier = false;
 static bool ptp_link = false;
 
@@ -509,10 +514,6 @@ bool ra_process(void)
 		uint8_t buf[CMSG_SPACE(sizeof(int))];
 	} cmsg_buf;
 	struct nd_router_advert *adv = (struct nd_router_advert*)buf;
-/* Size of the auxtarget buffer appended after *entry; used for both the
- * alloca() below and the dn_expand() cap in the ND_OPT_DNSSL handler so
- * the two values cannot drift apart. */
-#define RA_DNSSL_MAXNAME 256
 	struct odhcp6c_entry *entry = alloca(sizeof(*entry) + RA_DNSSL_MAXNAME);
 	const struct in6_addr any = IN6ADDR_ANY_INIT;
 
