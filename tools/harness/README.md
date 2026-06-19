@@ -8,7 +8,8 @@ script**, plus exit status and log output.
 
 It runs **hermetically** inside a single container using a Linux network
 namespace + `veth` pair: no host networking, no external server, no root beyond
-an unprivileged container with `NET_ADMIN`.
+a container with `NET_ADMIN` + `SYS_ADMIN` (the latter is needed for `ip netns
+add`, which performs a `mount --make-shared /run/netns`).
 
 The harness is the reusable foundation for integration/regression testing, the
 N-2 seccomp syscall reconciliation (via the trace modes), and fuzz-style RA/
@@ -79,7 +80,8 @@ In the container:
 
 ```sh
 docker build -f tools/harness/Dockerfile -t odhcp6c-harness .
-docker run --rm --cap-add=NET_ADMIN odhcp6c-harness \
+docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+    --security-opt apparmor=unconfined odhcp6c-harness \
     tools/harness/run-scenario.sh stateful-basic
 ```
 
@@ -178,12 +180,14 @@ production default).
 
 ```sh
 # Readable cross-check: follow BOTH privsep processes with strace.
-docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_PTRACE \
-    --security-opt seccomp=unconfined odhcp6c-harness \
+docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE \
+    --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+    odhcp6c-harness \
     tools/harness/run-scenario.sh --trace=strace --outdir /out renew-rebind
 
 # Authoritative: a SCMP_ACT_LOG build logs disallowed syscalls to the kernel.
-docker run --rm --cap-add=NET_ADMIN --security-opt seccomp=unconfined \
+docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+    --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
     odhcp6c-harness \
     tools/harness/run-scenario.sh --trace=seccomp-log --outdir /out stateful-basic
 ```
@@ -251,9 +255,13 @@ checked-in allow-list.
 
 | Mode | Required container capabilities |
 | --- | --- |
-| normal scenarios | `--cap-add=NET_ADMIN` |
-| `--trace=strace` | `--cap-add=NET_ADMIN --cap-add=SYS_PTRACE --security-opt seccomp=unconfined` |
-| `--trace=seccomp-log` | `--cap-add=NET_ADMIN --security-opt seccomp=unconfined` (+ `dmesg` access) |
+| normal scenarios | `--cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt apparmor=unconfined` |
+| `--trace=strace` | `--cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --security-opt apparmor=unconfined` |
+| `--trace=seccomp-log` | `--cap-add=NET_ADMIN --cap-add=SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined` (+ `dmesg` access) |
+
+`SYS_ADMIN` and an unconfined AppArmor profile are required because `ip netns
+add` performs a `mount --make-shared /run/netns`, which the default Docker
+capability set and AppArmor profile both block.
 
 ---
 

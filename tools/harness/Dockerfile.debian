@@ -10,7 +10,7 @@
 #
 # Run identically to the Alpine image (see tools/harness/Dockerfile header).
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Debian does not package libubox or odhcpd. libubox is required (odhcp6c links

@@ -69,7 +69,8 @@ jobs:
           rc=0
           for s in $SCENARIOS; do
             echo "::group::scenario $s (${{ matrix.libc }})"
-            if docker run --rm --cap-add=NET_ADMIN \
+            if docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+                 --security-opt apparmor=unconfined \
                  -v "$PWD/artifacts:/artifacts" \
                  odhcp6c-harness:${{ matrix.libc }} \
                  tools/harness/run-scenario.sh --timeout 30 \
@@ -108,8 +109,8 @@ jobs:
           set -eu
           mkdir -p trace-artifacts
           docker run --rm \
-            --cap-add=NET_ADMIN --cap-add=SYS_PTRACE \
-            --security-opt seccomp=unconfined \
+            --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
             -v "$PWD/trace-artifacts:/artifacts" \
             odhcp6c-harness:musl \
             tools/harness/run-scenario.sh --trace=strace --timeout 30 \
@@ -160,7 +161,8 @@ jobs:
           for s in $SCENARIOS; do
             echo "::group::scenario $s (${{ matrix.platform }})"
             if docker run --rm --platform "${{ matrix.platform }}" \
-                 --cap-add=NET_ADMIN \
+                 --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+                 --security-opt apparmor=unconfined \
                  -v "$PWD/artifacts:/artifacts" \
                  odhcp6c-harness:qemu \
                  tools/harness/run-scenario.sh --timeout 60 \
@@ -211,7 +213,8 @@ jobs:
           mkdir -p artifacts
           rc=0
           for s in $SCENARIOS; do
-            docker run --rm --cap-add=NET_ADMIN \
+            docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+              --security-opt apparmor=unconfined \
               -v "$PWD/artifacts:/artifacts" \
               odhcp6c-harness:openwrt \
               tools/harness/run-scenario.sh --timeout 60 \

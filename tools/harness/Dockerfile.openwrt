@@ -15,7 +15,7 @@
 # this cell non-blocking (continue-on-error) until the feed/rootfs is pinned.
 
 # --- stage 1: build odhcp6c against musl -----------------------------------
-FROM alpine:3.20 AS builder
+FROM alpine:3.24.1 AS builder
 RUN apk add --no-cache build-base cmake libubox libubox-dev
 WORKDIR /src
 COPY . /src
