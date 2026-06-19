@@ -96,7 +96,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | Option | Meaning |
 | --- | --- |
 | `--odhcp6c <path>` | binary under test (default: `$ODHCP6C_BIN` / autodetect) |
-| `--privsep <on\|off>` | run with privilege separation (default `on`, the production default) or force `--no-privsep`; defaults to `$HARNESS_PRIVSEP` |
+| `--privsep <on\|off>` | run with privilege separation (default `on`, the production default) or force `--no-privsep`; defaults to `${HARNESS_PRIVSEP:-on}` |
 | `--trace <mode>` | `none` (default), `strace`, or `seccomp-log` |
 | `--timeout <s>` | per-wait timeout (default 30) |
 | `--outdir <dir>` | keep artifacts here instead of a temp dir |

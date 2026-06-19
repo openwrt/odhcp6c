@@ -9,8 +9,8 @@
 #
 # Options:
 #   --odhcp6c <path>     odhcp6c binary under test (default: autodetect / $ODHCP6C_BIN)
-#   --privsep <on|off>   run with privilege separation (default) or --no-privsep
-#                        (default: $HARNESS_PRIVSEP, else "on")
+#   --privsep <on|off>   when "off", prepend --no-privsep to scenario args; when "on",
+#                        leave scenario args unchanged (default: ${HARNESS_PRIVSEP:-on})
 #   --trace <mode>       none | strace | seccomp-log   (default: none)
 #   --outdir <dir>       keep artifacts here (default: a fresh mktemp dir)
 #   --keep               do not delete the work dir on exit
