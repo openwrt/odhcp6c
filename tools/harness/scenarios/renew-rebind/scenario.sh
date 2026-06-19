@@ -14,7 +14,14 @@
 # Requires client egress (see stateful-basic note); green in the CI container.
 
 scenario_backend() {
+	# Short --preferred/--valid are essential: odhcp6c's REBIND retransmission
+	# window is t3 - t2, where t3 is the largest *valid* lifetime across all IAs
+	# (see dhcpv6_calc_refresh_timers / DHCPV6_REBIND in src/dhcpv6.c). Leaving
+	# --valid at its 7200s default would make REBIND run for ~2 hours, so the
+	# DHCPV6_RESET / socket re-creation would never be observed within the test
+	# timeout. preferred <= valid and valid > t2 must both hold.
 	echo "scapy serve --respond-rs --interval 1 --t1 2 --t2 4 \
+--preferred 8 --valid 10 \
 --prefix 2001:db8:1:: \
 --address 2001:db8:1::1000 --pd-prefix 2001:db8:abcd:: --pd-len 56 \
 --dns 2001:db8:1::53 --domains example.test"

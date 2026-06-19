@@ -196,12 +196,28 @@ def rs_responder(args, iface, server_mac, server_ll, stop):
 # DHCPv6 server
 # ---------------------------------------------------------------------------
 
-def build_ia_options(args):
+def client_ia_iaids(pkt):
+    """Extract the IA_NA / IA_PD IAIDs the client chose, so the server can echo
+    them back.
+
+    A DHCPv6 client picks an arbitrary IAID per IA and the server MUST return
+    the matching IAID; odhcp6c derives its IA_NA IAID from a hash of the
+    interface name and *discards* any IA_NA whose IAID does not match (see
+    dhcpv6.c, "Test ID"). Hard-coding the IAID would therefore make the address
+    silently disappear from the lease. Defaults mirror the historical value so a
+    request without the option still elicits a reply.
+    """
+    na_iaid = pkt[DHCP6OptIA_NA].iaid if pkt.haslayer(DHCP6OptIA_NA) else 1
+    pd_iaid = pkt[DHCP6OptIA_PD].iaid if pkt.haslayer(DHCP6OptIA_PD) else 1
+    return na_iaid, pd_iaid
+
+
+def build_ia_options(args, na_iaid=1, pd_iaid=1):
     opts = []
     if not args.no_na:
         opts.append(
             DHCP6OptIA_NA(
-                iaid=1, T1=args.t1, T2=args.t2,
+                iaid=na_iaid, T1=args.t1, T2=args.t2,
                 ianaopts=[DHCP6OptIAAddress(
                     addr=args.address,
                     preflft=args.preferred, validlft=args.valid)],
@@ -210,7 +226,7 @@ def build_ia_options(args):
     if not args.no_pd:
         opts.append(
             DHCP6OptIA_PD(
-                iaid=1, T1=args.t1, T2=args.t2,
+                iaid=pd_iaid, T1=args.t1, T2=args.t2,
                 iapdopt=[DHCP6OptIAPrefix(
                     prefix=args.pd_prefix, plen=args.pd_len,
                     preflft=args.preferred, validlft=args.valid)],
@@ -265,8 +281,12 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
     srvid = DUID_LL(lladdr=server_mac)
 
     def handle(pkt):
-        if stop.is_set() or not pkt.haslayer(IPv6):
+        if not pkt.haslayer(IPv6):
             return
+        # During the shutdown drain window `stop` is already set: keep recording
+        # an inbound RELEASE (the reason the drain exists) but stop generating
+        # new replies so we don't answer requests while tearing down.
+        shutting_down = stop.is_set()
         from scapy.layers.inet import UDP
         eth_dst = pkt[Ether].src
         ip_dst = pkt[IPv6].src
@@ -281,30 +301,32 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 / DHCP6OptServerId(duid=srvid)
             )
 
-        if pkt.haslayer(DHCP6_Solicit):
+        if not shutting_down and pkt.haslayer(DHCP6_Solicit):
             cid = pkt[DHCP6OptClientId].duid
+            na_iaid, pd_iaid = client_ia_iaids(pkt)
             rep = base(DHCP6_Advertise, pkt[DHCP6_Solicit].trid, cid)
-            for o in build_ia_options(args) + build_info_options(args):
+            for o in build_ia_options(args, na_iaid, pd_iaid) + build_info_options(args):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
             sendp(rep, iface=iface, verbose=0)
             log("ADVERTISE -> solicit")
-        elif pkt.haslayer(DHCP6_Request) or pkt.haslayer(DHCP6_Renew) \
-                or pkt.haslayer(DHCP6_Rebind):
+        elif not shutting_down and (pkt.haslayer(DHCP6_Request)
+                or pkt.haslayer(DHCP6_Renew) or pkt.haslayer(DHCP6_Rebind)):
             for cls in (DHCP6_Request, DHCP6_Renew, DHCP6_Rebind):
                 if pkt.haslayer(cls):
                     trid = pkt[cls].trid
                     break
             cid = pkt[DHCP6OptClientId].duid
+            na_iaid, pd_iaid = client_ia_iaids(pkt)
             rep = base(DHCP6_Reply, trid, cid)
-            for o in build_ia_options(args) + build_info_options(args):
+            for o in build_ia_options(args, na_iaid, pd_iaid) + build_info_options(args):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
             sendp(rep, iface=iface, verbose=0)
             log("REPLY -> request/renew/rebind")
-        elif pkt.haslayer(DHCP6_InfoRequest):
+        elif not shutting_down and pkt.haslayer(DHCP6_InfoRequest):
             cid = pkt[DHCP6OptClientId].duid if pkt.haslayer(DHCP6OptClientId) \
                 else b"\x00\x03\x00\x01\x00\x00\x00\x00\x00\x00"
             rep = base(DHCP6_Reply, pkt[DHCP6_InfoRequest].trid, cid)
@@ -439,6 +461,19 @@ def main():
             stop.set()
     except KeyboardInterrupt:
         stop.set()
+
+    # Bounded shutdown drain: SIGTERM/SIGINT is delivered to the main thread and
+    # interrupts the sleep above, so without this the process would tear down its
+    # daemon sniffer threads almost immediately. A frame that the kernel placed
+    # in the capture buffer just before shutdown -- e.g. the DHCPv6 RELEASE that
+    # odhcp6c emits as it exits, right before the harness stops us -- would then
+    # be lost. Yield briefly so the still-running sniffer threads can lift any
+    # such buffered packet out of the ring (and run their prn) before we exit.
+    if persistent:
+        _drain_deadline = time.monotonic() + 0.5
+        while time.monotonic() < _drain_deadline:
+            time.sleep(0.05)
+
     log("stopping")
 
 
