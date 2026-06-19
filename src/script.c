@@ -49,6 +49,17 @@ static volatile pid_t running = 0;
 static time_t started;
 
 /*
+ * Pid of the worker, used by the monitor to forward termination signals.
+ * Because the SIGCHLD handler reaps every child (to avoid leaking zombies of
+ * replaced script children), it can reap the worker before the monitor's final
+ * waitpid() loop runs. To avoid losing the worker's exit status it is captured
+ * here when the handler reaps it, and the monitor loop falls back to this value.
+ */
+static volatile pid_t monitor_worker_pid = 0;
+static volatile int monitor_worker_status = 0;
+static volatile sig_atomic_t monitor_worker_reaped = 0;
+
+/*
  * Worker-side IPC channel. When >= 0, script_call() serializes the request and
  * sends it to the monitor instead of forking and exec'ing the script itself.
  */
@@ -115,10 +126,17 @@ static void script_sighandle(int signal)
 {
 	if (signal == SIGCHLD) {
 		pid_t child;
+		int status;
 
-		while ((child = waitpid(-1, NULL, WNOHANG)) > 0)
-			if (running == child)
+		while ((child = waitpid(-1, &status, WNOHANG)) > 0) {
+			if (monitor_worker_pid > 0 && child == monitor_worker_pid) {
+				/* Preserve the worker's status for the monitor
+				 * loop instead of discarding it here. */
+				monitor_worker_status = status;
+				monitor_worker_reaped = 1;
+			} else if (running == child)
 				running = 0;
+		}
 	}
 }
 
@@ -831,8 +849,7 @@ static bool script_action_allowed(const char *act, size_t len)
 	return false;
 }
 
-/* Pid of the worker, used by the monitor to forward termination signals. */
-static volatile pid_t monitor_worker_pid = 0;
+/* Pid of the worker; declared above with the SIGCHLD status-capture globals. */
 
 static void monitor_sighandle(int signal)
 {
@@ -1067,6 +1084,13 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 		if (w == worker_pid)
 			status_code = WIFEXITED(st) ? WEXITSTATUS(st) : 1;
 	}
+
+	/* If the SIGCHLD handler already reaped the worker, use the status it
+	 * captured rather than the result of the loop above (which would have
+	 * missed it). */
+	if (monitor_worker_reaped)
+		status_code = WIFEXITED(monitor_worker_status) ?
+				WEXITSTATUS(monitor_worker_status) : 1;
 
 	close(fd);
 
