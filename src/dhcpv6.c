@@ -1075,6 +1075,8 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 static int64_t dhcpv6_rand_delay(int64_t time)
 {
 	int random;
+	// Full-entropy random required: low-entropy jitter could allow an
+	// attacker to predict retransmission timing and correlate responses.
 	odhcp6c_random(&random, sizeof(random));
 
 	return (time * ((int64_t)random % (config_dhcp->rand_factor*10LL))) / 10000LL;
@@ -2282,7 +2284,8 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 		notice("Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
 			retx->name, retx->timeout, retx->max_rc);
 
-		// Generate transaction ID
+		// Generate transaction ID — must be fully random to resist
+		// off-path/on-link response spoofing (RFC 3315 §15).
 		if (req_msg_type != DHCPV6_MSG_UNKNOWN) {
 			odhcp6c_random(retx->tr_id, sizeof(retx->tr_id));
 		}
