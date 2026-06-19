@@ -82,9 +82,9 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(rt_sigaction), SCMP_SYS(sigreturn),
 	SCMP_SYS(restart_syscall),
 	/* memory + housekeeping (madvise is used by some libc allocators) */
+	SCMP_SYS(getpid),
 	SCMP_SYS(brk), SCMP_SYS(mmap), SCMP_SYS(mmap2),
 	SCMP_SYS(munmap), SCMP_SYS(mremap), SCMP_SYS(madvise),
-	/* state files the worker still reads (e.g. odhcp6c_addr_in_scope
 	 * reads /proc/net/if_inet6) */
 	SCMP_SYS(openat), SCMP_SYS(open),
 	SCMP_SYS(lseek), SCMP_SYS(_llseek),
@@ -102,21 +102,24 @@ void seccomp_apply(void)
 	}
 
 	for (size_t i = 0; i < ARRAY_SIZE(seccomp_allow); ++i) {
-		if (seccomp_rule_add(ctx, SCMP_ACT_ALLOW, seccomp_allow[i], 0) != 0) {
-			/* Syscalls unknown on this arch return an error; that is
-			 * fine - skip them rather than aborting. */
-			debug("seccomp: could not add rule for syscall index %zu", i);
+		int rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, seccomp_allow[i], 0);
+		if (rc != 0) {
+			critical("seccomp: could not add rule for syscall index %zu: %s", i,
+					strerror(-rc));
+			seccomp_release(ctx);
+			exit(EXIT_FAILURE);
 		}
 	}
 
-	if (seccomp_load(ctx) != 0) {
+	int rc = seccomp_load(ctx);
+	if (rc != 0) {
 		seccomp_release(ctx);
 #ifdef WITH_SECCOMP_FAIL_OPEN
 		warn("seccomp: seccomp_load failed, continuing unconfined: %s",
-				strerror(errno));
+				strerror(-rc));
 		return;
 #else
-		critical("seccomp: seccomp_load failed: %s", strerror(errno));
+		critical("seccomp: seccomp_load failed: %s", strerror(-rc));
 		exit(EXIT_FAILURE);
 #endif
 	}
