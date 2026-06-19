@@ -130,8 +130,8 @@ bool config_set_auth_token(const char* token);
 void config_set_client_opt_cfg(struct odhcp6c_opt_cfg *opt_cfg);
 
 int config_add_opt(const uint16_t code, const uint8_t *data, const uint16_t len);
-int config_parse_opt_data(const char *data, uint8_t **dst, const unsigned int type, const bool array);
-int config_parse_opt(const char *opt);
+int config_parse_opt_data(char *data, uint8_t **dst, const unsigned int type, const bool array);
+int config_parse_opt(char *opt);
 
 void config_apply_dhcp_rtx(struct dhcpv6_retx* dhcpv6_retx);
 

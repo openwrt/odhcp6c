@@ -344,7 +344,7 @@ static int config_parse_opt_u8(const char *src, uint8_t **dst)
 	return script_unhexlify(*dst, len, src);
 }
 
-static int config_parse_opt_string(const char *src, uint8_t **dst, const bool array)
+static int config_parse_opt_string(char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
 	char *sep = strpbrk(src, ARRAY_SEP);
@@ -377,7 +377,7 @@ static int config_parse_opt_string(const char *src, uint8_t **dst, const bool ar
 	return o_len;
 }
 
-static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const bool array)
+static int config_parse_opt_dns_string(char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
 	char *sep = strpbrk(src, ARRAY_SEP);
@@ -414,7 +414,7 @@ static int config_parse_opt_dns_string(const char *src, uint8_t **dst, const boo
 	return o_len;
 }
 
-static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array)
+static int config_parse_opt_ip6(char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
 	char *sep = strpbrk(src, ARRAY_SEP);
@@ -448,7 +448,7 @@ static int config_parse_opt_ip6(const char *src, uint8_t **dst, const bool array
 	return o_len;
 }
 
-static int config_parse_opt_user_class(const char *src, uint8_t **dst, const bool array)
+static int config_parse_opt_user_class(char *src, uint8_t **dst, const bool array)
 {
 	int o_len = 0;
 	char *sep = strpbrk(src, ARRAY_SEP);
@@ -519,7 +519,7 @@ int config_add_opt(const uint16_t code, const uint8_t *data, const uint16_t len)
 	return 0;
 }
 
-int config_parse_opt_data(const char *data, uint8_t **dst, const unsigned int type,
+int config_parse_opt_data(char *data, uint8_t **dst, const unsigned int type,
 		const bool array)
 {
 	int ret = 0;
@@ -553,7 +553,7 @@ int config_parse_opt_data(const char *data, uint8_t **dst, const unsigned int ty
 	return ret;
 }
 
-int config_parse_opt(const char *opt)
+int config_parse_opt(char *opt)
 {
 	uint32_t optn;
 	char *data;
