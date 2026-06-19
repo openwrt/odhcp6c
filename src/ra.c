@@ -780,6 +780,9 @@ bool ra_process(void)
 				struct icmpv6_opt_captive_portal *capt_port = (struct icmpv6_opt_captive_portal*)opt;
 				uint8_t *cp_buf = &capt_port->data[0];
 				size_t uri_len = (capt_port->len * 8) - 2;
+				if (cp_buf + uri_len > &buf[len])
+					continue;
+
 				size_t ref_len = sizeof(URN_IETF_CAPT_PORT_UNRESTR) - 1;
 
 				/* RFC8910 §2:
