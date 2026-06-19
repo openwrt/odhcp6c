@@ -310,7 +310,13 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
             if getattr(args, "reply_raw_trailer", None):
-                rep /= Raw(load=bytes.fromhex(args.reply_raw_trailer))
+                try:
+                    _trailer = bytes.fromhex(args.reply_raw_trailer)
+                except ValueError as e:
+                    log(f"invalid --reply-raw-trailer hex: {e}")
+                    stop.set()
+                    return
+                rep /= Raw(load=_trailer)
             sendp(rep, iface=iface, verbose=0)
             log("ADVERTISE -> solicit")
         elif not shutting_down and (pkt.haslayer(DHCP6_Request)
@@ -327,7 +333,13 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
             if getattr(args, "reply_raw_trailer", None):
-                rep /= Raw(load=bytes.fromhex(args.reply_raw_trailer))
+                try:
+                    _trailer = bytes.fromhex(args.reply_raw_trailer)
+                except ValueError as e:
+                    log(f"invalid --reply-raw-trailer hex: {e}")
+                    stop.set()
+                    return
+                rep /= Raw(load=_trailer)
             sendp(rep, iface=iface, verbose=0)
             log("REPLY -> request/renew/rebind")
         elif not shutting_down and pkt.haslayer(DHCP6_InfoRequest):

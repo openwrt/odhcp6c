@@ -19,13 +19,16 @@ scenario_backend() {
 scenario_odhcp6c() { echo "$HARNESS_VETH_CLIENT"; }
 
 scenario_drive() {
-	# odhcp6c should keep running and NOT reach bound. Wait briefly for liveness
-	# via a recurring log line, then stop and assert.
-	wait_for_log 'starting transaction|SOLICIT|RArecv|odhcp6c' 10 1 || true
+	# Prove liveness before asserting the negative path: if odhcp6c crashes early,
+	# the "empty" assertions below can otherwise pass with zero captured records.
+	wait_for_log 'starting transaction|SOLICIT|RArecv|odhcp6c' 10 1 \
+		|| fatal "odhcp6c produced no activity log (may have crashed early)"
 	sleep 3
+	harness_odhcp6c_running || fatal "odhcp6c exited unexpectedly during malformed DHCPv6 test"
 }
 
 scenario_assert() {
+	harness_assert_action_seen stopped
 	harness_assert_no_action bound
 	harness_assert_no_action informed
 	harness_assert_one '*' ADDRESSES empty
