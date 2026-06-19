@@ -1158,9 +1158,11 @@ uint32_t odhcp6c_elapsed(void)
 
 int odhcp6c_random(void *buf, size_t len)
 {
+	if (len == 0)
+		return 0;
+
 	uint8_t *p = (uint8_t *)buf;
 	size_t done = 0;
-
 #ifdef SYS_getrandom
 	static bool use_getrandom = true;
 
@@ -1174,6 +1176,10 @@ int odhcp6c_random(void *buf, size_t len)
 				break;
 			}
 			critical("getrandom failed: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (ret == 0) {
+			critical("getrandom returned 0 bytes");
 			exit(EXIT_FAILURE);
 		}
 		done += (size_t)ret;
