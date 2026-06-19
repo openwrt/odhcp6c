@@ -205,7 +205,17 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	}
 
 	// Send RS
-	signal(SIGALRM, ra_send_rs);
+	// Install the SIGALRM handler without SA_RESTART so that it reliably
+	// interrupts poll() (returning EINTR) instead of transparently
+	// restarting it, which would delay RS retries.
+	struct sigaction sa = {
+		.sa_handler = ra_send_rs,
+		.sa_flags = 0,
+	};
+	sigemptyset(&sa.sa_mask);
+	if (sigaction(SIGALRM, &sa, NULL) < 0)
+		goto failure;
+
 	ra_do_send_rs();
 
 	return 0;
