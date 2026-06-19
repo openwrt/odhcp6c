@@ -13,3 +13,7 @@ cmake_install.cmake
 install_manifest.txt
 *.deb
 *.o
+
+# Python bytecode cache (e.g. tools/harness test backends)
+__pycache__/
+*.py[cod]

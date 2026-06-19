@@ -33,7 +33,7 @@ WORKDIR /work
 RUN mkdir -p /var/lock \
     && opkg update \
     && opkg install ip-full python3 python3-pip strace \
-    && python3 -m pip install scapy
+    && python3 -m pip install -r /work/tools/harness/servers/requirements.txt
 ENV ODHCP6C_BIN=/usr/bin/odhcp6c
 ENV PYTHON=python3
 CMD ["sh", "-c", "tools/harness/run-scenario.sh --list"]

@@ -48,7 +48,8 @@ FROM alpine:3.24.1
 #                   optional --trace=seccomp-log mode, which degrades gracefully
 #                   when the tool is absent.
 #   py3-scapy     - not reliably packaged across Alpine releases; scapy is
-#                   installed via pip below so the image is build-stable.
+#                   installed via pip from the pinned requirements file below so
+#                   the image is build-stable.
 RUN apk add --no-cache \
         build-base cmake \
         libubox libubox-dev \
@@ -56,8 +57,12 @@ RUN apk add --no-cache \
         python3 py3-pip \
         strace \
         libseccomp libseccomp-dev \
-        bash tcpdump \
-    && pip3 install --no-cache-dir --break-system-packages scapy
+        bash tcpdump
+
+# Install the Python backend dependencies from the pinned requirements file
+# (copied on its own first so this layer caches independently of the sources).
+COPY tools/harness/servers/requirements.txt /tmp/harness-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/harness-requirements.txt
 
 WORKDIR /src
 COPY . /src

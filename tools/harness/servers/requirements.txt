@@ -1,0 +1,7 @@
+# Python dependencies for the crafted-packet test backend (scapy_server.py).
+#
+# Rehydrate with:
+#   pip install -r tools/harness/servers/requirements.txt
+#
+# Pinned for reproducible harness runs; bump deliberately and re-test.
+scapy==2.6.1

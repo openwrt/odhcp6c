@@ -22,11 +22,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential cmake pkg-config git \
         libjson-c-dev \
         iproute2 \
-        python3 python3-scapy \
+        python3 python3-pip \
         strace \
         libseccomp-dev seccomp \
         ca-certificates tcpdump \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the Python backend dependencies from the pinned requirements file so
+# the scapy version matches the other harness images (Debian's apt package would
+# otherwise float with the distro). Copied first for independent layer caching.
+COPY tools/harness/servers/requirements.txt /tmp/harness-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/harness-requirements.txt
 
 # Build libubox from the upstream mirror (no Debian package exists). Lua and the
 # examples are disabled to keep the build minimal; odhcp6c only needs the md5 and

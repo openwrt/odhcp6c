@@ -51,6 +51,8 @@ Running directly on a host (Linux only):
 - `ip` (iproute2) and permission to create network namespaces (root or
   `CAP_NET_ADMIN`).
 - `python3` with [`scapy`](https://scapy.net/) for the crafted-packet backend.
+  Install the pinned version with
+  `pip install -r tools/harness/servers/requirements.txt`.
 - An `odhcp6c` binary to test. Point the harness at it with `ODHCP6C_BIN=...`
   or `--odhcp6c <path>`; otherwise it autodetects `./odhcp6c`, `build/odhcp6c`,
   or one on `$PATH`.
