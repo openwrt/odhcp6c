@@ -85,15 +85,24 @@ if(HARDENING)
 	# Prefer level 3 where the toolchain supports it, otherwise level 2.
 	# -U_FORTIFY_SOURCE is prepended to avoid -Werror-fatal redefinition
 	# warnings when the toolchain (or outer build) already defines it.
-	check_c_compiler_flag("-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CC_HAS_FORTIFY_SOURCE_3)
-	if(CC_HAS_FORTIFY_SOURCE_3)
-		target_compile_options(${PROJECT_NAME} PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3)
-	else()
-		check_c_compiler_flag("-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2" CC_HAS_FORTIFY_SOURCE_2)
-		if(CC_HAS_FORTIFY_SOURCE_2)
-			target_compile_options(${PROJECT_NAME} PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2)
+	# check_c_source_compiles() is used instead of check_c_compiler_flag()
+	# so that libc headers are included in the probe: merely accepting the
+	# -D flag is not enough; the fortified prototypes must also compile
+	# without error or warning (the -Werror probe flag mirrors the
+	# project's own -Werror build requirement).
+	include(CheckCSourceCompiles)
+	foreach(_fortify_level 3 2)
+		set(CMAKE_REQUIRED_FLAGS "-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=${_fortify_level} -Werror")
+		check_c_source_compiles(
+			"#include <string.h>\nint main(void) { return 0; }"
+			CC_HAS_FORTIFY_SOURCE_${_fortify_level}
+		)
+		unset(CMAKE_REQUIRED_FLAGS)
+		if(CC_HAS_FORTIFY_SOURCE_${_fortify_level})
+			target_compile_options(${PROJECT_NAME} PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=${_fortify_level})
+			break()
 		endif()
-	endif()
+	endforeach()
 
 	# Link-time mitigations: PIE, full RELRO and a non-executable stack.
 	odhcp6c_try_link_option(-pie)
