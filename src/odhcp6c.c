@@ -960,6 +960,8 @@ static bool odhcp6c_server_advertised()
 
 bool odhcp6c_signal_process(void)
 {
+	ra_poll_rs();
+
 	while (signal_io) {
 		signal_io = false;
 

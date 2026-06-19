@@ -55,6 +55,7 @@ static int sock = -1, rtnl = -1;
 static int if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
+static volatile sig_atomic_t ra_send_rs_pending = 0;
 static struct in6_addr ra_addr = IN6ADDR_ANY_INIT;
 static unsigned int ra_options = 0;
 static unsigned int ra_holdoff_interval = 0;
@@ -72,6 +73,7 @@ struct {
 	.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
 };
 
+static void ra_do_send_rs(void);
 static void ra_send_rs(_o_unused int signal);
 
 int ra_init(const char *ifname, const struct in6_addr *ifid,
@@ -204,7 +206,7 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
-	ra_send_rs(SIGALRM);
+	ra_do_send_rs();
 
 	return 0;
 
@@ -218,7 +220,7 @@ failure:
 	return -1;
 }
 
-static void ra_send_rs(_o_unused int signal)
+static void ra_do_send_rs(void)
 {
 	const struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, if_index};
 	const struct icmpv6_opt llnull = {ND_OPT_SOURCE_LINKADDR, 1, {0}};
@@ -234,6 +236,19 @@ static void ra_send_rs(_o_unused int signal)
 
 	if (++rs_attempt <= 3)
 		alarm(4);
+}
+
+static void ra_send_rs(_o_unused int signal)
+{
+	ra_send_rs_pending = 1;
+}
+
+void ra_poll_rs(void)
+{
+	if (ra_send_rs_pending) {
+		ra_send_rs_pending = 0;
+		ra_do_send_rs();
+	}
 }
 
 static int16_t pref_to_priority(uint8_t flags)
@@ -283,7 +298,7 @@ bool ra_link_up(void)
 		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
 
 		rs_attempt = 0;
-		ra_send_rs(SIGALRM);
+		ra_do_send_rs();
 	}
 
 	return ret;
