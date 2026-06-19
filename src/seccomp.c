@@ -85,6 +85,7 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(getpid),
 	SCMP_SYS(brk), SCMP_SYS(mmap), SCMP_SYS(mmap2),
 	SCMP_SYS(munmap), SCMP_SYS(mremap), SCMP_SYS(madvise),
+	/* state files the worker still reads (e.g. odhcp6c_addr_in_scope
 	 * reads /proc/net/if_inet6) */
 	SCMP_SYS(openat), SCMP_SYS(open),
 	SCMP_SYS(lseek), SCMP_SYS(_llseek),
@@ -103,6 +104,15 @@ void seccomp_apply(void)
 
 	for (size_t i = 0; i < ARRAY_SIZE(seccomp_allow); ++i) {
 		int rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, seccomp_allow[i], 0);
+		if (rc == -EDOM) {
+			/* Syscall is not defined for the build architecture
+			 * (e.g. a 32-bit-only variant such as socketcall or
+			 * fcntl64 on a 64-bit target); skip it rather than
+			 * aborting. */
+			debug("seccomp: skipping syscall index %zu not available on this architecture",
+					i);
+			continue;
+		}
 		if (rc != 0) {
 			critical("seccomp: could not add rule for syscall index %zu: %s", i,
 					strerror(-rc));
