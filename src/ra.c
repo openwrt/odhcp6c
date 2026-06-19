@@ -690,8 +690,9 @@ bool ra_process(void)
 				entry->valid = ntohl(*rdns_valid);
 				entry->preferred = 0;
 
+				uint8_t *rdns_rec = (uint8_t*)opt + 8;
 				for (ssize_t i = 0; i < (opt->len - 1) / 2; ++i) {
-					uint8_t *rec = &opt->data[6 + i * sizeof(entry->target)];
+					uint8_t *rec = rdns_rec + i * sizeof(entry->target);
 					if (rec + sizeof(entry->target) > &buf[len])
 						break;
 					memcpy(&entry->target, rec, sizeof(entry->target));
