@@ -1,0 +1,11 @@
+# action     key                  op            value
+# The benign scheme/host must survive sanitization unchanged.
+ra-updated    CAPTIVE_PORTAL_URI   contains      https://cp.example.test/login
+# H-3: the exported value must carry NO shell-dangerous or control bytes.
+ra-updated    CAPTIVE_PORTAL_URI   sanitized
+# Explicit belt-and-braces checks on the individual dangerous characters.
+ra-updated    CAPTIVE_PORTAL_URI   not_contains  `
+ra-updated    CAPTIVE_PORTAL_URI   not_contains  $
+ra-updated    CAPTIVE_PORTAL_URI   not_contains  "
+# The metacharacters are replaced with '_', so the reboot payload is defanged.
+ra-updated    CAPTIVE_PORTAL_URI   not_contains  $(reboot)

@@ -1,0 +1,7 @@
+# action  key    op        value
+bound     MAPE   nonempty
+bound     MAPE   contains  type=map-e
+bound     MAPE   contains  ipv4prefix=192.0.2.0
+bound     MAPE   contains  ipv6prefix=2001:db8:ce::
+bound     MAPE   contains  br=2001:db8:ffff::1
+bound     MAPE   contains  fmr

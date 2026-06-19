@@ -1,0 +1,11 @@
+# action     key            op            value
+ra-updated    RA_MTU         eq            1280
+ra-updated    RA_ADDRESSES   regex         ^2001:db8:1:
+ra-updated    RA_ROUTES      contains      2001:db8:2::/48
+ra-updated    RA_DNS         contains      2001:db8:1::53
+# Prefixes from the dropped RAs (bad hop-limit / non-link-local source) must
+# never reach the script in any field.
+*             RA_ADDRESSES   not_contains  2001:db8:dead
+*             RA_ROUTES      not_contains  2001:db8:dead
+*             RA_ADDRESSES   not_contains  2001:db8:beef
+*             RA_ROUTES      not_contains  2001:db8:beef

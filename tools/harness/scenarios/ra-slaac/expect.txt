@@ -1,0 +1,11 @@
+# action       key            op         value
+ra-updated      RA_MTU         eq         1492
+ra-updated      RA_REACHABLE   eq         30000
+ra-updated      RA_RETRANSMIT  eq         1000
+ra-updated      RA_ADDRESSES   regex      ^2001:db8:1:
+ra-updated      RA_ADDRESSES   contains   /64
+ra-updated      RA_DNS         contains   2001:db8:1::53
+ra-updated      RA_DNS         contains   2001:db8:1::54
+ra-updated      RA_ROUTES      contains   2001:db8:2::/48
+ra-updated      RA_ROUTES      contains   ::/0
+ra-updated      RA_DOMAINS     contains   slaac.example.test
