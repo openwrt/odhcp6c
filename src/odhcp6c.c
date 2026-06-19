@@ -1436,7 +1436,8 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 
 		buf[--len] = '\0';
 
-		if (sscanf(buf, "%s %x %x %x %x %s",
+		/* addr_buf is 33 bytes; name is IF_NAMESIZE (16) bytes */
+		if (sscanf(buf, "%32s %x %x %x %x %15s",
 				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
 			break;
 
