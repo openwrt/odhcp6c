@@ -227,6 +227,9 @@ checked-in allow-list.
 - **Alpine / musl (default, `Dockerfile`)** — fast proxy for the OpenWrt musl
   target; used for the per-PR gate.
 - **Debian / glibc (`Dockerfile.debian`)** — catches glibc-vs-musl differences.
+  Debian packages neither `libubox` nor `odhcpd`: `libubox` is built from the
+  upstream source in the image, and the optional `odhcpd` real-server backend is
+  omitted (scapy is the default backend for every scenario).
 - **OpenWrt x86-64 rootfs** — the authoritative musl environment (important for
   the N-2 syscall list, since Alpine musl ≠ OpenWrt musl exactly). Build it by
   importing the published rootfs and running the same scenarios:
