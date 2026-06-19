@@ -19,7 +19,7 @@ FROM alpine:3.24.1 AS builder
 RUN apk add --no-cache build-base cmake libubox libubox-dev
 WORKDIR /src
 COPY . /src
-RUN cmake -S . -B build -DUBUS=OFF \
+RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
         $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel
 

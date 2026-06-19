@@ -9,6 +9,8 @@
 #
 # Options:
 #   --odhcp6c <path>     odhcp6c binary under test (default: autodetect / $ODHCP6C_BIN)
+#   --privsep <on|off>   run with privilege separation (default) or --no-privsep
+#                        (default: $HARNESS_PRIVSEP, else "on")
 #   --trace <mode>       none | strace | seccomp-log   (default: none)
 #   --outdir <dir>       keep artifacts here (default: a fresh mktemp dir)
 #   --keep               do not delete the work dir on exit
@@ -46,12 +48,15 @@ usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
 
 ODHCP6C_ARG=""
 TRACE_MODE="none"
+PRIVSEP="${HARNESS_PRIVSEP:-on}"
 KEEP=0
 SCENARIO=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--odhcp6c) ODHCP6C_ARG="$2"; shift 2 ;;
+	--privsep) PRIVSEP="$2"; shift 2 ;;
+	--privsep=*) PRIVSEP="${1#--privsep=}"; shift ;;
 	--trace) TRACE_MODE="$2"; shift 2 ;;
 	--trace=*) TRACE_MODE="${1#--trace=}"; shift ;;
 	--outdir) HARNESS_OUTDIR="$2"; shift 2 ;;
@@ -70,6 +75,15 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$SCENARIO" ] || { usage; exit 1; }
+
+# Normalise the privsep selection. "on" keeps the production default (privsep
+# enabled); "off" forces --no-privsep. Accept a few friendly synonyms so the
+# value can come straight from a CI env var.
+case "$PRIVSEP" in
+	on|yes|1|enabled|true)   PRIVSEP=on ;;
+	off|no|0|disabled|false) PRIVSEP=off ;;
+	*) fatal "invalid --privsep value: '$PRIVSEP' (expected on|off)" ;;
+esac
 
 SCN_DIR="$SELF/scenarios/$SCENARIO"
 [ -f "$SCN_DIR/scenario.sh" ] || fatal "no such scenario: $SCENARIO ($SCN_DIR/scenario.sh missing)"
@@ -107,9 +121,14 @@ if [ -n "$_backend_spec" ]; then
 	harness_backend_start $_backend_spec
 fi
 
-# Start odhcp6c with the scenario's arguments.
+# Start odhcp6c with the scenario's arguments. When privsep is disabled, prepend
+# --no-privsep so the same scenarios exercise the single-process path too. (If a
+# scenario already passes --no-privsep itself, odhcp6c tolerates the duplicate.)
+_odhcp6c_args="$(scenario_odhcp6c)"
+[ "$PRIVSEP" = off ] && _odhcp6c_args="--no-privsep $_odhcp6c_args"
+log "privsep: $PRIVSEP"
 # shellcheck disable=SC2046,SC2086
-harness_odhcp6c_start $(scenario_odhcp6c)
+harness_odhcp6c_start $_odhcp6c_args
 
 # Drive the lifecycle.
 RC=0
