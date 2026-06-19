@@ -12,6 +12,8 @@ on:
       - 'tools/harness/**'
       - '.github/workflows/integration.yml'
   push:
+    branches:
+      - master
     paths:
       - 'src/**'
       - 'CMakeLists.txt'

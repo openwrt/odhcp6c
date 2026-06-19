@@ -3,6 +3,8 @@ name: odhcp6c
 on:
   pull_request:
   push:
+    branches:
+      - master
 
 env:
   archs: "aarch64 arm mips mips64 powerpc powerpc64 riscv64 x86_64"
