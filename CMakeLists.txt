@@ -33,6 +33,76 @@ target_compile_options(${PROJECT_NAME} PRIVATE -Wmissing-declarations)
 target_compile_options(${PROJECT_NAME} PRIVATE -Wshadow=local)
 
 
+# Exploit-mitigation build flags (defense-in-depth)
+#
+# These raise the cost of exploiting any residual memory-safety bug in this
+# network-facing root daemon. They are enabled by default but kept fully
+# overridable: distro/OpenWrt build systems usually inject their own hardening
+# and can disable these with -DHARDENING=OFF, in which case the build is
+# identical to having no mitigation flags at all. Every flag is feature-detected
+# so a toolchain lacking any one of them still configures and builds.
+option(HARDENING "Enable exploit-mitigation build flags" ON)
+
+if(HARDENING)
+	include(CheckCCompilerFlag)
+
+	# CheckLinkerFlag is available on CMake >= 3.18; fall back to a compiler
+	# check that forwards the flag to the linker on older CMake.
+	if(NOT CMAKE_VERSION VERSION_LESS 3.18)
+		include(CheckLinkerFlag)
+	endif()
+
+	# Add a compile flag only if the compiler accepts it.
+	function(odhcp6c_try_compile_option flag)
+		string(MAKE_C_IDENTIFIER "CC_HAS_${flag}" _var)
+		check_c_compiler_flag("${flag}" ${_var})
+		if(${_var})
+			target_compile_options(${PROJECT_NAME} PRIVATE ${flag})
+		endif()
+	endfunction()
+
+	# Add a link flag only if the linker accepts it.
+	function(odhcp6c_try_link_option flag)
+		string(MAKE_C_IDENTIFIER "LD_HAS_${flag}" _var)
+		if(COMMAND check_linker_flag)
+			check_linker_flag(C "${flag}" ${_var})
+		else()
+			set(CMAKE_REQUIRED_LINK_OPTIONS "${flag}")
+			check_c_compiler_flag("" ${_var})
+			unset(CMAKE_REQUIRED_LINK_OPTIONS)
+		endif()
+		if(${_var})
+			target_link_options(${PROJECT_NAME} PRIVATE ${flag})
+		endif()
+	endfunction()
+
+	# Code-generation mitigations.
+	odhcp6c_try_compile_option(-fstack-protector-strong)
+	odhcp6c_try_compile_option(-fstack-clash-protection)
+	odhcp6c_try_compile_option(-fPIE)
+
+	# _FORTIFY_SOURCE requires an optimization level (the project sets -Os).
+	# Prefer level 3 where the toolchain supports it, otherwise level 2.
+	# -U_FORTIFY_SOURCE is prepended to avoid -Werror-fatal redefinition
+	# warnings when the toolchain (or outer build) already defines it.
+	check_c_compiler_flag("-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3" CC_HAS_FORTIFY_SOURCE_3)
+	if(CC_HAS_FORTIFY_SOURCE_3)
+		target_compile_options(${PROJECT_NAME} PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3)
+	else()
+		check_c_compiler_flag("-O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2" CC_HAS_FORTIFY_SOURCE_2)
+		if(CC_HAS_FORTIFY_SOURCE_2)
+			target_compile_options(${PROJECT_NAME} PRIVATE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2)
+		endif()
+	endif()
+
+	# Link-time mitigations: PIE, full RELRO and a non-executable stack.
+	odhcp6c_try_link_option(-pie)
+	odhcp6c_try_link_option(-Wl,-z,relro)
+	odhcp6c_try_link_option(-Wl,-z,now)
+	odhcp6c_try_link_option(-Wl,-z,noexecstack)
+endif()
+
+
 # Libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE resolv)
 
