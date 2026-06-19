@@ -304,14 +304,22 @@ harness_odhcp6c_start() {
 	log "odhcp6c started (pid $HARNESS_ODHCP6C_PID, trace=$HARNESS_TRACE_MODE)"
 }
 
-# Send a signal to the odhcp6c process group (covers monitor + worker).
+# Send a signal to odhcp6c (monitor + worker).
 harness_odhcp6c_signal() {
 	_sig="$1"
 	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
-	# We started via sudo/ip-netns, so signal the whole subtree by name within
-	# the client netns is fragile; instead signal the launched pid and let the
-	# monitor forward to the worker (odhcp6c does this for SIGTERM).
-	$SUDO kill "-$_sig" "$HARNESS_ODHCP6C_PID" 2>/dev/null || true
+	# In privsep mode SIGUSR1/SIGUSR2 are handled by the worker while the monitor
+	# can ignore them, so signal all odhcp6c PIDs inside the client netns.
+	_sent=0
+	for _pid in $($SUDO ip netns pids "$HARNESS_NS_CLIENT" 2>/dev/null); do
+		_comm=$($SUDO cat "/proc/$_pid/comm" 2>/dev/null || true)
+		[ "$_comm" = "odhcp6c" ] || continue
+		$SUDO kill "-$_sig" "$_pid" 2>/dev/null || true
+		_sent=1
+	done
+
+	# Fallback for early startup/teardown windows where netns PID scan is empty.
+	[ "$_sent" -eq 1 ] || $SUDO kill "-$_sig" "$HARNESS_ODHCP6C_PID" 2>/dev/null || true
 }
 
 harness_odhcp6c_running() {
