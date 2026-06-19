@@ -1,0 +1,8 @@
+# action  key       op             value
+bound     RDNSS     contains       2001:db8:1::53
+bound     RDNSS     contains       2001:db8:1::54
+bound     RDNSS     regex          2001:db8:1::5[34]( |$)
+bound     DOMAINS   contains       example.test
+bound     DOMAINS   contains       corp.example.test
+bound     RDNSS     sanitized
+bound     DOMAINS   sanitized

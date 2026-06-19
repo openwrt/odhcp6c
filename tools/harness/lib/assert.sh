@@ -137,6 +137,30 @@ harness_assert_one() {
 	return 1
 }
 
+# harness_assert_last <action> <key> <op> [value]
+# Like harness_assert_one but evaluates ONLY the most recent record for <action>
+# (records sort by filename, which is timestamp.pid). Needed for "final state"
+# assertions such as prefix withdrawal, where earlier records legitimately differ.
+harness_assert_last() {
+	_a="$1"; _k="$2"; _op="$3"; _want="${4:-}"
+	_last=""
+	for rec in "$HARNESS_CAPTURE"/rec.*; do
+		[ -e "$rec" ] || continue
+		[ "$(_record_action "$rec")" = "$_a" ] && _last="$rec"
+	done
+	if [ -z "$_last" ]; then
+		assert_fail "$_a $_k $_op${_want:+ $_want}  (no record with ACTION=$_a)"
+		return 1
+	fi
+	_val="$(_record_get "$_last" "$_k")"
+	if _eval_op "$_op" "$_val" "$_want"; then
+		assert_pass "[last] $_a $_k $_op${_want:+ $_want}  (value='$_val')"
+		return 0
+	fi
+	assert_fail "[last] $_a $_k $_op${_want:+ $_want}  (value='$_val')"
+	return 1
+}
+
 # harness_assert_expect <expect-file>
 harness_assert_expect() {
 	_file="$1"
