@@ -100,7 +100,7 @@ wait_for_action() {
 
 harness_has_action() {
 	[ -n "$HARNESS_CAPTURE" ] || return 1
-	grep -lq "^ACTION=$1\$" "$HARNESS_CAPTURE"/rec.* 2>/dev/null
+	grep -q "^ACTION=$1\$" "$HARNESS_CAPTURE"/rec.* 2>/dev/null
 }
 
 # Wait until a log line matching the extended regex appears. An optional third

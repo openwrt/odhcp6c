@@ -129,8 +129,8 @@ action (`$2`), interface (`$1`), and the full set of exported variables
 
 Under privilege separation the script is exec'd by the monitor, so the stub
 additionally validates that the monitor builds the environment correctly across
-the privilege boundary. Scenarios run odhcp6c with privsep **enabled** (the
-production default).
+the privilege boundary. Scenarios can run odhcp6c with privsep enabled (the
+production default) by omitting `--no-privsep` in `scenario_odhcp6c()`. 
 
 ---
 
