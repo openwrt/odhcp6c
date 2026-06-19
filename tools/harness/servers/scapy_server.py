@@ -309,6 +309,14 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
+            if getattr(args, "reply_raw_trailer", None):
+                try:
+                    _trailer = bytes.fromhex(args.reply_raw_trailer)
+                except ValueError as e:
+                    log(f"invalid --reply-raw-trailer hex: {e}")
+                    stop.set()
+                    return
+                rep /= Raw(load=_trailer)
             sendp(rep, iface=iface, verbose=0)
             log("ADVERTISE -> solicit")
         elif not shutting_down and (pkt.haslayer(DHCP6_Request)
@@ -324,6 +332,14 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
+            if getattr(args, "reply_raw_trailer", None):
+                try:
+                    _trailer = bytes.fromhex(args.reply_raw_trailer)
+                except ValueError as e:
+                    log(f"invalid --reply-raw-trailer hex: {e}")
+                    stop.set()
+                    return
+                rep /= Raw(load=_trailer)
             sendp(rep, iface=iface, verbose=0)
             log("REPLY -> request/renew/rebind")
         elif not shutting_down and pkt.haslayer(DHCP6_InfoRequest):
@@ -397,6 +413,9 @@ def add_dhcpv6_args(p):
     p.add_argument("--ntp", action="store_true")
     p.add_argument("--mape", action="store_true",
                    help="include an S46 MAP-E container (OPTION_S46_CONT_MAPE)")
+    p.add_argument("--reply-raw-trailer", default=None,
+                   help="hex bytes appended verbatim after all options in the "
+                        "ADVERTISE and REPLY (DHCPv6 negative-path parser tests)")
 
 
 def main():

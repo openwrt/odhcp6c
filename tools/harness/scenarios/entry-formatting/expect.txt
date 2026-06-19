@@ -1,0 +1,7 @@
+# action  key         op      value
+# ADDRESS: <addr>/128,<preferred>,<valid>,<t1>,<t2>
+bound     ADDRESSES   regex   (^| )2001:db8:1::1000/128,300,600,100,200( |$)
+# PREFIX with non-default IAID: ...,class=2a2a2a2a
+bound     PREFIXES    regex   (^| )2001:db8:abcd::/56,300,600,100,200,class=2a2a2a2a( |$)
+# Default route from the RA: ::/0,[router],<valid>,<priority>  (router may be empty)
+bound     RA_ROUTES   regex   (^| )::/0,[0-9a-fA-F:]*,[0-9]+,[0-9-]+( |$)

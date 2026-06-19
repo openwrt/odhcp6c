@@ -117,6 +117,11 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `captive-portal` | scapy ra | **H-3**: a metacharacter/control-byte URI yields a *sanitized* `CAPTIVE_PORTAL_URI` |
 | `release-on-stop` | scapy serve | terminal `stopped`/`unbound`; RELEASE on stop (and suppression with `-k`) |
 | `s46-mape` *(optional)* | scapy serve | OPTION_S46_CONT_MAPE parsed into a formatted `MAPE=` env value |
+| `prefix-renumber` | scapy ra | SLAAC PIO learned, then re-advertised with valid-lifetime 0 → address withdrawn from the **final** `RA_ADDRESSES` |
+| `ra-holdoff` | scapy ra | `-m` holdoff suppresses a tiny in-window RA change but a large out-of-window change still applies (entry not dropped) |
+| `info-options` | scapy serve | multi-value `RDNSS`/`DOMAINS` list formatting and sanitization |
+| `entry-formatting` | scapy serve | exact `entry_to_env` fields: `ADDRESSES`/`PREFIXES` lifetimes, `,class=` (non-1 IAID via `-P <pfx>/<len>:<iaid>`), `RA_ROUTES` default route |
+| `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 
 ### The status script (assertion surface)
 
@@ -151,12 +156,20 @@ with `--privsep off` (or `HARNESS_PRIVSEP=off`). The integration workflow
      RA-injection-only scenarios. Words are split unquoted, so values containing
      spaces must be injected with `harness_inject` instead (see below).
    - `scenario_odhcp6c` — echo the odhcp6c argument list **ending in the
-     interface** (use `$HARNESS_VETH_CLIENT`). Default: `--no-privsep <iface>`.
+     interface** (use `$HARNESS_VETH_CLIENT`). Default: `<iface>`. Do **not**
+     pin the privsep mode here (no hardcoded `--no-privsep`); the `--privsep`
+     axis selects it so each scenario runs in both modes.
    - `scenario_drive` — perform the lifecycle: `wait_for_action <action>
      [timeout]`, `wait_for_log <regex> [timeout] [min-count]`,
      `harness_odhcp6c_signal <USR1|TERM|…>`, and one-shot crafted injections via
      `harness_inject <scapy-subcommand-and-args…>` (use a finite `--count`).
    - `scenario_assert` — custom assertions. Defaults to evaluating `expect.txt`.
+     Inside a custom `scenario_assert` you can call the `lib/assert.sh` helpers
+     directly: `harness_assert_one <action> <key> <op> [val]` (same polarity
+     rules as the expect ops), `harness_assert_last <action> <key> <op> [val]`
+     (evaluates only the *most recent* record for `<action>` — use it for
+     final-state checks such as prefix withdrawal), `harness_assert_action_seen`
+     / `harness_assert_no_action`, and `harness_assert_log <regex> <desc>`.
 
 2. Add a declarative `expect.txt` (optional). Each non-comment line is:
 
