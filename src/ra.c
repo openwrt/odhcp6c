@@ -604,6 +604,9 @@ bool ra_process(void)
 
 				struct icmpv6_opt_route_info *ri = (struct icmpv6_opt_route_info *)opt;
 
+				if (ri->len == 0)
+					continue;
+
 				if (ri->prefix_len > 128) {
 					continue;
 				} else if (ri->prefix_len > 64) {
@@ -614,12 +617,18 @@ bool ra_process(void)
 						continue;
 				}
 
+				size_t copy_len = (size_t)(ri->len - 1) * 8;
+				if ((uint8_t *)ri->prefix + copy_len > &buf[len])
+					continue;
+
 				entry->router = from.sin6_addr;
 				entry->target = any;
 				entry->priority = pref_to_priority(ri->flags);
 				entry->length = ri->prefix_len;
 				entry->valid = ntohl(ri->lifetime);
-				memcpy(&entry->target, ri->prefix, (ri->len - 1) * 8);
+				if (copy_len > sizeof(entry->target))
+					copy_len = sizeof(entry->target);
+				memcpy(&entry->target, ri->prefix, copy_len);
 
 				if (IN6_IS_ADDR_LINKLOCAL(&entry->target)
 						|| IN6_IS_ADDR_LOOPBACK(&entry->target)
