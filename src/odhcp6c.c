@@ -63,7 +63,6 @@ static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
 static bool client_id_param = false;
-static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
@@ -81,11 +80,6 @@ static void odhcp6c_cleanup(void)
 	if (config_dhcp && config_dhcp->auth_token) {
 		free(config_dhcp->auth_token);
 		config_dhcp->auth_token = NULL;
-	}
-
-	if (urandom_fd >= 0) {
-		close(urandom_fd);
-		urandom_fd = -1;
 	}
 
 	if (pidfile_path) {
@@ -557,8 +551,7 @@ int main(_o_unused int argc, char* const argv[])
 	if (deprecated_opt)
 		warn("The -v flag is deprecated and will be removed. Use -l[0-7].");
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
+	if (ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
 	    script_init(script, ifname)) {
 		error("failed to initialize: %s", strerror(errno));
 		return 4;
@@ -1158,7 +1151,11 @@ uint32_t odhcp6c_elapsed(void)
 
 int odhcp6c_random(void *buf, size_t len)
 {
-	return read(urandom_fd, buf, len);
+	/* arc4random_buf() draws from a userspace CSPRNG seeded from the
+	 * kernel; it always fills the whole buffer and cannot fail. */
+	arc4random_buf(buf, len);
+
+	return (int)len;
 }
 
 bool odhcp6c_is_bound(void)
