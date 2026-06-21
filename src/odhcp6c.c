@@ -36,7 +36,7 @@
 #include <strings.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
-#include <sys/syscall.h>
+#include <sys/random.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -1350,32 +1350,20 @@ int odhcp6c_random(void *buf, size_t len)
 	if (len == 0)
 		return 0;
 
-	uint8_t *p = (uint8_t *)buf;
-	size_t done = 0;
+	ssize_t ret;
+	/* getrandom(2) with flags == 0 blocks until the kernel CSPRNG is
+	 * seeded, then fills the buffer completely for requests up to 256
+	 * bytes; no file descriptor is needed. */
+	do {
+		ret = getrandom(buf, len, 0);
+	} while (ret < 0 && errno == EINTR);
 
-	/* getrandom(2) is the only entropy source: unlike a bare /dev/urandom
-	 * read it blocks until the kernel CSPRNG has been seeded, so we never
-	 * return predictable bytes during early boot, and it needs no file
-	 * descriptor. The raw syscall is used (rather than the glibc/musl
-	 * wrapper) so the call is portable across both C libraries even on
-	 * toolchains whose headers predate the wrapper. flags == 0 selects the
-	 * blocking, initialized urandom source. getrandom(2) has been available
-	 * since Linux 3.17 (2014), which is assumed present here. */
-	while (done < len) {
-		ssize_t ret = syscall(SYS_getrandom, p + done, len - done, 0);
-		if (ret < 0) {
-			/* Interrupted before any bytes were read: retry. */
-			if (errno == EINTR)
-				continue;
-			critical("getrandom failed: %s", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		/* A successful getrandom() of up to 256 bytes is never short,
-		 * but loop on partial fills to stay correct for any length. */
-		done += (size_t)ret;
+	if (ret < 0) {
+		critical("getrandom failed: %s", strerror(errno));
+		exit(EXIT_FAILURE);
 	}
 
-	return (int)len;
+	return (int)ret;
 }
 
 bool odhcp6c_is_bound(void)
