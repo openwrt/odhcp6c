@@ -79,7 +79,6 @@ static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
 static bool client_id_param = false;
-static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
@@ -97,11 +96,6 @@ static void odhcp6c_cleanup(void)
 	if (config_dhcp && config_dhcp->auth_token) {
 		free(config_dhcp->auth_token);
 		config_dhcp->auth_token = NULL;
-	}
-
-	if (urandom_fd >= 0) {
-		close(urandom_fd);
-		urandom_fd = -1;
 	}
 
 	if (pidfile_path) {
@@ -261,7 +255,7 @@ static bool privsep_should_enable(bool no_privsep)
 
 /*
  * Worker-side privilege drop. Called after the privileged sockets and fds have
- * been created (ra_init, /dev/urandom, ubus) but before the main loop. Drops to
+ * been created (ra_init, ubus) but before the main loop. Drops to
  * an unprivileged uid/gid with no supplementary groups, retains only the two
  * capabilities needed to re-create the DHCPv6 socket after a DHCPV6_RESET, sets
  * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect. Fails closed.
@@ -731,8 +725,7 @@ int main(_o_unused int argc, char* const argv[])
 		}
 	}
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval)) {
+	if (ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval)) {
 		error("failed to initialize: %s", strerror(errno));
 		return 4;
 	}
@@ -766,7 +759,7 @@ int main(_o_unused int argc, char* const argv[])
 #endif /* WITH_UBUS */
 
 	/*
-	 * All privileged fds (ICMPv6/netlink via ra_init, /dev/urandom, ubus)
+	 * All privileged fds (ICMPv6/netlink via ra_init, ubus)
 	 * are now open. Drop to an unprivileged uid/gid, retaining only the caps
 	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. Fail closed.
 	 */
@@ -1360,58 +1353,25 @@ int odhcp6c_random(void *buf, size_t len)
 	uint8_t *p = (uint8_t *)buf;
 	size_t done = 0;
 
-	/* Prefer getrandom(2): unlike a bare /dev/urandom read it blocks until
-	 * the kernel CSPRNG has been seeded, so we never return predictable
-	 * bytes during early boot. The raw syscall is used (rather than the
-	 * glibc/musl wrapper) so the call is portable across both C libraries
-	 * even on toolchains whose headers predate the wrapper. flags == 0
-	 * selects the blocking, initialized urandom source. */
-#ifdef SYS_getrandom
-	static bool use_getrandom = true;
-
-	while (use_getrandom && done < len) {
+	/* getrandom(2) is the only entropy source: unlike a bare /dev/urandom
+	 * read it blocks until the kernel CSPRNG has been seeded, so we never
+	 * return predictable bytes during early boot, and it needs no file
+	 * descriptor. The raw syscall is used (rather than the glibc/musl
+	 * wrapper) so the call is portable across both C libraries even on
+	 * toolchains whose headers predate the wrapper. flags == 0 selects the
+	 * blocking, initialized urandom source. getrandom(2) has been available
+	 * since Linux 3.17 (2014), which is assumed present here. */
+	while (done < len) {
 		ssize_t ret = syscall(SYS_getrandom, p + done, len - done, 0);
 		if (ret < 0) {
 			/* Interrupted before any bytes were read: retry. */
 			if (errno == EINTR)
 				continue;
-			/* Kernel too old for getrandom(2): fall back below. */
-			if (errno == ENOSYS) {
-				use_getrandom = false;
-				break;
-			}
 			critical("getrandom failed: %s", strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 		/* A successful getrandom() of up to 256 bytes is never short,
 		 * but loop on partial fills to stay correct for any length. */
-		done += (size_t)ret;
-	}
-
-	if (done == len)
-		return (int)len;
-#endif
-
-	/* Fallback for kernels without getrandom(2). urandom_fd is opened once
-	 * at start-up; read in a loop to fill the buffer and tolerate short
-	 * reads and EINTR. */
-	if (urandom_fd < 0) {
-		critical("no random source available");
-		exit(EXIT_FAILURE);
-	}
-
-	while (done < len) {
-		ssize_t ret = read(urandom_fd, p + done, len - done);
-		if (ret < 0) {
-			if (errno == EINTR)
-				continue;
-			critical("/dev/urandom read error: %s", strerror(errno));
-			exit(EXIT_FAILURE);
-		}
-		if (ret == 0) {
-			critical("/dev/urandom reached EOF");
-			exit(EXIT_FAILURE);
-		}
 		done += (size_t)ret;
 	}
 
