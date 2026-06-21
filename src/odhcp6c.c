@@ -1354,9 +1354,66 @@ uint32_t odhcp6c_elapsed(void)
 
 int odhcp6c_random(void *buf, size_t len)
 {
-	/* arc4random_buf() draws from a userspace CSPRNG seeded from the
-	 * kernel; it always fills the whole buffer and cannot fail. */
-	arc4random_buf(buf, len);
+	if (len == 0)
+		return 0;
+
+	uint8_t *p = (uint8_t *)buf;
+	size_t done = 0;
+
+	/* Prefer getrandom(2): unlike a bare /dev/urandom read it blocks until
+	 * the kernel CSPRNG has been seeded, so we never return predictable
+	 * bytes during early boot. The raw syscall is used (rather than the
+	 * glibc/musl wrapper) so the call is portable across both C libraries
+	 * even on toolchains whose headers predate the wrapper. flags == 0
+	 * selects the blocking, initialized urandom source. */
+#ifdef SYS_getrandom
+	static bool use_getrandom = true;
+
+	while (use_getrandom && done < len) {
+		ssize_t ret = syscall(SYS_getrandom, p + done, len - done, 0);
+		if (ret < 0) {
+			/* Interrupted before any bytes were read: retry. */
+			if (errno == EINTR)
+				continue;
+			/* Kernel too old for getrandom(2): fall back below. */
+			if (errno == ENOSYS) {
+				use_getrandom = false;
+				break;
+			}
+			critical("getrandom failed: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		/* A successful getrandom() of up to 256 bytes is never short,
+		 * but loop on partial fills to stay correct for any length. */
+		done += (size_t)ret;
+	}
+
+	if (done == len)
+		return (int)len;
+#endif
+
+	/* Fallback for kernels without getrandom(2). urandom_fd is opened once
+	 * at start-up; read in a loop to fill the buffer and tolerate short
+	 * reads and EINTR. */
+	if (urandom_fd < 0) {
+		critical("no random source available");
+		exit(EXIT_FAILURE);
+	}
+
+	while (done < len) {
+		ssize_t ret = read(urandom_fd, p + done, len - done);
+		if (ret < 0) {
+			if (errno == EINTR)
+				continue;
+			critical("/dev/urandom read error: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		if (ret == 0) {
+			critical("/dev/urandom reached EOF");
+			exit(EXIT_FAILURE);
+		}
+		done += (size_t)ret;
+	}
 
 	return (int)len;
 }
