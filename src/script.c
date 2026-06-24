@@ -831,8 +831,7 @@ static void script_send_request(const char *status, int delay, bool resume)
 
 		free(msg);
 	} else {
-		error("Failed to allocate %zu bytes for script request: %s",
-				msg_len, strerror(errno));
+		error("Failed to allocate %zu bytes for script request", msg_len);
 	}
 
 	script_env_collect_reset();
