@@ -39,6 +39,7 @@
 #include <sys/random.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -260,7 +261,12 @@ static bool privsep_should_enable(bool no_privsep)
  * been created (ra_init, ubus) but before the main loop. Drops to
  * an unprivileged uid/gid with no supplementary groups, retains only the two
  * capabilities needed to re-create the DHCPv6 socket after a DHCPV6_RESET, sets
- * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect. Fails closed.
+ * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect.
+ *
+ * The credential and capability reduction is fail-closed: any failure returns
+ * -1 and the caller aborts. The trailing core-dump/dumpable mitigations are
+ * best-effort defence in depth (they cannot re-expose privilege) and only warn
+ * on failure.
  */
 static int drop_privileges(void)
 {
@@ -780,7 +786,9 @@ int main(_o_unused int argc, char* const argv[])
 	/*
 	 * All privileged fds (ICMPv6/netlink via ra_init, ubus)
 	 * are now open. Drop to an unprivileged uid/gid, retaining only the caps
-	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. Fail closed.
+	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. The
+	 * credential/capability drop is fail-closed (failure aborts the worker);
+	 * the core-dump/dumpable mitigations inside are best-effort.
 	 */
 	if (privsep && drop_privileges()) {
 		error("privsep: failed to drop privileges, aborting");
