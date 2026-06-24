@@ -12,8 +12,8 @@
  *
  */
 
-#ifndef _SECCOMP_H_
-#define _SECCOMP_H_
+#ifndef _ODHCP6C_SECCOMP_H_
+#define _ODHCP6C_SECCOMP_H_
 
 /*
  * Confine the privsep worker with a seccomp-BPF syscall allow-list. Must be
@@ -27,4 +27,4 @@
  */
 void seccomp_apply(void);
 
-#endif /* _SECCOMP_H_ */
+#endif /* _ODHCP6C_SECCOMP_H_ */

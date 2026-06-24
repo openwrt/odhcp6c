@@ -53,7 +53,7 @@
 #include "odhcp6c.h"
 #include "ra.h"
 #include "script.h"
-#include "seccomp.h"
+#include "odhcp6c_seccomp.h"
 #include "ubus.h"
 
 #ifndef ODHCP6C_USER

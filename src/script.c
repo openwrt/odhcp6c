@@ -739,6 +739,17 @@ static void script_send_request(const char *status, int delay, bool resume)
 	env_collecting = true;
 	script_env_collect_reset();
 
+	/*
+	 * Build the environment from the current DHCPv6 state now, before the
+	 * monitor applies any delay. Unlike the non-privsep path, a delayed run
+	 * does not re-run odhcp6c_expire() after the delay, so lifetime fields
+	 * (preferred/valid/t1/t2 in PREFIXES/ADDRESSES/RA_*) may read up to
+	 * 'delay' seconds (at most SCRIPT_DELAY_MAX) stale. This is intentional:
+	 * re-applying expiry here would require either parsing env semantics in
+	 * the trusted monitor or mutating authoritative worker state before the
+	 * delay actually elapsed. The skew is small and bounded, and the next
+	 * state notification corrects it.
+	 */
 	script_build_env();
 
 	size_t action_len = strlen(status);
@@ -1143,15 +1154,51 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 		monitor_handle_request(buf, (size_t)n);
 	}
 
-	/* Worker is gone: stop any running script and reap remaining children. */
+	/*
+	 * Worker is gone: stop any running script and reap remaining children.
+	 * The SIGCHLD handler (script_sighandle) performs the actual reaping; it
+	 * clears 'running' for script children and records the worker's exit
+	 * status in monitor_worker_status/monitor_worker_reaped.
+	 *
+	 * Bound every wait so a script child that ignores SIGTERM cannot wedge
+	 * daemon shutdown; escalate to SIGKILL after the drain timeout. This
+	 * mirrors the bounded poll in script_drain_running().
+	 */
 	if (running > 0)
 		kill(running, SIGTERM);
+
+	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
+			waited += 10) {
+		struct timespec ts = { 0, 10L * 1000 * 1000 };
+
+		nanosleep(&ts, NULL);
+	}
+
+	if (running > 0) {
+		kill(running, SIGKILL);
+
+		for (int waited = 0; running > 0 &&
+				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10) {
+			struct timespec ts = { 0, 10L * 1000 * 1000 };
+
+			nanosleep(&ts, NULL);
+		}
+	}
+
+	/* Bounded wait for the worker to exit so we can return its status. */
+	for (int waited = 0; !monitor_worker_reaped &&
+			waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10) {
+		struct timespec ts = { 0, 10L * 1000 * 1000 };
+
+		nanosleep(&ts, NULL);
+	}
 
 	int status_code = 0;
 	int st;
 	pid_t w;
 
-	while ((w = waitpid(-1, &st, 0)) > 0) {
+	/* Sweep up any children the SIGCHLD handler has not yet collected. */
+	while ((w = waitpid(-1, &st, WNOHANG)) > 0) {
 		if (w == worker_pid)
 			status_code = WIFEXITED(st) ? WEXITSTATUS(st) : 1;
 	}
