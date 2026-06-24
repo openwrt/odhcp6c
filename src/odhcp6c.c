@@ -244,7 +244,12 @@ static bool privsep_should_enable(bool no_privsep)
 	if (no_privsep)
 		return false;
 
-	if (getuid() != 0) {
+	/*
+	 * Gate on the effective uid: that is what determines whether we can
+	 * actually drop privileges (e.g. when launched via a setuid-root
+	 * wrapper the real uid may be non-zero while euid is 0).
+	 */
+	if (geteuid() != 0) {
 		notice("privsep: not running as root, staying single-process");
 		return false;
 	}
@@ -721,9 +726,23 @@ int main(_o_unused int argc, char* const argv[])
 			return 4;
 		}
 
+		/*
+		 * Block SIGCHLD across the fork so a fast-exiting worker cannot be
+		 * reaped by script_sighandle() before monitor_worker_pid is set,
+		 * which would lose the worker's real exit status. The monitor
+		 * unblocks once it records the pid; the worker unblocks after it
+		 * resets the handler.
+		 */
+		sigset_t chld_mask, prev_mask;
+
+		sigemptyset(&chld_mask);
+		sigaddset(&chld_mask, SIGCHLD);
+		sigprocmask(SIG_BLOCK, &chld_mask, &prev_mask);
+
 		pid_t worker = fork();
 
 		if (worker < 0) {
+			sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 			error("privsep: fork failed: %s", strerror(errno));
 			return 4;
 		}
@@ -742,6 +761,7 @@ int main(_o_unused int argc, char* const argv[])
 		/* The monitor reaps the script children; the worker never forks
 		 * the script, so reset the inherited SIGCHLD handler. */
 		signal(SIGCHLD, SIG_DFL);
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 
 		/* Only the monitor owns and removes the pidfile. */
 		if (pidfile_path) {

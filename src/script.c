@@ -1155,6 +1155,17 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 	monitor_worker_pid = worker_pid;
 
 	/*
+	 * The caller blocked SIGCHLD across the fork so a fast-exiting worker
+	 * could not be reaped before monitor_worker_pid was set above. It is
+	 * now safe to deliver any pending SIGCHLD.
+	 */
+	sigset_t chld_mask;
+
+	sigemptyset(&chld_mask);
+	sigaddset(&chld_mask, SIGCHLD);
+	sigprocmask(SIG_UNBLOCK, &chld_mask, NULL);
+
+	/*
 	 * Forward termination and reconfiguration signals to the worker; the
 	 * worker owns the DHCPv6 state machine and the SIGUSR1/SIGUSR2 handlers
 	 * (renew/rebind), so init scripts signalling the launcher PID still
