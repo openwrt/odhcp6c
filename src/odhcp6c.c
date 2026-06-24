@@ -37,6 +37,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -329,6 +330,23 @@ static int drop_privileges(void)
 		critical("privsep: still able to regain root after drop");
 		return -1;
 	}
+
+	/*
+	 * Defence in depth against worker memory disclosure: the worker parses
+	 * untrusted network data and keeps DHCPv6 authentication/reconfigure
+	 * keys in memory. Forbid core dumps and clear the dumpable flag so a
+	 * crash cannot spill that memory to a core file and another same-uid
+	 * process cannot ptrace the worker or read /proc/<pid>/mem. This must
+	 * run after the uid change (which resets dumpability) and before
+	 * seccomp is applied. Best-effort: failure here does not weaken the
+	 * uid/gid/capability drop above, so it does not fail closed.
+	 */
+	struct rlimit no_core = { .rlim_cur = 0, .rlim_max = 0 };
+	if (setrlimit(RLIMIT_CORE, &no_core) != 0)
+		warn("privsep: failed to disable core dumps: %s", strerror(errno));
+
+	if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0)
+		warn("privsep: failed to clear dumpable flag: %s", strerror(errno));
 
 	notice("privsep: worker running as uid=%u gid=%u",
 			(unsigned)uid, (unsigned)gid);
