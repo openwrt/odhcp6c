@@ -84,6 +84,7 @@ static bool env_collecting = false;
 static char **env_list = NULL;
 static size_t env_cnt = 0;
 static size_t env_cap = 0;
+static size_t env_bytes = 0;	/* collected env bytes (incl. NULs) */
 
 void script_set_channel(int fd)
 {
@@ -106,6 +107,21 @@ static void script_putenv(char *buf)
 		return;
 	}
 
+	/*
+	 * Enforce the monitor's hard caps while collecting so env_list cannot
+	 * grow past what script_send_request() would actually serialize. Drop
+	 * over-long entries and anything beyond the count/byte budget here
+	 * rather than buffering them only to truncate later.
+	 */
+	size_t len = strlen(buf) + 1;
+
+	if (len > SCRIPT_ENV_ENTRY_MAX ||
+			env_cnt >= SCRIPT_ENV_MAX_COUNT ||
+			env_bytes + len > SCRIPT_ENV_MAX_TOTAL) {
+		free(buf);
+		return;
+	}
+
 	if (env_cnt == env_cap) {
 		size_t ncap = env_cap ? env_cap * 2 : 32;
 		char **n = realloc(env_list, ncap * sizeof(*env_list));
@@ -120,6 +136,7 @@ static void script_putenv(char *buf)
 	}
 
 	env_list[env_cnt++] = buf;
+	env_bytes += len;
 }
 
 static void script_env_collect_reset(void)
@@ -128,6 +145,7 @@ static void script_env_collect_reset(void)
 		free(env_list[i]);
 
 	env_cnt = 0;
+	env_bytes = 0;
 }
 
 static void script_sighandle(int signal)
@@ -812,6 +830,9 @@ static void script_send_request(const char *status, int delay, bool resume)
 					strerror(errno));
 
 		free(msg);
+	} else {
+		error("Failed to allocate %zu bytes for script request: %s",
+				msg_len, strerror(errno));
 	}
 
 	script_env_collect_reset();
