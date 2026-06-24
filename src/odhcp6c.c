@@ -1350,20 +1350,34 @@ int odhcp6c_random(void *buf, size_t len)
 	if (len == 0)
 		return 0;
 
-	ssize_t ret;
-	/* getrandom(2) with flags == 0 blocks until the kernel CSPRNG is
-	 * seeded, then fills the buffer completely for requests up to 256
-	 * bytes; no file descriptor is needed. */
-	do {
-		ret = getrandom(buf, len, 0);
-	} while (ret < 0 && errno == EINTR);
-
-	if (ret < 0) {
-		critical("getrandom failed: %s", strerror(errno));
+	/* The return type is a signed int, but len is size_t. Refuse any
+	 * request that cannot be represented in the return value so the
+	 * (int) cast below can never overflow into a negative count. */
+	if (len > INT_MAX) {
+		critical("odhcp6c_random: request of %zu bytes exceeds INT_MAX", len);
 		exit(EXIT_FAILURE);
 	}
 
-	return (int)ret;
+	uint8_t *out = buf;
+	size_t filled = 0;
+
+	/* getrandom(2) with flags == 0 blocks until the kernel CSPRNG is
+	 * seeded. For requests up to 256 bytes it fills the buffer completely
+	 * and is not interruptible; larger requests may return fewer bytes or
+	 * be interrupted by a signal, so loop until the whole buffer is filled.
+	 * No file descriptor is needed. */
+	while (filled < len) {
+		ssize_t ret = getrandom(out + filled, len - filled, 0);
+		if (ret < 0) {
+			if (errno == EINTR)
+				continue;
+			critical("getrandom failed: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		filled += (size_t)ret;
+	}
+
+	return (int)filled;
 }
 
 bool odhcp6c_is_bound(void)
