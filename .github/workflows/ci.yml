@@ -163,6 +163,70 @@ jobs:
             build/odhcp6c-*/odhcp6c
           if-no-files-found: error
 
+  privsep:
+    name: Build privsep (LIBCAP_NG + SECCOMP)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout odhcp6c
+        uses: actions/checkout@v5
+
+      - name: Checkout json-c
+        uses: actions/checkout@v5
+        with:
+          repository: json-c/json-c
+          path: depends/json-c
+
+      - name: Checkout libubox
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/libubox
+          path: depends/libubox
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libcap-ng-dev libseccomp-dev
+
+      - name: Prepare build
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/build
+
+      - name: Build json-c
+        working-directory: depends/json-c
+        run: |
+          cmake \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DDISABLE_EXTRA_LIBS=ON \
+            -DBUILD_TESTING=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
+          make
+          make install
+
+      - name: Build libubox
+        working-directory: depends/libubox
+        run: |
+          cmake \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
+          make
+          make install
+
+      - name: Build odhcp6c (LIBCAP_NG + SECCOMP)
+        env:
+          BUILD_DIR: build/odhcp6c-privsep
+        run: |
+          cmake \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DLIBCAP_NG=ON \
+            -DSECCOMP=ON \
+            -B $BUILD_DIR -S .
+          make -C $BUILD_DIR
+
   summary:
     name: Sizes
     needs: [build]
