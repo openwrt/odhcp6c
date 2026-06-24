@@ -1361,11 +1361,13 @@ int odhcp6c_random(void *buf, size_t len)
 	uint8_t *out = buf;
 	size_t filled = 0;
 
-	/* getrandom(2) with flags == 0 blocks until the kernel CSPRNG is
-	 * seeded. For requests up to 256 bytes it fills the buffer completely
-	 * and is not interruptible; larger requests may return fewer bytes or
-	 * be interrupted by a signal, so loop until the whole buffer is filled.
-	 * No file descriptor is needed. */
+	/* getrandom(2) with flags == 0 draws from the kernel urandom CSPRNG,
+	 * blocking until it is seeded. Once seeded, requests up to 256 bytes
+	 * always fill the buffer and are not interrupted by signals. Two cases
+	 * still need handling: a signal can interrupt the call while it blocks
+	 * waiting for the initial seed (EINTR, no bytes written), and requests
+	 * larger than 256 bytes may return a short read. Loop on both until the
+	 * whole buffer is filled. No file descriptor is needed. */
 	while (filled < len) {
 		ssize_t ret = getrandom(out + filled, len - filled, 0);
 		if (ret < 0) {
