@@ -81,6 +81,10 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(rt_sigreturn), SCMP_SYS(rt_sigprocmask),
 	SCMP_SYS(rt_sigaction), SCMP_SYS(sigreturn),
 	SCMP_SYS(restart_syscall),
+	/* self-signaling: raise(3) in the ubus renew/reconfigure/release
+	 * handlers resolves to tgkill (glibc) or tkill (musl); gettid
+	 * backs the tid lookup on some libc versions. */
+	SCMP_SYS(tgkill), SCMP_SYS(tkill), SCMP_SYS(gettid),
 	/* memory + housekeeping (madvise is used by some libc allocators) */
 	SCMP_SYS(getpid),
 	SCMP_SYS(brk), SCMP_SYS(mmap), SCMP_SYS(mmap2),
