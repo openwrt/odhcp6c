@@ -1209,6 +1209,8 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 	while ((w = waitpid(-1, &st, WNOHANG)) > 0) {
 		if (w == worker_pid)
 			status_code = WIFEXITED(st) ? WEXITSTATUS(st) : 1;
+		else if (w == running)
+			running = 0;
 	}
 
 	/* If the SIGCHLD handler already reaped the worker, use the status it
