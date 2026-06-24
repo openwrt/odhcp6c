@@ -12,7 +12,7 @@
  *
  */
 
-#include "seccomp.h"
+#include "odhcp6c_seccomp.h"
 
 #ifdef WITH_SECCOMP
 
