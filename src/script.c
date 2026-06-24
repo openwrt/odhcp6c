@@ -157,14 +157,25 @@ static void script_sighandle(int signal)
  * sequence on shutdown). A misbehaving script must not wedge the caller, so
  * fall back to SIGTERM after the timeout.
  */
+/*
+ * Sleep for the full requested interval. nanosleep() can return early with
+ * EINTR when a signal is delivered; retry with the remaining time so callers
+ * that poll on a wall-clock budget do not advance their counters without
+ * actually waiting (which would shorten the drain timeout).
+ */
+static void script_sleep_ms(long ms)
+{
+	struct timespec ts = { ms / 1000, (ms % 1000) * 1000L * 1000 };
+
+	while (nanosleep(&ts, &ts) != 0 && errno == EINTR)
+		;
+}
+
 static void script_drain_running(void)
 {
 	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
-			waited += 10) {
-		struct timespec ts = { 0, 10L * 1000 * 1000 };
-
-		nanosleep(&ts, NULL);
-	}
+			waited += 10)
+		script_sleep_ms(10);
 
 	if (running > 0)
 		kill(running, SIGTERM);
@@ -1168,30 +1179,21 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 		kill(running, SIGTERM);
 
 	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
-			waited += 10) {
-		struct timespec ts = { 0, 10L * 1000 * 1000 };
-
-		nanosleep(&ts, NULL);
-	}
+			waited += 10)
+		script_sleep_ms(10);
 
 	if (running > 0) {
 		kill(running, SIGKILL);
 
 		for (int waited = 0; running > 0 &&
-				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10) {
-			struct timespec ts = { 0, 10L * 1000 * 1000 };
-
-			nanosleep(&ts, NULL);
-		}
+				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
+			script_sleep_ms(10);
 	}
 
 	/* Bounded wait for the worker to exit so we can return its status. */
 	for (int waited = 0; !monitor_worker_reaped &&
-			waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10) {
-		struct timespec ts = { 0, 10L * 1000 * 1000 };
-
-		nanosleep(&ts, NULL);
-	}
+			waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
+		script_sleep_ms(10);
 
 	int status_code = 0;
 	int st;
