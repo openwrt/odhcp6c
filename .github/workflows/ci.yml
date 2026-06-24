@@ -185,7 +185,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install libcap-ng-dev libseccomp-dev
+          sudo apt install -y libcap-ng-dev libseccomp-dev
 
       - name: Prepare build
         run: |
