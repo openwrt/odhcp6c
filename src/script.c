@@ -1195,7 +1195,13 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 			waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
 		script_sleep_ms(10);
 
-	int status_code = 0;
+	/*
+	 * Default to a non-zero status: if the worker is never observed exiting
+	 * (it hung past the bounded wait, or neither the WNOHANG sweep nor the
+	 * SIGCHLD handler captured it), reporting failure is safer than a false
+	 * success. The real status overwrites this once the worker is reaped.
+	 */
+	int status_code = 1;
 	int st;
 	pid_t w;
 
