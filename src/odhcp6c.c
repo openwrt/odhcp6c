@@ -36,7 +36,10 @@
 #include <strings.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/random.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -79,7 +82,6 @@ static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
 static bool client_id_param = false;
-static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
@@ -97,11 +99,6 @@ static void odhcp6c_cleanup(void)
 	if (config_dhcp && config_dhcp->auth_token) {
 		free(config_dhcp->auth_token);
 		config_dhcp->auth_token = NULL;
-	}
-
-	if (urandom_fd >= 0) {
-		close(urandom_fd);
-		urandom_fd = -1;
 	}
 
 	if (pidfile_path) {
@@ -261,10 +258,15 @@ static bool privsep_should_enable(bool no_privsep)
 
 /*
  * Worker-side privilege drop. Called after the privileged sockets and fds have
- * been created (ra_init, /dev/urandom, ubus) but before the main loop. Drops to
+ * been created (ra_init, ubus) but before the main loop. Drops to
  * an unprivileged uid/gid with no supplementary groups, retains only the two
  * capabilities needed to re-create the DHCPv6 socket after a DHCPV6_RESET, sets
- * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect. Fails closed.
+ * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect.
+ *
+ * The credential and capability reduction is fail-closed: any failure returns
+ * -1 and the caller aborts. The trailing core-dump/dumpable mitigations are
+ * best-effort defence in depth (they cannot re-expose privilege) and only warn
+ * on failure.
  */
 static int drop_privileges(void)
 {
@@ -329,6 +331,23 @@ static int drop_privileges(void)
 		critical("privsep: still able to regain root after drop");
 		return -1;
 	}
+
+	/*
+	 * Defence in depth against worker memory disclosure: the worker parses
+	 * untrusted network data and keeps DHCPv6 authentication/reconfigure
+	 * keys in memory. Forbid core dumps and clear the dumpable flag so a
+	 * crash cannot spill that memory to a core file and another same-uid
+	 * process cannot ptrace the worker or read /proc/<pid>/mem. This must
+	 * run after the uid change (which resets dumpability) and before
+	 * seccomp is applied. Best-effort: failure here does not weaken the
+	 * uid/gid/capability drop above, so it does not fail closed.
+	 */
+	struct rlimit no_core = { .rlim_cur = 0, .rlim_max = 0 };
+	if (setrlimit(RLIMIT_CORE, &no_core) != 0)
+		warn("privsep: failed to disable core dumps: %s", strerror(errno));
+
+	if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0)
+		warn("privsep: failed to clear dumpable flag: %s", strerror(errno));
 
 	notice("privsep: worker running as uid=%u gid=%u",
 			(unsigned)uid, (unsigned)gid);
@@ -731,8 +750,7 @@ int main(_o_unused int argc, char* const argv[])
 		}
 	}
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval)) {
+	if (ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval)) {
 		error("failed to initialize: %s", strerror(errno));
 		return 4;
 	}
@@ -766,9 +784,11 @@ int main(_o_unused int argc, char* const argv[])
 #endif /* WITH_UBUS */
 
 	/*
-	 * All privileged fds (ICMPv6/netlink via ra_init, /dev/urandom, ubus)
+	 * All privileged fds (ICMPv6/netlink via ra_init, ubus)
 	 * are now open. Drop to an unprivileged uid/gid, retaining only the caps
-	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. Fail closed.
+	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. The
+	 * credential/capability drop is fail-closed (failure aborts the worker);
+	 * the core-dump/dumpable mitigations inside are best-effort.
 	 */
 	if (privsep && drop_privileges()) {
 		error("privsep: failed to drop privileges, aborting");
@@ -1354,11 +1374,39 @@ uint32_t odhcp6c_elapsed(void)
 
 int odhcp6c_random(void *buf, size_t len)
 {
-	/* arc4random_buf() draws from a userspace CSPRNG seeded from the
-	 * kernel; it always fills the whole buffer and cannot fail. */
-	arc4random_buf(buf, len);
+	if (len == 0)
+		return 0;
 
-	return (int)len;
+	/* The return type is a signed int, but len is size_t. Refuse any
+	 * request that cannot be represented in the return value so the
+	 * (int) cast below can never overflow into a negative count. */
+	if (len > INT_MAX) {
+		critical("odhcp6c_random: request of %zu bytes exceeds INT_MAX", len);
+		exit(EXIT_FAILURE);
+	}
+
+	uint8_t *out = buf;
+	size_t filled = 0;
+
+	/* getrandom(2) with flags == 0 draws from the kernel urandom CSPRNG,
+	 * blocking until it is seeded. Once seeded, requests up to 256 bytes
+	 * always fill the buffer and are not interrupted by signals. Two cases
+	 * still need handling: a signal can interrupt the call while it blocks
+	 * waiting for the initial seed (EINTR, no bytes written), and requests
+	 * larger than 256 bytes may return a short read. Loop on both until the
+	 * whole buffer is filled. No file descriptor is needed. */
+	while (filled < len) {
+		ssize_t ret = getrandom(out + filled, len - filled, 0);
+		if (ret < 0) {
+			if (errno == EINTR)
+				continue;
+			critical("getrandom failed: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		filled += (size_t)ret;
+	}
+
+	return (int)filled;
 }
 
 bool odhcp6c_is_bound(void)
