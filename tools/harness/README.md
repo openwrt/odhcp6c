@@ -122,6 +122,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `info-options` | scapy serve | multi-value `RDNSS`/`DOMAINS` list formatting and sanitization |
 | `entry-formatting` | scapy serve | exact `entry_to_env` fields: `ADDRESSES`/`PREFIXES` lifetimes, `,class=` (non-1 IAID via `-P <pfx>/<len>:<iaid>`), `RA_ROUTES` default route |
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
+| `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 
 ### The status script (assertion surface)
 
@@ -291,7 +292,8 @@ capability set and AppArmor profile both block.
 - The driver waits on **observable conditions** (stub records, log lines) rather
   than fixed sleeps wherever possible, and caps every wait with a timeout.
 - **Client egress:** the stateful scenarios (`stateful-basic`, `stateless-info`,
-  `renew-rebind`, `s46-mape`, and the RELEASE assertion of `release-on-stop`)
+  `renew-rebind`, `s46-mape`, the RELEASE assertion of `release-on-stop`, and
+  `privsep-signals`)
   require odhcp6c to be able to *send* DHCPv6 packets. Some sandboxed
   environments block datagram egress with a cgroup/eBPF firewall; there those
   scenarios cannot reach `bound`. The CI container imposes no such restriction.
