@@ -439,8 +439,14 @@ harness_odhcp6c_signal_role() {
 		warn "no $_role PID resolved; cannot send SIG$_sig"
 		return 1
 	fi
-	$SUDO kill "-$_sig" "$_target" 2>/dev/null || true
-	log "sent SIG$_sig to $_role (pid $_target)"
+	# Report the real delivery result so callers can detect a failed signal
+	# (PID already exited, EPERM, ...) instead of a swallowed `|| true`.
+	if $SUDO kill "-$_sig" "$_target" 2>/dev/null; then
+		log "sent SIG$_sig to $_role (pid $_target)"
+		return 0
+	fi
+	warn "failed to send SIG$_sig to $_role (pid $_target)"
+	return 1
 }
 
 harness_odhcp6c_running() {
@@ -476,7 +482,8 @@ _harness_odhcp6c_reap() {
 # does not clobber HARNESS_ODHCP6C_EXIT.
 harness_odhcp6c_stop_monitor() {
 	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
-	harness_odhcp6c_signal_role monitor TERM
+	harness_odhcp6c_signal_role monitor TERM \
+		|| warn "monitor-only SIGTERM delivery failed; relying on reap fallback"
 	_harness_odhcp6c_reap 8
 	log "monitor stop: odhcp6c exit status $HARNESS_ODHCP6C_EXIT"
 }
