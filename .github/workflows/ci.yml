@@ -175,9 +175,14 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=4096 \
             -B $BUILD_DIR -S .
           make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
+          bin=$( find $BUILD_DIR -type f -name odhcp6c )
+          strip_bin="${{ matrix.gcc }}"; strip_bin="${strip_bin%-gcc}-strip"
+          "$strip_bin" -s "$bin" -o "$bin.stripped"
+          echo "size_${{ matrix.arch }}=$( stat -c%s "$bin.stripped" )" >> $GITHUB_OUTPUT
 
       - id: with_ubus
         name: Build odhcp6c (with ubus)
@@ -188,9 +193,14 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DUBUS=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=4096 \
             -B $BUILD_DIR -S .
           make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
+          bin=$( find $BUILD_DIR -type f -name odhcp6c )
+          strip_bin="${{ matrix.gcc }}"; strip_bin="${strip_bin%-gcc}-strip"
+          "$strip_bin" -s "$bin" -o "$bin.stripped"
+          echo "size_${{ matrix.arch }}=$( stat -c%s "$bin.stripped" )" >> $GITHUB_OUTPUT
 
       - id: privsep
         name: Build odhcp6c (privsep)
@@ -205,9 +215,14 @@ jobs:
             -DUBUS=ON \
             -DLIBCAP_NG=ON \
             -DSECCOMP=ON \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=4096 \
             -B $BUILD_DIR -S .
           make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
+          bin=$( find $BUILD_DIR -type f -name odhcp6c )
+          strip_bin="${{ matrix.gcc }}"; strip_bin="${strip_bin%-gcc}-strip"
+          "$strip_bin" -s "$bin" -o "$bin.stripped"
+          echo "size_${{ matrix.arch }}=$( stat -c%s "$bin.stripped" )" >> $GITHUB_OUTPUT
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -249,7 +264,7 @@ jobs:
           size_riscv64_with_ubus_and_privsep: ${{needs.build.outputs.size-riscv64-with-ubus-and-privsep}}
           size_x86_64_with_ubus_and_privsep: ${{needs.build.outputs.size-x86_64-with-ubus-and-privsep}}
         run: |
-          echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
+          echo "### ${GITHUB_WORKFLOW} sizes (stripped release, OpenWrt-like) :floppy_disk:" >> $GITHUB_STEP_SUMMARY
 
           header="| arch |"
           table="| :---: |"
