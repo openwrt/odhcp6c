@@ -496,6 +496,26 @@ harness_odhcp6c_stop_monitor() {
 	log "monitor stop: odhcp6c exit status $HARNESS_ODHCP6C_EXIT"
 }
 
+# Abnormally kill ONLY the privsep worker (default SIGKILL, uncatchable) to
+# simulate a worker crash, then reap the launcher and capture the propagated
+# exit status in HARNESS_ODHCP6C_EXIT. This is the failure-path counterpart to
+# harness_odhcp6c_stop_monitor: in privsep mode the monitor must SURVIVE the
+# worker's death, observe it, clean up, and exit non-zero (the monitor loop
+# returns 1 for a worker that did not exit normally -- src/script.c
+# script_monitor_loop), WITHOUT the worker having had a chance to send a
+# graceful RELEASE. In single-process (non-privsep) mode the role resolver
+# targets the sole process, so this kills it directly (wait reports 128+signal).
+# Clears HARNESS_ODHCP6C_PID so run-scenario.sh's later stop is a no-op and does
+# not clobber HARNESS_ODHCP6C_EXIT.
+harness_odhcp6c_kill_worker() {
+	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
+	_sig="${1:-KILL}"
+	harness_odhcp6c_signal_role worker "$_sig" \
+		|| warn "worker SIG$_sig delivery failed; relying on reap fallback"
+	_harness_odhcp6c_reap 8
+	log "worker abnormal-kill (SIG$_sig): odhcp6c exit status $HARNESS_ODHCP6C_EXIT"
+}
+
 # Stop odhcp6c gracefully (SIGTERM to the whole tree), then hard-kill if needed.
 # Captures the propagated exit status in HARNESS_ODHCP6C_EXIT.
 harness_odhcp6c_stop() {

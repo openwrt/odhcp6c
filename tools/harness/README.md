@@ -124,6 +124,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `pd-exclude` | scapy serve | RFC 6603 Prefix Exclude: IA_PD IA_PREFIX with a nested OPTION_PD_EXCLUDE is decoded and the excluded prefix exported as `,excluded=<pfx>/<len>` on `PREFIXES` (regression guard for PR #151) |
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 | `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
+| `abnormal-exit` | scapy serve | **privsep failure-path**: the worker is SIGKILLed (uncatchable) so it cannot release; proves the monitor survives, emits no graceful `stopped`/RELEASE, and propagates a **non-zero** exit (`1`) rather than mis-reporting the crash as success |
 
 ### The status script (assertion surface)
 
@@ -303,8 +304,8 @@ capability set and AppArmor profile both block.
 - The driver waits on **observable conditions** (stub records, log lines) rather
   than fixed sleeps wherever possible, and caps every wait with a timeout.
 - **Client egress:** the stateful scenarios (`stateful-basic`, `stateless-info`,
-  `renew-rebind`, `s46-mape`, the RELEASE assertion of `release-on-stop`, and
-  `privsep-signals`)
+  `renew-rebind`, `s46-mape`, the RELEASE assertion of `release-on-stop`,
+  `privsep-signals`, and `abnormal-exit`)
   require odhcp6c to be able to *send* DHCPv6 packets. Some sandboxed
   environments block datagram egress with a cgroup/eBPF firewall; there those
   scenarios cannot reach `bound`. The CI container imposes no such restriction.
