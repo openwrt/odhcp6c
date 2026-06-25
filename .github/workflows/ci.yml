@@ -21,6 +21,9 @@ jobs:
           - arch: aarch64
             gcc: /usr/bin/aarch64-linux-gnu-gcc
             packages: gcc-aarch64-linux-gnu
+            privsep: true
+            debarch: arm64
+            triplet: aarch64-linux-gnu
           - arch: arm
             gcc: /usr/bin/arm-linux-gnueabi-gcc
             packages: gcc-arm-linux-gnueabi
@@ -39,9 +42,15 @@ jobs:
           - arch: riscv64
             gcc: /usr/bin/riscv64-linux-gnu-gcc
             packages: gcc-riscv64-linux-gnu
+            privsep: true
+            debarch: riscv64
+            triplet: riscv64-linux-gnu
           - arch: x86_64
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
+            privsep: true
+            debarch: amd64
+            triplet: x86_64-linux-gnu
     outputs:
       size-aarch64-without-ubus: ${{ steps.without_ubus.outputs.size_aarch64 }}
       size-aarch64-with-ubus: ${{ steps.with_ubus.outputs.size_aarch64 }}
@@ -83,8 +92,28 @@ jobs:
 
       - name: Install dependencies
         run: |
+          if [ "${{ matrix.privsep }}" = "true" ] && [ "${{ matrix.debarch }}" != "amd64" ]; then
+            # Cross privsep build: fetch libcap-ng/libseccomp for the target
+            # architecture from the Ubuntu ports archive via multiarch. Pin the
+            # default amd64 mirrors to amd64 first so apt does not try (and fail)
+            # to fetch the foreign arch from the security/archive pockets.
+            if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && ! grep -q '^Architectures:' /etc/apt/sources.list.d/ubuntu.sources; then
+              sudo sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+            fi
+            for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+              [ -f "$f" ] && sudo sed -i 's/^deb \(\[[^]]*\] \)\?/deb [arch=amd64] /' "$f"
+            done
+            . /etc/os-release
+            printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: %s %s-updates %s-security\nComponents: main universe\nArchitectures: %s\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
+              "$VERSION_CODENAME" "$VERSION_CODENAME" "$VERSION_CODENAME" "${{ matrix.debarch }}" \
+              | sudo tee /etc/apt/sources.list.d/ports.sources >/dev/null
+            sudo dpkg --add-architecture ${{ matrix.debarch }}
+          fi
           sudo apt update
           sudo apt install -y ${{ matrix.packages }}
+          if [ "${{ matrix.privsep }}" = "true" ]; then
+            sudo apt install -y libcap-ng-dev:${{ matrix.debarch }} libseccomp-dev:${{ matrix.debarch }}
+          fi
 
       - name: Prepare build
         run: |
@@ -155,6 +184,21 @@ jobs:
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
 
+      - name: Build odhcp6c (privsep)
+        if: matrix.privsep
+        env:
+          BUILD_DIR: build/odhcp6c-privsep
+        run: |
+          cmake \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DCMAKE_LIBRARY_ARCHITECTURE=${{ matrix.triplet }} \
+            -DUBUS=ON \
+            -DLIBCAP_NG=ON \
+            -DSECCOMP=ON \
+            -B $BUILD_DIR -S .
+          make -C $BUILD_DIR
+
       - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
@@ -162,70 +206,6 @@ jobs:
           path: |
             build/odhcp6c-*/odhcp6c
           if-no-files-found: error
-
-  privsep:
-    name: Build privsep (LIBCAP_NG + SECCOMP)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout odhcp6c
-        uses: actions/checkout@v5
-
-      - name: Checkout json-c
-        uses: actions/checkout@v5
-        with:
-          repository: json-c/json-c
-          path: depends/json-c
-
-      - name: Checkout libubox
-        uses: actions/checkout@v5
-        with:
-          repository: openwrt/libubox
-          path: depends/libubox
-
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libcap-ng-dev libseccomp-dev
-
-      - name: Prepare build
-        run: |
-          mkdir -p ${GITHUB_WORKSPACE}/build
-
-      - name: Build json-c
-        working-directory: depends/json-c
-        run: |
-          cmake \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DDISABLE_EXTRA_LIBS=ON \
-            -DBUILD_TESTING=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build \
-            -B . -S .
-          make
-          make install
-
-      - name: Build libubox
-        working-directory: depends/libubox
-        run: |
-          cmake \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_LUA=OFF \
-            -DBUILD_EXAMPLES=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build \
-            -B . -S .
-          make
-          make install
-
-      - name: Build odhcp6c (LIBCAP_NG + SECCOMP)
-        env:
-          BUILD_DIR: build/odhcp6c-privsep
-        run: |
-          cmake \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DLIBCAP_NG=ON \
-            -DSECCOMP=ON \
-            -B $BUILD_DIR -S .
-          make -C $BUILD_DIR
 
   summary:
     name: Sizes
