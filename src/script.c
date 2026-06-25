@@ -1249,17 +1249,28 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 	 * clears 'running' for script children and records the worker's exit
 	 * status in monitor_worker_status/monitor_worker_reaped.
 	 *
-	 * Bound every wait so a script child that ignores SIGTERM cannot wedge
-	 * daemon shutdown; escalate to SIGKILL after the drain timeout. This
-	 * mirrors the bounded poll in script_drain_running().
+	 * The in-flight child is normally the final 'stopped' notification
+	 * script: the worker emits 'unbound' then 'stopped' and immediately
+	 * closes the channel, so the monitor can reach here while that last
+	 * script is still starting up. Wait for it to finish on its own first
+	 * -- killing it outright would drop the terminal notification (observed
+	 * as a lost 'stopped' under fast-exiting libc/timing, e.g. musl). Only
+	 * if it overruns the drain budget do we escalate to SIGTERM, then
+	 * SIGKILL, so a script that ignores signals still cannot wedge daemon
+	 * shutdown. Every wait stays bounded, mirroring script_drain_running().
 	 */
-	pid_t script_pid = running;
-	if (script_pid > 0)
-		kill(script_pid, SIGTERM);
-
 	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
 			waited += 10)
 		script_sleep_ms(10);
+
+	pid_t script_pid = running;
+	if (script_pid > 0) {
+		kill(script_pid, SIGTERM);
+
+		for (int waited = 0; running > 0 &&
+				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
+			script_sleep_ms(10);
+	}
 
 	script_pid = running;
 	if (script_pid > 0) {
