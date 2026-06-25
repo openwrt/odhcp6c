@@ -84,7 +84,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install ${{ matrix.packages }}
+          sudo apt install -y ${{ matrix.packages }}
 
       - name: Prepare build
         run: |
