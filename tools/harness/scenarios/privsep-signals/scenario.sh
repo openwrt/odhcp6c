@@ -96,7 +96,11 @@ scenario_assert() {
 		if [ "$HARNESS_SAW_PRIVSEP" = "1" ]; then
 			assert_pass "monitor path isolated (distinct monitor/worker observed)"
 		else
-			assert_fail "privsep on but no distinct monitor/worker seen during drive"
+			# Single-process under --privsep on almost always means the binary
+			# was built without libcap-ng: privsep_should_enable() is gated on
+			# WITH_LIBCAP_NG and compiles out otherwise. Rebuild the image with
+			# -DLIBCAP_NG=ON (see tools/harness/Dockerfile*).
+			assert_fail "privsep on but odhcp6c ran single-process; binary likely built without libcap-ng (build with -DLIBCAP_NG=ON)"
 		fi
 	fi
 }

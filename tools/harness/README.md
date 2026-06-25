@@ -142,7 +142,17 @@ exercise the single-process path too, force `--no-privsep` for every scenario
 with `--privsep off` (or `HARNESS_PRIVSEP=off`). The integration workflow
 (`.github/workflows/integration.yml`) runs the full scenario set in both
 `privsep on` and `privsep off` modes against the hardened build
-(`-DHARDENING=ON -DSECCOMP=ON`).
+(`-DHARDENING=ON -DLIBCAP_NG=ON`).
+
+Privilege separation is only compiled in when odhcp6c is built with
+libcap-ng (`privsep_should_enable()` is gated on `WITH_LIBCAP_NG`); without
+it `--privsep on` silently degrades to a single process. The harness images
+therefore build with `-DLIBCAP_NG=ON` so the `privsep on` axis genuinely
+forks a monitor and an unprivileged worker. The seccomp-BPF worker filter is
+a separate concern: it is exercised through the trace modes (below) and the
+N-2 syscall reconciliation rather than enforced in the scenario images, so
+the functional tests stay focused on behaviour rather than allow-list
+completeness.
 
 ---
 
