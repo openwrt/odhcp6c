@@ -121,6 +121,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `ra-holdoff` | scapy ra | `-m` holdoff suppresses a tiny in-window RA change but a large out-of-window change still applies (entry not dropped) |
 | `info-options` | scapy serve | multi-value `RDNSS`/`DOMAINS` list formatting and sanitization |
 | `entry-formatting` | scapy serve | exact `entry_to_env` fields: `ADDRESSES`/`PREFIXES` lifetimes, `,class=` (non-1 IAID via `-P <pfx>/<len>:<iaid>`), `RA_ROUTES` default route |
+| `pd-exclude` | scapy serve | RFC 6603 Prefix Exclude: IA_PD IA_PREFIX with a nested OPTION_PD_EXCLUDE is decoded and the excluded prefix exported as `,excluded=<pfx>/<len>` on `PREFIXES` (regression guard for PR #151) |
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 
 ### The status script (assertion surface)

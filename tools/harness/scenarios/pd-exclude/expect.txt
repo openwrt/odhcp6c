@@ -1,0 +1,14 @@
+# RFC 6603 Prefix Exclude (PR #151). Each excluded prefix must be carried,
+# correctly decoded, on its matching PREFIXES entry in the 'bound' record.
+#
+# The 'regex' lines bind each excluded prefix to its own delegated-prefix
+# entry (the same space-delimited PREFIXES token, hence [^ ]*) so a
+# mis-association or byte-swap can't pass merely because both strings appear
+# somewhere in the export.
+#
+# action  key       op         value
+bound     PREFIXES  contains   2001:db8:1234::/48
+bound     PREFIXES  regex      2001:db8:1234::/48,[^ ]*excluded=2001:db8:1234:5600::/56
+bound     PREFIXES  contains   2001:db8:abcd::/48
+bound     PREFIXES  regex      2001:db8:abcd::/48,[^ ]*excluded=2001:db8:abcd:1234::/63
+bound     PREFIXES  sanitized

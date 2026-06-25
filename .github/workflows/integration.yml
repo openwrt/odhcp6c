@@ -41,6 +41,7 @@ env:
     captive-portal
     release-on-stop
     s46-mape
+    pd-exclude
 
 jobs:
   # ---------------------------------------------------------------------------
