@@ -749,11 +749,17 @@ int main(_o_unused int argc, char* const argv[])
 
 		if (worker > 0) {
 			/* MONITOR: stays root, only runs the script. */
+			/* Relabel comm (ps/top, /proc/<pid>/comm and kernel
+			 * logs such as the seccomp/OOM killer) so the two
+			 * privsep processes are distinguishable; cosmetic and
+			 * best-effort, truncated to 15 chars by the kernel. */
+			prctl(PR_SET_NAME, "odhcp6c-monitor", 0, 0, 0);
 			close(sp[1]);
 			return script_monitor_loop(sp[0], script, ifname, worker);
 		}
 
 		/* WORKER: opens the sockets, then drops privilege below. */
+		prctl(PR_SET_NAME, "odhcp6c-worker", 0, 0, 0);
 		close(sp[0]);
 		script_chan = sp[1];
 		script_set_channel(script_chan);
