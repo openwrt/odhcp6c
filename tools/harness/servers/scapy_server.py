@@ -223,7 +223,7 @@ def build_ia_options(args, na_iaid=1, pd_iaid=1):
                     preflft=args.preferred, validlft=args.valid)],
             )
         )
-    if not args.no_pd:
+    if not args.no_pd and not getattr(args, "pd_exclude", None):
         opts.append(
             DHCP6OptIA_PD(
                 iaid=pd_iaid, T1=args.t1, T2=args.t2,
@@ -277,6 +277,60 @@ def build_s46_mape_bytes():
     return struct.pack("!HH", 94, len(container)) + container
 
 
+def build_ia_pd_exclude_bytes(args, pd_iaid=1):
+    """Raw bytes for an IA_PD (option 25) carrying one or more IA_PREFIX options
+    (option 26), each with a nested RFC 6603 Prefix Exclude sub-option
+    (OPTION_PD_EXCLUDE, option 67).
+
+    --pd-exclude takes "DELEG/DLEN,EXCL/ELEN" pairs (repeatable). Scapy has no
+    class for the nested PD_EXCLUDE sub-option, so the whole IA_PD is emitted as
+    hand-built concatenated TLVs (DHCPv6 options are length-delimited TLVs),
+    mirroring build_s46_mape_bytes().
+
+    The IPv6 subnet ID is encoded per RFC 6603 ss4.2: the bits of the excluded
+    prefix beyond the delegated prefix length, most-significant-bit first,
+    left-justified into ceil(nbits/8) octets. This deliberately exercises both
+    the single-octet encoding (sub-data length 2, which the pre-#151 decoder
+    dropped via its "slen > 2" guard) and the multi-octet encoding (which the
+    pre-#151 decoder byte-swapped).
+    """
+    import socket
+    import struct
+
+    OPT_IA_PD, OPT_IA_PREFIX, OPT_PD_EXCLUDE = 25, 26, 67
+
+    ia_prefix_opts = b""
+    for spec in args.pd_exclude:
+        deleg_s, excl_s = spec.split(",", 1)
+        deleg_p, deleg_l = deleg_s.rsplit("/", 1)
+        excl_p, excl_l = excl_s.rsplit("/", 1)
+        deleg_len = int(deleg_l)
+        excl_len = int(excl_l)
+        deleg = socket.inet_pton(socket.AF_INET6, deleg_p)
+        excl = socket.inet_pton(socket.AF_INET6, excl_p)
+
+        nbits = excl_len - deleg_len
+        if nbits <= 0:
+            raise ValueError("excluded prefix (%s) must be longer than the "
+                             "delegated prefix (%s)" % (excl_s, deleg_s))
+        nbytes = (nbits + 7) // 8
+        excl_int = int.from_bytes(excl, "big")
+        # Right-aligned value of the subnet-ID bits, then left-justify into bytes.
+        subnet_val = (excl_int >> (128 - excl_len)) & ((1 << nbits) - 1)
+        subnet_field = subnet_val << (nbytes * 8 - nbits)
+        subnet_bytes = subnet_field.to_bytes(nbytes, "big")
+
+        excl_opt = struct.pack("!HHB", OPT_PD_EXCLUDE, 1 + nbytes, excl_len) \
+            + subnet_bytes
+        iapref_body = struct.pack("!IIB", args.preferred, args.valid, deleg_len) \
+            + deleg + excl_opt
+        ia_prefix_opts += struct.pack("!HH", OPT_IA_PREFIX, len(iapref_body)) \
+            + iapref_body
+
+    iapd_body = struct.pack("!III", pd_iaid, args.t1, args.t2) + ia_prefix_opts
+    return struct.pack("!HH", OPT_IA_PD, len(iapd_body)) + iapd_body
+
+
 def dhcpv6_server(args, iface, server_mac, server_ll, stop):
     srvid = DUID_LL(lladdr=server_mac)
 
@@ -309,6 +363,8 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
+            if getattr(args, "pd_exclude", None):
+                rep /= Raw(load=build_ia_pd_exclude_bytes(args, pd_iaid))
             if getattr(args, "reply_raw_trailer", None):
                 try:
                     _trailer = bytes.fromhex(args.reply_raw_trailer)
@@ -332,6 +388,8 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
+            if getattr(args, "pd_exclude", None):
+                rep /= Raw(load=build_ia_pd_exclude_bytes(args, pd_iaid))
             if getattr(args, "reply_raw_trailer", None):
                 try:
                     _trailer = bytes.fromhex(args.reply_raw_trailer)
@@ -416,6 +474,10 @@ def add_dhcpv6_args(p):
     p.add_argument("--reply-raw-trailer", default=None,
                    help="hex bytes appended verbatim after all options in the "
                         "ADVERTISE and REPLY (DHCPv6 negative-path parser tests)")
+    p.add_argument("--pd-exclude", action="append", default=[],
+                   metavar="DELEG/DLEN,EXCL/ELEN",
+                   help="return an IA_PD IA_PREFIX (DELEG/DLEN) carrying a "
+                        "nested RFC 6603 PD_EXCLUDE for EXCL/ELEN; repeatable")
 
 
 def main():

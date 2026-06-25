@@ -1,0 +1,9 @@
+# RFC 6603 Prefix Exclude (PR #151). Each excluded prefix must be carried,
+# correctly decoded, on its matching PREFIXES entry in the 'bound' record.
+#
+# action  key       op         value
+bound     PREFIXES  contains   2001:db8:1234::/48
+bound     PREFIXES  contains   excluded=2001:db8:1234:5600::/56
+bound     PREFIXES  contains   2001:db8:abcd::/48
+bound     PREFIXES  contains   excluded=2001:db8:abcd:1234::/63
+bound     PREFIXES  sanitized
