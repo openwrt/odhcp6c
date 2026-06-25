@@ -368,6 +368,33 @@ harness_odhcp6c_privsep_active() {
 	[ -n "$_m" ] && [ -n "$_w" ] && [ "$_m" != "$_w" ]
 }
 
+# [privsep-debug] Dump enough state to separate the single-process causes:
+# (A) privsep not compiled in, (B) compiled in but not euid 0 at runtime, or
+# (C) forked but the detector missed the worker. Remove once confirmed.
+harness_dump_privsep_state() {
+	info "[privsep-debug] netns=$HARNESS_NS_CLIENT odhcp6c processes:"
+	_any=0
+	for _p in $(harness_odhcp6c_pids); do
+		_any=1
+		_ppid=$(_harness_ppid "$_p")
+		# shellcheck disable=SC2016  # $2..$5 are awk fields, not shell vars
+		_uids=$($SUDO awk '/^Uid:/ { print $2" "$3" "$4" "$5 }' "/proc/$_p/status" 2>/dev/null)
+		info "[privsep-debug]   pid=$_p ppid=$_ppid uid(r e s fs)=$_uids"
+	done
+	[ "$_any" = 1 ] || info "[privsep-debug]   (no odhcp6c pids in netns)"
+	info "[privsep-debug] resolved monitor=$(harness_odhcp6c_role_pid monitor) worker=$(harness_odhcp6c_role_pid worker)"
+	_olog="$HARNESS_WORKDIR/odhcp6c.log"
+	_pat='privsep|single-process|socketpair|not running as root|drop privile|seccomp'
+	if [ -f "$_olog" ] && grep -niE "$_pat" "$_olog" >/dev/null 2>&1; then
+		info "[privsep-debug] odhcp6c.log privsep lines:"
+		grep -niE "$_pat" "$_olog" 2>/dev/null | while IFS= read -r _ln; do
+			info "[privsep-debug]   $_ln"
+		done
+	else
+		info "[privsep-debug] odhcp6c.log: no privsep-related lines"
+	fi
+}
+
 # Send a signal to odhcp6c (monitor + worker). Used by the generic lifecycle and
 # by scenarios that do not care which process reacts.
 harness_odhcp6c_signal() {

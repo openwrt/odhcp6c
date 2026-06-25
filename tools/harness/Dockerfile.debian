@@ -53,6 +53,18 @@ RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(LIBCAP_NG' C
     && cmake --build build --parallel \
     && cp build/odhcp6c /usr/local/bin/odhcp6c
 
+# [privsep-debug] Prove whether privilege separation was actually compiled
+# into the binary-under-test, so a single-process CI result can be pinned to
+# the build (this layer) vs. the runtime. Remove once the privsep axis is green.
+RUN echo "[privsep-debug] LIBCAP_NG flag => [$(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON)]"; \
+    grep -i 'LIBCAP_NG' build/CMakeCache.txt || echo "[privsep-debug] (LIBCAP_NG not in CMakeCache)"; \
+    if readelf -d /usr/local/bin/odhcp6c 2>/dev/null | grep -qi 'cap-ng'; then \
+        echo "[privsep-debug] linked libcap-ng = YES"; \
+    else echo "[privsep-debug] linked libcap-ng = NO"; fi; \
+    if strings /usr/local/bin/odhcp6c 2>/dev/null | grep -q 'staying single-process'; then \
+        echo "[privsep-debug] WITH_LIBCAP_NG compiled = YES"; \
+    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi
+
 ENV ODHCP6C_BIN=/usr/local/bin/odhcp6c
 ENV PYTHON=python3
 

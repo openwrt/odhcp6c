@@ -53,6 +53,9 @@ scenario_drive() {
 		info "single-process mode (no distinct monitor/worker)"
 	fi
 
+	# [privsep-debug] One-shot state dump to diagnose the single-process CI result.
+	harness_dump_privsep_state
+
 	# (1) Forwarding: SIGUSR1 to the MONITOR ONLY must reach the worker.
 	harness_odhcp6c_signal_role monitor USR1 \
 		|| fatal "could not signal monitor with SIGUSR1"

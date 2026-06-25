@@ -23,6 +23,18 @@ RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
         $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
     && cmake --build build --parallel
 
+# [privsep-debug] Prove whether privilege separation was actually compiled
+# into the binary-under-test, so a single-process CI result can be pinned to
+# the build (this layer) vs. the runtime. Remove once the privsep axis is green.
+RUN echo "[privsep-debug] LIBCAP_NG flag => [$(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON)]"; \
+    grep -i 'LIBCAP_NG' build/CMakeCache.txt || echo "[privsep-debug] (LIBCAP_NG not in CMakeCache)"; \
+    if readelf -d /src/build/odhcp6c 2>/dev/null | grep -qi 'cap-ng'; then \
+        echo "[privsep-debug] linked libcap-ng = YES"; \
+    else echo "[privsep-debug] linked libcap-ng = NO"; fi; \
+    if strings /src/build/odhcp6c 2>/dev/null | grep -q 'staying single-process'; then \
+        echo "[privsep-debug] WITH_LIBCAP_NG compiled = YES"; \
+    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi
+
 # --- stage 2: run inside the OpenWrt rootfs --------------------------------
 FROM openwrt-rootfs:latest
 # Bring in the binary-under-test and the harness sources.
