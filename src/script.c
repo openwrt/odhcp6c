@@ -907,7 +907,13 @@ void script_call(const char *status, int delay, bool resume)
 
 	if (pid < 0) {
 		error("Failed to fork script handler: %s", strerror(errno));
-		running = 0;
+		/*
+		 * Leave 'running' unchanged: a previous script child may still be
+		 * in-flight (script_drain_running() can return after SIGTERM while
+		 * the child is still exiting). Clearing it would drop that child
+		 * from tracking and let the next request start an overlapping
+		 * script without draining it first.
+		 */
 		sigprocmask(SIG_SETMASK, &omask, NULL);
 		return;
 	}
@@ -1038,7 +1044,13 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 
 	if (pid < 0) {
 		error("Failed to fork script handler: %s", strerror(errno));
-		running = 0;
+		/*
+		 * Leave 'running' unchanged: a previous script child may still be
+		 * in-flight (script_drain_running() can return after SIGTERM while
+		 * the child is still exiting). Clearing it would drop that child
+		 * from tracking and let the next request start an overlapping
+		 * script without draining it first.
+		 */
 		sigprocmask(SIG_SETMASK, &omask, NULL);
 		return;
 	}
