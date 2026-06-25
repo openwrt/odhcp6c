@@ -189,14 +189,36 @@ static void script_sleep_ms(long ms)
 		;
 }
 
+/*
+ * Block SIGCHLD so the handler cannot run (and reap a just-forked script
+ * child) between fork() and the bookkeeping that records the child's pid in
+ * 'running'. Without this a fast-exiting child can be reaped before 'running'
+ * is set, leaving a stale pid that is never cleared. The previous mask is
+ * returned via *omask so the caller can restore it.
+ */
+static void script_block_sigchld(sigset_t *omask)
+{
+	sigset_t mask;
+
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGCHLD);
+	sigprocmask(SIG_BLOCK, &mask, omask);
+}
+
 static void script_drain_running(void)
 {
 	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
 			waited += 10)
 		script_sleep_ms(10);
 
-	if (running > 0)
-		kill(running, SIGTERM);
+	/*
+	 * Snapshot 'running' before signalling. The SIGCHLD handler can clear
+	 * it to 0 between the test and the kill(); passing 0 to kill() would
+	 * signal the entire process group instead of just the script child.
+	 */
+	pid_t pid = running;
+	if (pid > 0)
+		kill(pid, SIGTERM);
 }
 
 int script_init(const char *path, const char *ifname)
@@ -878,11 +900,21 @@ void script_call(const char *status, int delay, bool resume)
 	if (resume || !running_script || !action[0])
 		strncpy(action, status, sizeof(action) - 1);
 
+	sigset_t omask;
+	script_block_sigchld(&omask);
+
 	pid_t pid = fork();
 
 	if (pid < 0) {
 		error("Failed to fork script handler: %s", strerror(errno));
-		running = 0;
+		/*
+		 * Leave 'running' unchanged: a previous script child may still be
+		 * in-flight (script_drain_running() can return after SIGTERM while
+		 * the child is still exiting). Clearing it would drop that child
+		 * from tracking and let the next request start an overlapping
+		 * script without draining it first.
+		 */
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 		return;
 	}
 
@@ -894,7 +926,9 @@ void script_call(const char *status, int delay, bool resume)
 		if (!resume)
 			action[0] = 0;
 
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 	} else if (pid == 0) {
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 		signal(SIGTERM, SIG_DFL);
 		if (delay > 0) {
 			sleep(delay);
@@ -1002,11 +1036,22 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 		strncpy(action, act, sizeof(action) - 1);
 		action[sizeof(action) - 1] = '\0';
 	}
+
+	sigset_t omask;
+	script_block_sigchld(&omask);
+
 	pid_t pid = fork();
 
 	if (pid < 0) {
 		error("Failed to fork script handler: %s", strerror(errno));
-		running = 0;
+		/*
+		 * Leave 'running' unchanged: a previous script child may still be
+		 * in-flight (script_drain_running() can return after SIGTERM while
+		 * the child is still exiting). Clearing it would drop that child
+		 * from tracking and let the next request start an overlapping
+		 * script without draining it first.
+		 */
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 		return;
 	}
 
@@ -1018,7 +1063,9 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 		if (!resume)
 			action[0] = 0;
 
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 	} else if (pid == 0) {
+		sigprocmask(SIG_SETMASK, &omask, NULL);
 		signal(SIGTERM, SIG_DFL);
 		if (delay > 0)
 			sleep(delay);
@@ -1202,19 +1249,32 @@ int script_monitor_loop(int fd, const char *script, const char *ifname,
 	 * clears 'running' for script children and records the worker's exit
 	 * status in monitor_worker_status/monitor_worker_reaped.
 	 *
-	 * Bound every wait so a script child that ignores SIGTERM cannot wedge
-	 * daemon shutdown; escalate to SIGKILL after the drain timeout. This
-	 * mirrors the bounded poll in script_drain_running().
+	 * The in-flight child is normally the final 'stopped' notification
+	 * script: the worker emits 'unbound' then 'stopped' and immediately
+	 * closes the channel, so the monitor can reach here while that last
+	 * script is still starting up. Wait for it to finish on its own first
+	 * -- killing it outright would drop the terminal notification (observed
+	 * as a lost 'stopped' under fast-exiting libc/timing, e.g. musl). Only
+	 * if it overruns the drain budget do we escalate to SIGTERM, then
+	 * SIGKILL, so a script that ignores signals still cannot wedge daemon
+	 * shutdown. Every wait stays bounded, mirroring script_drain_running().
 	 */
-	if (running > 0)
-		kill(running, SIGTERM);
-
 	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
 			waited += 10)
 		script_sleep_ms(10);
 
-	if (running > 0) {
-		kill(running, SIGKILL);
+	pid_t script_pid = running;
+	if (script_pid > 0) {
+		kill(script_pid, SIGTERM);
+
+		for (int waited = 0; running > 0 &&
+				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
+			script_sleep_ms(10);
+	}
+
+	script_pid = running;
+	if (script_pid > 0) {
+		kill(script_pid, SIGKILL);
 
 		for (int waited = 0; running > 0 &&
 				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
