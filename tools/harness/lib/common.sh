@@ -320,11 +320,19 @@ harness_odhcp6c_pids() {
 	_pids=""
 	for _pid in $($SUDO ip netns pids "$HARNESS_NS_CLIENT" 2>/dev/null); do
 		_comm=$($SUDO cat "/proc/$_pid/comm" 2>/dev/null || true)
-		[ "$_comm" = "odhcp6c" ] || continue
+		# The privsep monitor/worker relabel comm via prctl(PR_SET_NAME)
+		# to odhcp6c-monitor / odhcp6c-worker; a non-privsep build keeps
+		# plain "odhcp6c". Accept all three.
+		case "$_comm" in
+		odhcp6c|odhcp6c-monitor|odhcp6c-worker) ;;
+		*) continue ;;
+		esac
 		_pids="$_pids $_pid"
 		for _kid in $($SUDO cat "/proc/$_pid/task/$_pid/children" 2>/dev/null); do
 			_kcomm=$($SUDO cat "/proc/$_kid/comm" 2>/dev/null || true)
-			[ "$_kcomm" = "odhcp6c" ] && _pids="$_pids $_kid"
+			case "$_kcomm" in
+			odhcp6c|odhcp6c-monitor|odhcp6c-worker) _pids="$_pids $_kid" ;;
+			esac
 		done
 	done
 	for _p in $_pids; do printf '%s\n' "$_p"; done | sort -un
