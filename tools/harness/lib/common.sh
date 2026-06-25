@@ -309,10 +309,25 @@ harness_odhcp6c_start() {
 # the monitor (privileged parent) and the worker (unprivileged child); otherwise
 # it is the single process. Prints one PID per line.
 harness_odhcp6c_pids() {
+	# Enumerate the odhcp6c monitor AND worker without needing CAP_SYS_PTRACE.
+	# The privsep worker calls PR_SET_DUMPABLE(0) and drops to an unprivileged
+	# uid, which makes `ip netns pids` (it stats /proc/<pid>/ns/net, gated by
+	# the ptrace access check) unable to see it from a root-but-no-SYS_PTRACE
+	# container -- it would only ever return the monitor. Reading comm and the
+	# monitor's children needs no ptrace, so seed from the netns members ip CAN
+	# see (the monitor) and add its odhcp6c children (the worker). One PID per
+	# line, de-duplicated so a ptrace-capable host that lists both still works.
+	_pids=""
 	for _pid in $($SUDO ip netns pids "$HARNESS_NS_CLIENT" 2>/dev/null); do
 		_comm=$($SUDO cat "/proc/$_pid/comm" 2>/dev/null || true)
-		[ "$_comm" = "odhcp6c" ] && printf '%s\n' "$_pid"
+		[ "$_comm" = "odhcp6c" ] || continue
+		_pids="$_pids $_pid"
+		for _kid in $($SUDO cat "/proc/$_pid/task/$_pid/children" 2>/dev/null); do
+			_kcomm=$($SUDO cat "/proc/$_kid/comm" 2>/dev/null || true)
+			[ "$_kcomm" = "odhcp6c" ] && _pids="$_pids $_kid"
+		done
 	done
+	for _p in $_pids; do printf '%s\n' "$_p"; done | sort -un
 }
 
 # Print the parent PID of a process. Reads /proc/<pid>/status so a comm containing
