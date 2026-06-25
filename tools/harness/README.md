@@ -123,6 +123,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `entry-formatting` | scapy serve | exact `entry_to_env` fields: `ADDRESSES`/`PREFIXES` lifetimes, `,class=` (non-1 IAID via `-P <pfx>/<len>:<iaid>`), `RA_ROUTES` default route |
 | `pd-exclude` | scapy serve | RFC 6603 Prefix Exclude: IA_PD IA_PREFIX with a nested OPTION_PD_EXCLUDE is decoded and the excluded prefix exported as `,excluded=<pfx>/<len>` on `PREFIXES` (regression guard for PR #151) |
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
+| `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 
 ### The status script (assertion surface)
 
@@ -142,7 +143,17 @@ exercise the single-process path too, force `--no-privsep` for every scenario
 with `--privsep off` (or `HARNESS_PRIVSEP=off`). The integration workflow
 (`.github/workflows/integration.yml`) runs the full scenario set in both
 `privsep on` and `privsep off` modes against the hardened build
-(`-DHARDENING=ON -DSECCOMP=ON`).
+(`-DHARDENING=ON -DLIBCAP_NG=ON`).
+
+Privilege separation is only compiled in when odhcp6c is built with
+libcap-ng (`privsep_should_enable()` is gated on `WITH_LIBCAP_NG`); without
+it `--privsep on` silently degrades to a single process. The harness images
+therefore build with `-DLIBCAP_NG=ON` so the `privsep on` axis genuinely
+forks a monitor and an unprivileged worker. The seccomp-BPF worker filter is
+a separate concern: it is exercised through the trace modes (below) and the
+N-2 syscall reconciliation rather than enforced in the scenario images, so
+the functional tests stay focused on behaviour rather than allow-list
+completeness.
 
 ---
 
@@ -292,7 +303,8 @@ capability set and AppArmor profile both block.
 - The driver waits on **observable conditions** (stub records, log lines) rather
   than fixed sleeps wherever possible, and caps every wait with a timeout.
 - **Client egress:** the stateful scenarios (`stateful-basic`, `stateless-info`,
-  `renew-rebind`, `s46-mape`, and the RELEASE assertion of `release-on-stop`)
+  `renew-rebind`, `s46-mape`, the RELEASE assertion of `release-on-stop`, and
+  `privsep-signals`)
   require odhcp6c to be able to *send* DHCPv6 packets. Some sandboxed
   environments block datagram egress with a cgroup/eBPF firewall; there those
   scenarios cannot reach `bound`. The CI container imposes no such restriction.

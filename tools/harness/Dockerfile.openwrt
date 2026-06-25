@@ -16,12 +16,24 @@
 
 # --- stage 1: build odhcp6c against musl -----------------------------------
 FROM alpine:3.24.1 AS builder
-RUN apk add --no-cache build-base cmake libubox libubox-dev
+RUN apk add --no-cache build-base cmake libubox libubox-dev libcap-ng libcap-ng-dev
 WORKDIR /src
 COPY . /src
 RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
-        $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
+        $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
     && cmake --build build --parallel
+
+# [privsep-debug] Prove whether privilege separation was actually compiled
+# into the binary-under-test, so a single-process CI result can be pinned to
+# the build (this layer) vs. the runtime. Remove once the privsep axis is green.
+RUN echo "[privsep-debug] LIBCAP_NG flag => [$(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON)]"; \
+    grep -i 'LIBCAP_NG' build/CMakeCache.txt || echo "[privsep-debug] (LIBCAP_NG not in CMakeCache)"; \
+    if readelf -d /src/build/odhcp6c 2>/dev/null | grep -qi 'cap-ng'; then \
+        echo "[privsep-debug] linked libcap-ng = YES"; \
+    else echo "[privsep-debug] linked libcap-ng = NO"; fi; \
+    if strings /src/build/odhcp6c 2>/dev/null | grep -q 'staying single-process'; then \
+        echo "[privsep-debug] WITH_LIBCAP_NG compiled = YES"; \
+    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi
 
 # --- stage 2: run inside the OpenWrt rootfs --------------------------------
 FROM openwrt-rootfs:latest
@@ -32,7 +44,7 @@ WORKDIR /work
 # OpenWrt userland: install the harness runtime deps from the feeds.
 RUN mkdir -p /var/lock \
     && opkg update \
-    && opkg install ip-full python3 python3-pip strace \
+    && opkg install ip-full python3 python3-pip strace libcap-ng \
     && python3 -m pip install -r /work/tools/harness/servers/requirements.txt
 ENV ODHCP6C_BIN=/usr/bin/odhcp6c
 ENV PYTHON=python3

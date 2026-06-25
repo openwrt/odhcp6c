@@ -36,6 +36,7 @@ HARNESS_ODHCP6C_PID=""
 HARNESS_BACKEND_PID=""
 HARNESS_TRACE_MODE="none"
 HARNESS_TRACE_DIR=""
+HARNESS_ODHCP6C_EXIT=""   # propagated odhcp6c exit status (set by stop helpers)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -304,22 +305,148 @@ harness_odhcp6c_start() {
 	log "odhcp6c started (pid $HARNESS_ODHCP6C_PID, trace=$HARNESS_TRACE_MODE)"
 }
 
-# Send a signal to odhcp6c (monitor + worker).
+# List the odhcp6c PIDs running inside the client netns. In privsep mode this is
+# the monitor (privileged parent) and the worker (unprivileged child); otherwise
+# it is the single process. Prints one PID per line.
+harness_odhcp6c_pids() {
+	# Enumerate the odhcp6c monitor AND worker without needing CAP_SYS_PTRACE.
+	# The privsep worker calls PR_SET_DUMPABLE(0) and drops to an unprivileged
+	# uid, which makes `ip netns pids` (it stats /proc/<pid>/ns/net, gated by
+	# the ptrace access check) unable to see it from a root-but-no-SYS_PTRACE
+	# container -- it would only ever return the monitor. Reading comm and the
+	# monitor's children needs no ptrace, so seed from the netns members ip CAN
+	# see (the monitor) and add its odhcp6c children (the worker). One PID per
+	# line, de-duplicated so a ptrace-capable host that lists both still works.
+	_pids=""
+	for _pid in $($SUDO ip netns pids "$HARNESS_NS_CLIENT" 2>/dev/null); do
+		_comm=$($SUDO cat "/proc/$_pid/comm" 2>/dev/null || true)
+		[ "$_comm" = "odhcp6c" ] || continue
+		_pids="$_pids $_pid"
+		for _kid in $($SUDO cat "/proc/$_pid/task/$_pid/children" 2>/dev/null); do
+			_kcomm=$($SUDO cat "/proc/$_kid/comm" 2>/dev/null || true)
+			[ "$_kcomm" = "odhcp6c" ] && _pids="$_pids $_kid"
+		done
+	done
+	for _p in $_pids; do printf '%s\n' "$_p"; done | sort -un
+}
+
+# Print the parent PID of a process. Reads /proc/<pid>/status so a comm containing
+# spaces or parentheses cannot confuse field splitting.
+_harness_ppid() {
+	# shellcheck disable=SC2016  # $2 is an awk field, not a shell variable
+	$SUDO awk '/^PPid:/ { print $2 }' "/proc/$1/status" 2>/dev/null
+}
+
+# Resolve the PID of a privsep role: "monitor" (the privileged parent that owns
+# signal forwarding/translation -- src/script.c monitor_sighandle) or "worker"
+# (the unprivileged child running the DHCPv6 state machine). The worker is the
+# odhcp6c process whose parent is itself an odhcp6c process; the monitor is the
+# one whose parent is not. In single-process (non-privsep) mode both roles
+# collapse to the one PID. Prints the resolved PID, or nothing if none is found.
+harness_odhcp6c_role_pid() {
+	_role="$1"
+	_pids=$(harness_odhcp6c_pids)
+	[ -n "$_pids" ] || return 0
+
+	_monitor=""
+	_worker=""
+	for _p in $_pids; do
+		_pp=$(_harness_ppid "$_p")
+		_parent_is_odhcp6c=0
+		for _q in $_pids; do
+			[ "$_pp" = "$_q" ] && { _parent_is_odhcp6c=1; break; }
+		done
+		if [ "$_parent_is_odhcp6c" = 1 ]; then
+			_worker="$_p"
+		else
+			_monitor="$_p"
+		fi
+	done
+
+	# Single-process mode (or an unresolved race): collapse the roles.
+	[ -n "$_worker" ]  || _worker="$_monitor"
+	[ -n "$_monitor" ] || _monitor="$_worker"
+
+	case "$_role" in
+	monitor) printf '%s\n' "$_monitor" ;;
+	worker)  printf '%s\n' "$_worker" ;;
+	*) fatal "harness_odhcp6c_role_pid: role must be monitor|worker" ;;
+	esac
+}
+
+# True when the monitor and worker are distinct processes, i.e. privsep is
+# actually active. Lets a scenario prove it isolated the monitor path rather than
+# silently degrading to single-process signalling.
+harness_odhcp6c_privsep_active() {
+	_m=$(harness_odhcp6c_role_pid monitor)
+	_w=$(harness_odhcp6c_role_pid worker)
+	[ -n "$_m" ] && [ -n "$_w" ] && [ "$_m" != "$_w" ]
+}
+
+# [privsep-debug] Dump enough state to separate the single-process causes:
+# (A) privsep not compiled in, (B) compiled in but not euid 0 at runtime, or
+# (C) forked but the detector missed the worker. Remove once confirmed.
+harness_dump_privsep_state() {
+	info "[privsep-debug] netns=$HARNESS_NS_CLIENT odhcp6c processes:"
+	_any=0
+	for _p in $(harness_odhcp6c_pids); do
+		_any=1
+		_ppid=$(_harness_ppid "$_p")
+		# shellcheck disable=SC2016  # $2..$5 are awk fields, not shell vars
+		_uids=$($SUDO awk '/^Uid:/ { print $2" "$3" "$4" "$5 }' "/proc/$_p/status" 2>/dev/null)
+		info "[privsep-debug]   pid=$_p ppid=$_ppid uid(r e s fs)=$_uids"
+	done
+	[ "$_any" = 1 ] || info "[privsep-debug]   (no odhcp6c pids in netns)"
+	info "[privsep-debug] resolved monitor=$(harness_odhcp6c_role_pid monitor) worker=$(harness_odhcp6c_role_pid worker)"
+	_olog="$HARNESS_WORKDIR/odhcp6c.log"
+	_pat='privsep|single-process|socketpair|not running as root|drop privile|seccomp'
+	if [ -f "$_olog" ] && grep -niE "$_pat" "$_olog" >/dev/null 2>&1; then
+		info "[privsep-debug] odhcp6c.log privsep lines:"
+		grep -niE "$_pat" "$_olog" 2>/dev/null | while IFS= read -r _ln; do
+			info "[privsep-debug]   $_ln"
+		done
+	else
+		info "[privsep-debug] odhcp6c.log: no privsep-related lines"
+	fi
+}
+
+# Send a signal to odhcp6c (monitor + worker). Used by the generic lifecycle and
+# by scenarios that do not care which process reacts.
 harness_odhcp6c_signal() {
 	_sig="$1"
 	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
 	# In privsep mode SIGUSR1/SIGUSR2 are handled by the worker while the monitor
 	# can ignore them, so signal all odhcp6c PIDs inside the client netns.
 	_sent=0
-	for _pid in $($SUDO ip netns pids "$HARNESS_NS_CLIENT" 2>/dev/null); do
-		_comm=$($SUDO cat "/proc/$_pid/comm" 2>/dev/null || true)
-		[ "$_comm" = "odhcp6c" ] || continue
+	for _pid in $(harness_odhcp6c_pids); do
 		$SUDO kill "-$_sig" "$_pid" 2>/dev/null || true
 		_sent=1
 	done
 
-	# Fallback for early startup/teardown windows where netns PID scan is empty.
+	# Fallback for early startup/teardown windows where the netns PID scan is empty.
 	[ "$_sent" -eq 1 ] || $SUDO kill "-$_sig" "$HARNESS_ODHCP6C_PID" 2>/dev/null || true
+}
+
+# Send a signal to ONLY one privsep role (monitor|worker). Real init systems
+# signal the launcher (monitor) PID, so targeting the monitor in privsep mode
+# exercises the monitor's signal forwarding/translation path in isolation --
+# something the broadcast harness_odhcp6c_signal cannot do because it also hits
+# the worker directly.
+harness_odhcp6c_signal_role() {
+	_role="$1"; _sig="$2"
+	_target=$(harness_odhcp6c_role_pid "$_role")
+	if [ -z "$_target" ]; then
+		warn "no $_role PID resolved; cannot send SIG$_sig"
+		return 1
+	fi
+	# Report the real delivery result so callers can detect a failed signal
+	# (PID already exited, EPERM, ...) instead of a swallowed `|| true`.
+	if $SUDO kill "-$_sig" "$_target" 2>/dev/null; then
+		log "sent SIG$_sig to $_role (pid $_target)"
+		return 0
+	fi
+	warn "failed to send SIG$_sig to $_role (pid $_target)"
+	return 1
 }
 
 harness_odhcp6c_running() {
@@ -327,19 +454,46 @@ harness_odhcp6c_running() {
 	kill -0 "$HARNESS_ODHCP6C_PID" 2>/dev/null
 }
 
-# Stop odhcp6c gracefully (SIGTERM), then hard-kill if needed.
-harness_odhcp6c_stop() {
-	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
-	harness_odhcp6c_signal TERM
-	# Give it a bounded grace period to run the release + stopped script.
-	_deadline=$(( $(date +%s) + 5 ))
-	while harness_odhcp6c_running; do
+# Wait (bounded) for the whole odhcp6c process tree to leave the client netns,
+# then reap the launcher and record its propagated exit status in
+# HARNESS_ODHCP6C_EXIT. The launcher PID can linger as a zombie until we wait(),
+# so termination is detected by polling the netns for live odhcp6c processes
+# rather than kill -0 on the (possibly zombie) launcher.
+_harness_odhcp6c_reap() {
+	_deadline=$(( $(date +%s) + ${1:-8} ))
+	while [ -n "$(harness_odhcp6c_pids)" ]; do
 		[ "$(date +%s)" -ge "$_deadline" ] && break
 		sleep 0.2
 	done
-	harness_odhcp6c_running && harness_odhcp6c_signal KILL
-	wait "$HARNESS_ODHCP6C_PID" 2>/dev/null || true
+	if [ -n "$(harness_odhcp6c_pids)" ]; then
+		warn "odhcp6c still alive after grace period; hard-killing"
+		harness_odhcp6c_signal KILL
+	fi
+	wait "$HARNESS_ODHCP6C_PID" 2>/dev/null
+	HARNESS_ODHCP6C_EXIT=$?
 	HARNESS_ODHCP6C_PID=""
+}
+
+# Gracefully stop odhcp6c by signalling ONLY the privsep monitor (SIGTERM to the
+# monitor PID), then reap and capture the propagated exit status. In privsep mode
+# this drives the monitor's TERM->worker-SIGTERM translation and proves the
+# monitor faithfully reports the worker's exit status (the SIGCHLD/worker-pid race
+# fix). Clears HARNESS_ODHCP6C_PID so the subsequent generic stop is a no-op and
+# does not clobber HARNESS_ODHCP6C_EXIT.
+harness_odhcp6c_stop_monitor() {
+	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
+	harness_odhcp6c_signal_role monitor TERM \
+		|| warn "monitor-only SIGTERM delivery failed; relying on reap fallback"
+	_harness_odhcp6c_reap 8
+	log "monitor stop: odhcp6c exit status $HARNESS_ODHCP6C_EXIT"
+}
+
+# Stop odhcp6c gracefully (SIGTERM to the whole tree), then hard-kill if needed.
+# Captures the propagated exit status in HARNESS_ODHCP6C_EXIT.
+harness_odhcp6c_stop() {
+	[ -n "$HARNESS_ODHCP6C_PID" ] || return 0
+	harness_odhcp6c_signal TERM
+	_harness_odhcp6c_reap 5
 }
 
 # ---------------------------------------------------------------------------

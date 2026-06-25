@@ -57,6 +57,7 @@ RUN apk add --no-cache \
         python3 py3-pip \
         strace \
         libseccomp libseccomp-dev \
+        libcap-ng libcap-ng-dev \
         bash tcpdump
 
 # Install the Python backend dependencies from the pinned requirements file
@@ -68,11 +69,27 @@ WORKDIR /src
 COPY . /src
 
 # Minimal build: no ubus (avoids ubusd); enable the exploit-mitigation
-# (hardening) flags and seccomp where the option exists (both are no-ops on
-# trees without them). The harness points ODHCP6C_BIN at this.
-RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
+# (hardening) flags and libcap-ng so privilege separation is actually
+# compiled in -- privsep_should_enable() is gated on WITH_LIBCAP_NG, so
+# without it odhcp6c silently runs single-process. Seccomp is intentionally
+# left off here; the worker BPF allow-list is exercised as a separate step.
+# The grep guard keeps the flag a no-op on trees without the option. The
+# harness points ODHCP6C_BIN at this.
+RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
     && cmake --build build --parallel \
     && cp build/odhcp6c /usr/local/bin/odhcp6c
+
+# [privsep-debug] Prove whether privilege separation was actually compiled
+# into the binary-under-test, so a single-process CI result can be pinned to
+# the build (this layer) vs. the runtime. Remove once the privsep axis is green.
+RUN echo "[privsep-debug] LIBCAP_NG flag => [$(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON)]"; \
+    grep -i 'LIBCAP_NG' build/CMakeCache.txt || echo "[privsep-debug] (LIBCAP_NG not in CMakeCache)"; \
+    if readelf -d /usr/local/bin/odhcp6c 2>/dev/null | grep -qi 'cap-ng'; then \
+        echo "[privsep-debug] linked libcap-ng = YES"; \
+    else echo "[privsep-debug] linked libcap-ng = NO"; fi; \
+    if strings /usr/local/bin/odhcp6c 2>/dev/null | grep -q 'staying single-process'; then \
+        echo "[privsep-debug] WITH_LIBCAP_NG compiled = YES"; \
+    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi
 
 ENV ODHCP6C_BIN=/usr/local/bin/odhcp6c
 ENV PYTHON=python3
