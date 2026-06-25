@@ -8,7 +8,7 @@ on:
 
 env:
   archs: "aarch64 arm mips mips64 powerpc powerpc64 riscv64 x86_64"
-  variants: "without_ubus with_ubus"
+  variants: "without_ubus with_ubus with_ubus_and_privsep"
 
 jobs:
   build:
@@ -68,6 +68,14 @@ jobs:
       size-riscv64-with-ubus: ${{ steps.with_ubus.outputs.size_riscv64 }}
       size-x86_64-without-ubus: ${{ steps.without_ubus.outputs.size_x86_64 }}
       size-x86_64-with-ubus: ${{ steps.with_ubus.outputs.size_x86_64 }}
+      size-aarch64-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_aarch64 }}
+      size-arm-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_arm }}
+      size-mips-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_mips }}
+      size-mips64-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_mips64 }}
+      size-powerpc-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_powerpc }}
+      size-powerpc64-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_powerpc64 }}
+      size-riscv64-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_riscv64 }}
+      size-x86_64-with-ubus-and-privsep: ${{ steps.privsep.outputs.size_x86_64 }}
     steps:
       - name: Checkout odhcp6c
         uses: actions/checkout@v5
@@ -184,7 +192,8 @@ jobs:
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
 
-      - name: Build odhcp6c (privsep)
+      - id: privsep
+        name: Build odhcp6c (privsep)
         if: matrix.privsep
         env:
           BUILD_DIR: build/odhcp6c-privsep
@@ -198,6 +207,7 @@ jobs:
             -DSECCOMP=ON \
             -B $BUILD_DIR -S .
           make -C $BUILD_DIR
+          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcp6c -printf '%s' )" >> $GITHUB_OUTPUT
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -230,6 +240,14 @@ jobs:
           size_riscv64_with_ubus: ${{needs.build.outputs.size-riscv64-with-ubus}}
           size_x86_64_without_ubus: ${{needs.build.outputs.size-x86_64-without-ubus}}
           size_x86_64_with_ubus: ${{needs.build.outputs.size-x86_64-with-ubus}}
+          size_aarch64_with_ubus_and_privsep: ${{needs.build.outputs.size-aarch64-with-ubus-and-privsep}}
+          size_arm_with_ubus_and_privsep: ${{needs.build.outputs.size-arm-with-ubus-and-privsep}}
+          size_mips_with_ubus_and_privsep: ${{needs.build.outputs.size-mips-with-ubus-and-privsep}}
+          size_mips64_with_ubus_and_privsep: ${{needs.build.outputs.size-mips64-with-ubus-and-privsep}}
+          size_powerpc_with_ubus_and_privsep: ${{needs.build.outputs.size-powerpc-with-ubus-and-privsep}}
+          size_powerpc64_with_ubus_and_privsep: ${{needs.build.outputs.size-powerpc64-with-ubus-and-privsep}}
+          size_riscv64_with_ubus_and_privsep: ${{needs.build.outputs.size-riscv64-with-ubus-and-privsep}}
+          size_x86_64_with_ubus_and_privsep: ${{needs.build.outputs.size-x86_64-with-ubus-and-privsep}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
 
@@ -246,7 +264,7 @@ jobs:
             row="| $arch | "
             for variant in $variants; do
               value=size_${arch}_$(echo "$variant" | tr "[:upper:]" "[:lower:]")
-              row="$row ${!value} |"
+              row="$row ${!value:-0} |"
             done
             echo $row >> $GITHUB_STEP_SUMMARY
           done
