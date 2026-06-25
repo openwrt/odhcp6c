@@ -42,6 +42,7 @@ env:
     release-on-stop
     s46-mape
     privsep-signals
+    abnormal-exit
     pd-exclude
 
 jobs:
