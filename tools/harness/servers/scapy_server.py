@@ -287,7 +287,7 @@ def build_ia_pd_exclude_bytes(args, pd_iaid=1):
     hand-built concatenated TLVs (DHCPv6 options are length-delimited TLVs),
     mirroring build_s46_mape_bytes().
 
-    The IPv6 subnet ID is encoded per RFC 6603 ss4.2: the bits of the excluded
+    The IPv6 subnet ID is encoded per RFC 6603 §4.2: the bits of the excluded
     prefix beyond the delegated prefix length, most-significant-bit first,
     left-justified into ceil(nbits/8) octets. This deliberately exercises both
     the single-octet encoding (sub-data length 2, which the pre-#151 decoder
@@ -309,12 +309,24 @@ def build_ia_pd_exclude_bytes(args, pd_iaid=1):
         deleg = socket.inet_pton(socket.AF_INET6, deleg_p)
         excl = socket.inet_pton(socket.AF_INET6, excl_p)
 
+        for _name, _plen in (("delegated", deleg_len), ("excluded", excl_len)):
+            if not 0 <= _plen <= 128:
+                raise ValueError("%s prefix length /%d is out of range 0..128"
+                                 % (_name, _plen))
+        deleg_int = int.from_bytes(deleg, "big")
+        excl_int = int.from_bytes(excl, "big")
+        # The excluded prefix must fall inside the delegated prefix: the
+        # leading deleg_len bits must match (RFC 6603 §4.2).
+        if deleg_len and (deleg_int >> (128 - deleg_len)) != \
+                (excl_int >> (128 - deleg_len)):
+            raise ValueError("excluded prefix (%s) is not within the "
+                             "delegated prefix (%s)" % (excl_s, deleg_s))
+
         nbits = excl_len - deleg_len
         if nbits <= 0:
             raise ValueError("excluded prefix (%s) must be longer than the "
                              "delegated prefix (%s)" % (excl_s, deleg_s))
         nbytes = (nbits + 7) // 8
-        excl_int = int.from_bytes(excl, "big")
         # Right-aligned value of the subnet-ID bits, then left-justify into bytes.
         subnet_val = (excl_int >> (128 - excl_len)) & ((1 << nbits) - 1)
         subnet_field = subnet_val << (nbytes * 8 - nbits)
@@ -363,7 +375,7 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
-            if getattr(args, "pd_exclude", None):
+            if not args.no_pd and getattr(args, "pd_exclude", None):
                 rep /= Raw(load=build_ia_pd_exclude_bytes(args, pd_iaid))
             if getattr(args, "reply_raw_trailer", None):
                 try:
@@ -388,7 +400,7 @@ def dhcpv6_server(args, iface, server_mac, server_ll, stop):
                 rep /= o
             if getattr(args, "mape", False):
                 rep /= Raw(load=build_s46_mape_bytes())
-            if getattr(args, "pd_exclude", None):
+            if not args.no_pd and getattr(args, "pd_exclude", None):
                 rep /= Raw(load=build_ia_pd_exclude_bytes(args, pd_iaid))
             if getattr(args, "reply_raw_trailer", None):
                 try:
