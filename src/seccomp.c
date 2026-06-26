@@ -20,6 +20,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 #include <seccomp.h>
 
 #include "odhcp6c.h"
@@ -61,14 +63,13 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(read), SCMP_SYS(write),
 	SCMP_SYS(close),
 	/* DHCPv6 socket re-creation on DHCPV6_RESET (worker retains
-	 * CAP_NET_RAW + CAP_NET_BIND_SERVICE). ioctl is broad but used only
-	 * for SIOCGIFFLAGS/SIOCGIFINDEX/SIOCGIFHWADDR during socket setup and
-	 * EUI-64 generation; left as a plain allow for a first cut rather than
-	 * an argument filter. socketcall covers 32-bit socket multiplexing. */
+	 * CAP_NET_RAW + CAP_NET_BIND_SERVICE). socketcall covers 32-bit
+	 * socket multiplexing. ioctl is not allowed here: it is restricted to
+	 * a fixed set of SIOCGIF* requests via an argument filter added
+	 * separately below (see seccomp_ioctl_allow). */
 	SCMP_SYS(socket), SCMP_SYS(setsockopt), SCMP_SYS(getsockopt),
 	SCMP_SYS(bind), SCMP_SYS(connect), SCMP_SYS(getsockname),
 	SCMP_SYS(socketcall),
-	SCMP_SYS(ioctl),
 	SCMP_SYS(fcntl), SCMP_SYS(fcntl64),
 	/* time + randomness + alarms */
 	SCMP_SYS(clock_gettime), SCMP_SYS(clock_gettime64),
@@ -98,6 +99,27 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(exit), SCMP_SYS(exit_group),
 };
 
+/*
+ * The worker issues ioctl(2) only with a small, fixed set of SIOCGIF* requests:
+ *   - SIOCGIFFLAGS : point-to-point detection during RA socket setup (ra.c)
+ *   - SIOCGIFINDEX : interface index lookup for the DHCPv6/RA sockets,
+ *                    including DHCPV6_RESET socket re-creation (dhcpv6.c, ra.c)
+ *   - SIOCGIFHWADDR: client DUID and EUI-64 hardware-address fetch
+ *                    (dhcpv6.c, ra.c)
+ *   - SIOCGIFCONF  : DUID fallback scan for a usable hardware address when the
+ *                    request interface has none (dhcpv6.c)
+ * Restrict ioctl to exactly these request numbers via an argument filter
+ * (arg1 == request) instead of a blanket allow, so a parser compromise in the
+ * worker cannot reach arbitrary driver/terminal ioctls. The request numbers
+ * are stable kernel UAPI values, identical across glibc and musl.
+ */
+static const unsigned long seccomp_ioctl_allow[] = {
+	SIOCGIFFLAGS,
+	SIOCGIFINDEX,
+	SIOCGIFHWADDR,
+	SIOCGIFCONF,
+};
+
 void seccomp_apply(void)
 {
 	scmp_filter_ctx ctx = seccomp_init(ODHCP6C_SECCOMP_DEFAULT);
@@ -119,6 +141,29 @@ void seccomp_apply(void)
 		}
 		if (rc != 0) {
 			critical("seccomp: could not add rule for syscall index %zu: %s", i,
+					strerror(-rc));
+			seccomp_release(ctx);
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	/*
+	 * Narrow ioctl to the fixed SIOCGIF* request set (see seccomp_ioctl_allow):
+	 * allow ioctl only when arg1 (the request) matches one of the permitted
+	 * commands; every other ioctl falls through to the default kill action.
+	 */
+	for (size_t i = 0; i < ARRAY_SIZE(seccomp_ioctl_allow); ++i) {
+		int rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(ioctl), 1,
+				SCMP_A1(SCMP_CMP_EQ, seccomp_ioctl_allow[i]));
+		if (rc == -EDOM) {
+			/* ioctl not defined for the build architecture; skip
+			 * rather than aborting (mirrors the allow-list loop). */
+			debug("seccomp: skipping ioctl request filter index %zu not available on this architecture",
+					i);
+			continue;
+		}
+		if (rc != 0) {
+			critical("seccomp: could not add ioctl rule index %zu: %s", i,
 					strerror(-rc));
 			seccomp_release(ctx);
 			exit(EXIT_FAILURE);
