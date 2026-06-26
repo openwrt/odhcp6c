@@ -33,7 +33,6 @@
 #include <string.h>
 #include <sys/types.h>
 
-#include "odhcp6c.h"
 #include "script.h"
 #include "script_internal.h"
 

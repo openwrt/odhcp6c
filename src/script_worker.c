@@ -87,12 +87,14 @@ void script_set_channel(int fd)
 /*
  * Length of the NAME portion (bytes before '=') of a collected entry, bounded
  * so a diagnostic log line can quote which variable was dropped without echoing
- * an unbounded or value-bearing string. Used only for logging.
+ * an unbounded or value-bearing string. A malformed entry with no '=' has no
+ * name, so report length 0 rather than risk logging value bytes. Used only for
+ * logging.
  */
 static int script_env_name(const char *buf)
 {
 	const char *eq = strchr(buf, '=');
-	size_t n = eq ? (size_t)(eq - buf) : strlen(buf);
+	size_t n = eq ? (size_t)(eq - buf) : 0;
 
 	if (n > 64)
 		n = 64;
