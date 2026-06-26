@@ -17,7 +17,7 @@
 #
 # odhcp6c parses these in dhcpv6_parse_ia() and exports them via entry_to_env()
 # as ",excluded=<prefix>/<len>" appended to the matching PREFIXES entry (see
-# src/script.c). We assert both excluded prefixes appear, correctly decoded, in
+# src/script_worker.c). We assert both excluded prefixes appear, correctly decoded, in
 # the 'bound' record -- so this scenario FAILS on the pre-#151 code and PASSES
 # on the fixed code.
 #

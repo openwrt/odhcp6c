@@ -3,7 +3,7 @@
 # A scapy RA backend advertises a SLAAC PIO (2001:db8:1::/64) so odhcp6c forms a
 # RA_ADDRESSES entry. We then inject the SAME prefix with valid-lifetime 0, which
 # per RFC 4862 withdraws the address: entry_to_env still emits invalid prefix/RA
-# entries (see src/script.c entry_to_env), but the configured address must be
+# entries (see src/script_worker.c entry_to_env), but the configured address must be
 # gone from the FINAL ra-updated record.
 #
 # This needs harness_assert_last (lib/assert.sh): a plain not_contains would

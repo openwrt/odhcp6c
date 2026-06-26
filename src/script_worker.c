@@ -13,24 +13,31 @@
  *
  */
 
+/*
+ * Unprivileged worker / presentation side of the status-script machinery. This
+ * is the network-facing code: it turns the parsed (attacker-influenced) DHCPv6
+ * and RA client state into "NAME=value" environment strings. In the single
+ * process model it forks the script itself (via the shared script_spawn());
+ * under privilege separation it instead serializes the environment and ships it
+ * to the root monitor, which re-validates everything before exec. Nothing here
+ * runs as root in privsep mode and nothing here is part of the trusted compute
+ * base.
+ */
+
 #include <arpa/inet.h>
-#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <resolv.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <unistd.h>
 
 #include "odhcp6c.h"
 #include "script.h"
+#include "script_internal.h"
 
 static const char hexdigits[] = "0123456789abcdef";
 static const int8_t hexvals[] = {
@@ -44,29 +51,6 @@ static const int8_t hexvals[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
-static char action[16] = "";
-static char *argv[4] = {NULL, NULL, action, NULL};
-static volatile pid_t running = 0;
-static time_t started;
-static int started_delay = 0;
-
-/*
- * Upper bound (milliseconds) for draining a still-executing script child before
- * launching the next one, so a misbehaving script cannot wedge the caller.
- */
-#define SCRIPT_DRAIN_TIMEOUT_MS 5000
-
-/*
- * Pid of the worker, used by the monitor to forward termination signals.
- * Because the SIGCHLD handler reaps every child (to avoid leaking zombies of
- * replaced script children), it can reap the worker before the monitor's final
- * waitpid() loop runs. To avoid losing the worker's exit status it is captured
- * here when the handler reaps it, and the monitor loop falls back to this value.
- */
-static volatile pid_t monitor_worker_pid = 0;
-static volatile int monitor_worker_status = 0;
-static volatile sig_atomic_t monitor_worker_reaped = 0;
-
 /*
  * Worker-side IPC channel. When >= 0, script_call() serializes the request and
  * sends it to the monitor instead of forking and exec'ing the script itself.
@@ -77,14 +61,22 @@ static int script_channel = -1;
  * Environment collector. The *_to_env() helpers historically called putenv()
  * directly from the forked script child. To support privilege separation the
  * same helpers can instead collect the formatted "NAME=value" strings so the
- * worker can serialize them for the monitor. When env_collecting is false the
+ * worker can serialize them for the monitor. When env.collecting is false the
  * behavior is unchanged (putenv from the child).
  */
-static bool env_collecting = false;
-static char **env_list = NULL;
-static size_t env_cnt = 0;
-static size_t env_cap = 0;
-static size_t env_bytes = 0;	/* collected env bytes (incl. NULs) */
+struct env_collector {
+	bool    collecting;
+	char  **list;
+	size_t  cnt, cap, bytes;	/* bytes: collected env bytes (incl. NULs) */
+};
+
+static struct env_collector env = {
+	.collecting = false,
+	.list = NULL,
+	.cnt = 0,
+	.cap = 0,
+	.bytes = 0,
+};
 
 void script_set_channel(int fd)
 {
@@ -94,7 +86,7 @@ void script_set_channel(int fd)
 /*
  * Take ownership of a heap-allocated "NAME=value" string. In the normal
  * (single-process) path this exports it to the child's environment. While
- * collecting (worker privsep path) it is appended to env_list for later
+ * collecting (worker privsep path) it is appended to env.list for later
  * serialization.
  */
 static void script_putenv(char *buf)
@@ -102,13 +94,13 @@ static void script_putenv(char *buf)
 	if (!buf)
 		return;
 
-	if (!env_collecting) {
+	if (!env.collecting) {
 		putenv(buf);
 		return;
 	}
 
 	/*
-	 * Enforce the monitor's hard caps while collecting so env_list cannot
+	 * Enforce the monitor's hard caps while collecting so env.list cannot
 	 * grow past what script_send_request() would actually serialize. Drop
 	 * over-long entries and anything beyond the count/byte budget here
 	 * rather than buffering them only to truncate later.
@@ -116,118 +108,36 @@ static void script_putenv(char *buf)
 	size_t len = strlen(buf) + 1;
 
 	if (len > SCRIPT_ENV_ENTRY_MAX ||
-			env_cnt >= SCRIPT_ENV_MAX_COUNT ||
-			env_bytes + len > SCRIPT_ENV_MAX_TOTAL) {
+			env.cnt >= SCRIPT_ENV_MAX_COUNT ||
+			env.bytes + len > SCRIPT_ENV_MAX_TOTAL) {
 		free(buf);
 		return;
 	}
 
-	if (env_cnt == env_cap) {
-		size_t ncap = env_cap ? env_cap * 2 : 32;
-		char **n = realloc(env_list, ncap * sizeof(*env_list));
+	if (env.cnt == env.cap) {
+		size_t ncap = env.cap ? env.cap * 2 : 32;
+		char **n = realloc(env.list, ncap * sizeof(*env.list));
 
 		if (!n) {
 			free(buf);
 			return;
 		}
 
-		env_list = n;
-		env_cap = ncap;
+		env.list = n;
+		env.cap = ncap;
 	}
 
-	env_list[env_cnt++] = buf;
-	env_bytes += len;
+	env.list[env.cnt++] = buf;
+	env.bytes += len;
 }
 
 static void script_env_collect_reset(void)
 {
-	for (size_t i = 0; i < env_cnt; i++)
-		free(env_list[i]);
+	for (size_t i = 0; i < env.cnt; i++)
+		free(env.list[i]);
 
-	env_cnt = 0;
-	env_bytes = 0;
-}
-
-static void script_sighandle(int signal)
-{
-	if (signal == SIGCHLD) {
-		pid_t child;
-		int status;
-
-		while ((child = waitpid(-1, &status, WNOHANG)) > 0) {
-			if (monitor_worker_pid > 0 && child == monitor_worker_pid) {
-				/* Preserve the worker's status for the monitor
-				 * loop instead of discarding it here. */
-				monitor_worker_status = status;
-				monitor_worker_reaped = 1;
-			} else if (running == child)
-				running = 0;
-		}
-	}
-}
-
-/*
- * Wait (bounded) for the in-flight script child to exit so its status
- * notification is delivered before the next script starts. The SIGCHLD handler
- * reaps the child and clears `running`. This is used when a previous script has
- * already moved past its scheduled delay and begun executing: cancelling it
- * would silently drop a notification (e.g. the terminal "unbound" -> "stopped"
- * sequence on shutdown). A misbehaving script must not wedge the caller, so
- * fall back to SIGTERM after the timeout.
- */
-/*
- * Sleep for the full requested interval. nanosleep() can return early with
- * EINTR when a signal is delivered; retry with the remaining time so callers
- * that poll on a wall-clock budget do not advance their counters without
- * actually waiting (which would shorten the drain timeout).
- */
-static void script_sleep_ms(long ms)
-{
-	struct timespec ts = { ms / 1000, (ms % 1000) * 1000L * 1000 };
-
-	while (nanosleep(&ts, &ts) != 0 && errno == EINTR)
-		;
-}
-
-/*
- * Block SIGCHLD so the handler cannot run (and reap a just-forked script
- * child) between fork() and the bookkeeping that records the child's pid in
- * 'running'. Without this a fast-exiting child can be reaped before 'running'
- * is set, leaving a stale pid that is never cleared. The previous mask is
- * returned via *omask so the caller can restore it.
- */
-static void script_block_sigchld(sigset_t *omask)
-{
-	sigset_t mask;
-
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGCHLD);
-	sigprocmask(SIG_BLOCK, &mask, omask);
-}
-
-static void script_drain_running(void)
-{
-	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
-			waited += 10)
-		script_sleep_ms(10);
-
-	/*
-	 * Snapshot 'running' before signalling. The SIGCHLD handler can clear
-	 * it to 0 between the test and the kill(); passing 0 to kill() would
-	 * signal the entire process group instead of just the script child.
-	 */
-	pid_t pid = running;
-	if (pid > 0)
-		kill(pid, SIGTERM);
-}
-
-int script_init(const char *path, const char *ifname)
-{
-	argv[0] = (char*)path;
-	argv[1] = (char*)ifname;
-	signal(SIGCHLD, script_sighandle);
-
-	return 0;
+	env.cnt = 0;
+	env.bytes = 0;
 }
 
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src)
@@ -257,78 +167,6 @@ void script_hexlify(char *dst, const uint8_t *src, size_t len)
 	}
 
 	*dst = 0;
-}
-
-/*
- * Prepare an already-assembled "NAME=value" buffer that originates from
- * untrusted network input before it is exported to the environment of the
- * (root) status script.
- *
- * The variable NAME (the bytes before the first '=') is validated, not
- * rewritten. It is only accepted if it is a non-empty run of the portable
- * environment-variable charset ([A-Za-z_][A-Za-z0-9_]*). Silently rewriting an
- * invalid name could map a value onto an unexpected variable, so a missing or
- * invalid name causes the whole entry to be rejected: the function returns
- * false and the caller must not putenv() it. Rejecting a single entry (rather
- * than aborting the process) avoids handing an attacker a denial-of-service
- * trigger. The names used in this file are compile-time constants, so this is
- * defense in depth against future call sites.
- *
- * The value (the bytes after the first '=') is sanitized in place. DHCPv6
- * replies and ICMPv6 Router Advertisements are attacker-controlled, so option
- * payloads may contain newlines or other non-printable bytes. Any byte that is
- * not printable ASCII, or that could trigger shell quoting/expansion, is
- * replaced with '_'. This cannot remove embedded NUL bytes (they already
- * terminate the C string) and does not by itself guarantee shell-safety: the
- * consuming script must still quote variables.
- *
- * Returns true if the entry is safe to export, false if it must be discarded.
- */
-static bool script_sanitize_env(char *env)
-{
-	char *p = strchr(env, '=');
-
-	/* A well-formed entry must have a non-empty NAME before the '='. */
-	if (p == NULL || p == env)
-		return false;
-
-	/* Validate the NAME without modifying it. */
-	for (char *n = env; n < p; n++) {
-		unsigned char c = (unsigned char)*n;
-
-		if (c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
-			continue;
-		/* Digits are allowed, but not as the first character. */
-		if (n != env && c >= '0' && c <= '9')
-			continue;
-
-		return false;
-	}
-
-	/* Sanitize the value portion in place. */
-	for (p++; *p; p++) {
-		unsigned char c = (unsigned char)*p;
-
-		/* Reject non-printable and non-ASCII bytes */
-		if (c < 0x20 || c > 0x7e) {
-			*p = '_';
-			continue;
-		}
-
-		/* Reject shell-significant characters */
-		switch (c) {
-		case '`': case '$': case '\\': case '"': case '\'':
-			*p = '_';
-			break;
-		default:
-			/* Replace whitespace other than a single regular space */
-			if (c != ' ' && isspace(c))
-				*p = '_';
-			break;
-		}
-	}
-
-	return true;
 }
 
 static void ipv6_to_env(const char *name,
@@ -692,7 +530,7 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 
 /*
  * Build the full set of "NAME=value" environment strings from the current
- * client state. Depending on env_collecting (see script_putenv) the strings are
+ * client state. Depending on env.collecting (see script_putenv) the strings are
  * either exported via putenv() in the forked script child or collected for
  * serialization to the monitor.
  */
@@ -787,7 +625,7 @@ static void script_build_env(void)
  */
 static void script_send_request(const char *status, int delay, bool resume)
 {
-	env_collecting = true;
+	env.collecting = true;
 	script_env_collect_reset();
 
 	/*
@@ -809,8 +647,8 @@ static void script_send_request(const char *status, int delay, bool resume)
 
 	size_t env_total = 0;
 	size_t env_count = 0;
-	for (size_t i = 0; i < env_cnt; i++) {
-		size_t l = strlen(env_list[i]) + 1;
+	for (size_t i = 0; i < env.cnt; i++) {
+		size_t l = strlen(env.list[i]) + 1;
 
 		if (l > SCRIPT_ENV_ENTRY_MAX ||
 				env_count >= SCRIPT_ENV_MAX_COUNT ||
@@ -841,9 +679,9 @@ static void script_send_request(const char *status, int delay, bool resume)
 		p += action_len;
 
 		for (size_t i = 0; i < env_count; i++) {
-			size_t l = strlen(env_list[i]) + 1;
+			size_t l = strlen(env.list[i]) + 1;
 
-			memcpy(p, env_list[i], l);
+			memcpy(p, env.list[i], l);
 			p += l;
 		}
 
@@ -857,103 +695,7 @@ static void script_send_request(const char *status, int delay, bool resume)
 	}
 
 	script_env_collect_reset();
-	env_collecting = false;
-}
-
-/*
- * The single place that forks a script child. Both the single-process worker
- * (script_call) and the privileged monitor (monitor_run_script) delegate here
- * so the subtle fork/signal bookkeeping lives in exactly one spot and the two
- * paths can never drift.
- *
- * The shared bookkeeping is:
- *   - supersede-or-drain a still-running script: if the previous child is still
- *     in its pre-exec delay window a newer state supersedes it (SIGTERM + delay
- *     inheritance = state batching); an already-executing one is drained so its
- *     notification (e.g. the terminal unbound -> stopped sequence) is not lost;
- *   - latch the action into the shared action[] buffer (resume/replace rules);
- *   - block SIGCHLD across fork() so the handler cannot reap the child before
- *     'running' is recorded, and snapshot it in the parent;
- *   - in the child, reset SIGTERM, sleep out the delay, then run the
- *     caller-supplied env step before execv.
- *
- * The only real difference between the two callers is what the child does to
- * prepare its environment immediately before execv; that is supplied via
- * child_setup(delay, ctx) so the rest stays identical.
- */
-static void script_spawn(const char *act, int delay, bool resume,
-		void (*child_setup)(int delay, void *ctx), void *ctx)
-{
-	time_t now = odhcp6c_get_milli_time() / 1000;
-	bool running_script = false;
-
-	pid_t prev = running;
-	if (prev > 0) {
-		time_t diff = now - started;
-
-		if (diff < started_delay) {
-			/* Still in its pre-exec delay window: a newer state
-			 * supersedes it, so cancel and replace it (state
-			 * batching). */
-			kill(prev, SIGTERM);
-
-			if (diff > delay)
-				delay -= diff;
-			else
-				delay = 0;
-
-			running_script = true;
-		} else {
-			/* Already executing: let it finish so its notification
-			 * is not lost (e.g. the terminal unbound -> stopped
-			 * sequence) before starting the next one. */
-			script_drain_running();
-		}
-	}
-
-	if (resume || !running_script || !action[0]) {
-		strncpy(action, act, sizeof(action) - 1);
-		action[sizeof(action) - 1] = '\0';
-	}
-
-	sigset_t omask;
-	script_block_sigchld(&omask);
-
-	pid_t pid = fork();
-
-	if (pid < 0) {
-		error("Failed to fork script handler: %s", strerror(errno));
-		/*
-		 * Leave 'running' unchanged: a previous script child may still be
-		 * in-flight (script_drain_running() can return after SIGTERM while
-		 * the child is still exiting). Clearing it would drop that child
-		 * from tracking and let the next request start an overlapping
-		 * script without draining it first.
-		 */
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-		return;
-	}
-
-	if (pid > 0) {
-		running = pid;
-		started = now;
-		started_delay = delay;
-
-		if (!resume)
-			action[0] = 0;
-
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-	} else if (pid == 0) {
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-		signal(SIGTERM, SIG_DFL);
-		if (delay > 0)
-			sleep(delay);
-
-		child_setup(delay, ctx);
-
-		execv(argv[0], argv);
-		_exit(128);
-	}
+	env.collecting = false;
 }
 
 /*
@@ -973,7 +715,7 @@ static void script_call_child(int delay, void *ctx)
 
 void script_call(const char *status, int delay, bool resume)
 {
-	if (!argv[0])
+	if (!script_child.argv[0])
 		return;
 
 	if (script_channel >= 0) {
@@ -982,327 +724,4 @@ void script_call(const char *status, int delay, bool resume)
 	}
 
 	script_spawn(status, delay, resume, script_call_child, NULL);
-}
-
-/*
- * The exact set of actions odhcp6c emits today (from the notify_state_change()
- * call sites). The monitor only ever runs the script with one of these; any
- * other action from the worker is rejected.
- */
-static const char *const script_actions[] = {
-	"started", "bound", "informed", "ra-updated",
-	"updated", "rebound", "unbound", "stopped",
-};
-
-static bool script_action_allowed(const char *act, size_t len)
-{
-	if (len == 0 || len > SCRIPT_ACTION_MAX)
-		return false;
-
-	for (size_t i = 0; i < sizeof(script_actions) / sizeof(script_actions[0]); i++) {
-		if (strlen(script_actions[i]) == len &&
-				!memcmp(script_actions[i], act, len))
-			return true;
-	}
-
-	return false;
-}
-
-/* Pid of the worker; declared above with the SIGCHLD status-capture globals. */
-
-static void monitor_sighandle(int signal)
-{
-	if (monitor_worker_pid <= 0)
-		return;
-
-	switch (signal) {
-	case SIGUSR1:
-	case SIGUSR2:
-		/*
-		 * Reconfiguration signals (renew/rebind) are handled by the
-		 * worker, which owns the DHCPv6 state machine. Forward them so
-		 * that callers (e.g. init scripts) signalling the launcher PID
-		 * reach the worker in privsep mode.
-		 */
-		kill(monitor_worker_pid, signal);
-		break;
-	default:
-		/*
-		 * Ask the worker to begin its graceful DHCPV6_EXIT/RELEASE
-		 * path. The worker's final notifications arrive over the
-		 * channel and the monitor exits once the channel reaches EOF.
-		 */
-		kill(monitor_worker_pid, SIGTERM);
-		break;
-	}
-}
-
-/*
- * In-child env step for the monitor: putenv() each already-re-validated
- * NAME=value entry from the request. No client state is consulted, so the
- * delay is unused here.
- */
-struct monitor_env_ctx { char *const *envp; size_t envc; };
-
-static void monitor_run_script_child(int delay, void *ctx)
-{
-	(void)delay;
-
-	const struct monitor_env_ctx *e = ctx;
-
-	for (size_t i = 0; i < e->envc; i++)
-		putenv(e->envp[i]);
-}
-
-/*
- * Run the status script for an already validated request. Reuses the shared
- * script_spawn() bookkeeping (kill/replace a still-running script, delay
- * adjustment, action/resume handling, SIGCHLD discipline) but runs as the
- * privileged monitor with a fixed script path/argv and a caller-supplied,
- * re-sanitized environment. No client state is consulted here.
- */
-static void monitor_run_script(const char *act, int delay, bool resume,
-		char *const *envp, size_t envc)
-{
-	struct monitor_env_ctx ctx = { .envp = envp, .envc = envc };
-
-	script_spawn(act, delay, resume, monitor_run_script_child, &ctx);
-}
-
-/*
- * Validate one request datagram from the worker and, if everything checks out,
- * run the script. The monitor must not trust the worker: every length field is
- * bounded, the datagram size must match the declared layout exactly, the action
- * must be on the allow-list, and each environment entry is re-validated and
- * re-sanitized (name charset + value sanitizer) before use. Any failure rejects
- * the whole request without executing anything.
- */
-static void monitor_handle_request(uint8_t *buf, size_t len)
-{
-	struct script_req req;
-
-	if (len < sizeof(req)) {
-		error("monitor: rejecting short request (%zu bytes)", len);
-		return;
-	}
-
-	memcpy(&req, buf, sizeof(req));
-
-	if (req.magic != SCRIPT_REQ_MAGIC) {
-		error("monitor: rejecting request with bad magic");
-		return;
-	}
-
-	if (req.pad[0] || req.pad[1] || req.pad[2]) {
-		error("monitor: rejecting request with non-zero padding");
-		return;
-	}
-
-	if (req.action_len > SCRIPT_ACTION_MAX ||
-			req.env_count > SCRIPT_ENV_MAX_COUNT ||
-			req.env_total > SCRIPT_ENV_MAX_TOTAL) {
-		error("monitor: rejecting request exceeding hard caps");
-		return;
-	}
-
-	/* The datagram size must match the declared layout exactly. */
-	if (len != sizeof(req) + req.action_len + req.env_total) {
-		error("monitor: rejecting request with inconsistent size");
-		return;
-	}
-
-	char action_buf[SCRIPT_ACTION_MAX + 1];
-	memcpy(action_buf, buf + sizeof(req), req.action_len);
-	action_buf[req.action_len] = '\0';
-
-	if (!script_action_allowed(action_buf, req.action_len)) {
-		error("monitor: rejecting unknown action");
-		return;
-	}
-
-	/* Parse and re-validate the environment entries. */
-	char **envp = NULL;
-	size_t envc = 0;
-	bool ok = true;
-
-	if (req.env_count > 0) {
-		envp = calloc(req.env_count, sizeof(*envp));
-		if (!envp) {
-			error("monitor: out of memory handling request");
-			return;
-		}
-	}
-
-	uint8_t *env = buf + sizeof(req) + req.action_len;
-	uint8_t *eend = env + req.env_total;
-	uint8_t *p = env;
-
-	for (size_t i = 0; i < req.env_count; i++) {
-		uint8_t *nul = memchr(p, '\0', (size_t)(eend - p));
-
-		if (!nul) {
-			error("monitor: rejecting request with unterminated env entry");
-			ok = false;
-			break;
-		}
-
-		char *entry = (char *)p;
-
-		/* Re-apply the H-3 sanitizer; reject on invalid NAME. */
-		if (!script_sanitize_env(entry)) {
-			error("monitor: rejecting request with invalid env entry");
-			ok = false;
-			break;
-		}
-
-		envp[envc++] = entry;
-		p = nul + 1;
-	}
-
-	/* Every declared byte must be consumed by exactly env_count entries. */
-	if (ok && (envc != req.env_count || p != eend)) {
-		error("monitor: rejecting request with trailing env bytes");
-		ok = false;
-	}
-
-	if (ok) {
-		int delay = req.delay;
-
-		if (delay < 0)
-			delay = 0;
-		else if (delay > SCRIPT_DELAY_MAX)
-			delay = SCRIPT_DELAY_MAX;
-
-		monitor_run_script(action_buf, delay, req.resume ? true : false,
-				envp, envc);
-	}
-
-	free(envp);
-}
-
-int script_monitor_loop(int fd, const char *script, const char *ifname,
-		pid_t worker_pid)
-{
-	static uint8_t buf[sizeof(struct script_req) + SCRIPT_ACTION_MAX +
-			SCRIPT_ENV_MAX_TOTAL];
-
-	/* The monitor owns the script path and argv; they never come from the
-	 * worker. script_init() already populated them, but assert it here. */
-	argv[0] = (char *)script;
-	argv[1] = (char *)ifname;
-	monitor_worker_pid = worker_pid;
-
-	/*
-	 * The caller blocked SIGCHLD across the fork so a fast-exiting worker
-	 * could not be reaped before monitor_worker_pid was set above. It is
-	 * now safe to deliver any pending SIGCHLD.
-	 */
-	sigset_t chld_mask;
-
-	sigemptyset(&chld_mask);
-	sigaddset(&chld_mask, SIGCHLD);
-	sigprocmask(SIG_UNBLOCK, &chld_mask, NULL);
-
-	/*
-	 * Forward termination and reconfiguration signals to the worker; the
-	 * worker owns the DHCPv6 state machine and the SIGUSR1/SIGUSR2 handlers
-	 * (renew/rebind), so init scripts signalling the launcher PID still
-	 * reach it in privsep mode.
-	 */
-	signal(SIGTERM, monitor_sighandle);
-	signal(SIGINT, monitor_sighandle);
-	signal(SIGHUP, monitor_sighandle);
-	signal(SIGUSR1, monitor_sighandle);
-	signal(SIGUSR2, monitor_sighandle);
-	signal(SIGIO, SIG_IGN);
-	/* SIGCHLD is reaped by script_sighandle(), installed in script_init(). */
-
-	for (;;) {
-		ssize_t n = recv(fd, buf, sizeof(buf), 0);
-
-		if (n < 0) {
-			if (errno == EINTR)
-				continue;
-
-			error("monitor: recv failed: %s", strerror(errno));
-			break;
-		}
-
-		if (n == 0)
-			break;	/* worker closed the channel */
-
-		monitor_handle_request(buf, (size_t)n);
-	}
-
-	/*
-	 * Worker is gone: stop any running script and reap remaining children.
-	 * The SIGCHLD handler (script_sighandle) performs the actual reaping; it
-	 * clears 'running' for script children and records the worker's exit
-	 * status in monitor_worker_status/monitor_worker_reaped.
-	 *
-	 * The in-flight child is normally the final 'stopped' notification
-	 * script: the worker emits 'unbound' then 'stopped' and immediately
-	 * closes the channel, so the monitor can reach here while that last
-	 * script is still starting up. Wait for it to finish on its own first
-	 * -- killing it outright would drop the terminal notification (observed
-	 * as a lost 'stopped' under fast-exiting libc/timing, e.g. musl). Only
-	 * if it overruns the drain budget do we escalate to SIGTERM, then
-	 * SIGKILL, so a script that ignores signals still cannot wedge daemon
-	 * shutdown. Every wait stays bounded, mirroring script_drain_running().
-	 */
-	for (int waited = 0; running > 0 && waited < SCRIPT_DRAIN_TIMEOUT_MS;
-			waited += 10)
-		script_sleep_ms(10);
-
-	pid_t script_pid = running;
-	if (script_pid > 0) {
-		kill(script_pid, SIGTERM);
-
-		for (int waited = 0; running > 0 &&
-				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
-			script_sleep_ms(10);
-	}
-
-	script_pid = running;
-	if (script_pid > 0) {
-		kill(script_pid, SIGKILL);
-
-		for (int waited = 0; running > 0 &&
-				waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
-			script_sleep_ms(10);
-	}
-
-	/* Bounded wait for the worker to exit so we can return its status. */
-	for (int waited = 0; !monitor_worker_reaped &&
-			waited < SCRIPT_DRAIN_TIMEOUT_MS; waited += 10)
-		script_sleep_ms(10);
-
-	/*
-	 * Default to a non-zero status: if the worker is never observed exiting
-	 * (it hung past the bounded wait, or neither the WNOHANG sweep nor the
-	 * SIGCHLD handler captured it), reporting failure is safer than a false
-	 * success. The real status overwrites this once the worker is reaped.
-	 */
-	int status_code = 1;
-	int st;
-	pid_t w;
-
-	/* Sweep up any children the SIGCHLD handler has not yet collected. */
-	while ((w = waitpid(-1, &st, WNOHANG)) > 0) {
-		if (w == worker_pid)
-			status_code = WIFEXITED(st) ? WEXITSTATUS(st) : 1;
-		else if (w == running)
-			running = 0;
-	}
-
-	/* If the SIGCHLD handler already reaped the worker, use the status it
-	 * captured rather than the result of the loop above (which would have
-	 * missed it). */
-	if (monitor_worker_reaped)
-		status_code = WIFEXITED(monitor_worker_status) ?
-				WEXITSTATUS(monitor_worker_status) : 1;
-
-	close(fd);
-
-	return status_code;
 }

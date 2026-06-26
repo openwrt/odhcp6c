@@ -3,7 +3,7 @@
 # The other signal-driven scenarios (renew-rebind, release-on-stop) use the
 # broadcast helper harness_odhcp6c_signal, which sends the signal to BOTH the
 # privsep monitor and the worker. That hides the monitor entirely: the worker
-# reacts even if the monitor's forwarding/translation (src/script.c
+# reacts even if the monitor's forwarding/translation (src/script_monitor.c
 # monitor_sighandle) is broken. This scenario instead signals ONLY the monitor --
 # exactly how a real init system signals odhcp6c (it targets the launcher PID) --
 # so the monitor path is actually under test:

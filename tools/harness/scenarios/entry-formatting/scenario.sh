@@ -1,6 +1,6 @@
 # entry-formatting: exact entry_to_env field layout (incl. the class= suffix).
 #
-# entry_to_env (src/script.c) formats:
+# entry_to_env (src/script_worker.c) formats:
 #   ADDRESS:  <addr>/128,<preferred>,<valid>,<t1>,<t2>
 #   PREFIX:   <pfx>/<len>,<preferred>,<valid>,<t1>,<t2>[,class=%08x][,excluded=...]
 #   ROUTE:    <pfx>/<len>,[router],<valid>,<priority>
