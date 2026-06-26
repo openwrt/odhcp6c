@@ -139,35 +139,75 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # Trace mode: emit a machine-readable syscall list for N-2 reconciliation.
+  # Trace mode: run every scenario under strace (seccomp unconfined) and
+  # reconcile the syscalls the privsep WORKER actually issues against the
+  # checked-in allow-list (src/seccomp.c). This is the diagnostic that tells us
+  # exactly which syscalls / ioctl commands are missing when a libcapng-seccomp
+  # cell fails -- the report is printed to the job summary and uploaded.
   # ---------------------------------------------------------------------------
   trace:
-    name: syscall trace (strace)
+    name: syscall trace + seccomp reconcile (${{ matrix.libc }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        libc:
+          - musl
+          - glibc
+        include:
+          - libc: musl
+            dockerfile: tools/harness/Dockerfile
+          - libc: glibc
+            dockerfile: tools/harness/Dockerfile.debian
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build harness image
-        run: docker build -f tools/harness/Dockerfile -t odhcp6c-harness:musl .
+      - name: Build harness image (${{ matrix.libc }})
+        run: docker build -f "${{ matrix.dockerfile }}" -t odhcp6c-harness:${{ matrix.libc }} .
 
-      - name: Capture syscalls (strace, both privsep processes)
+      - name: Capture syscalls across all scenarios (strace, privsep)
         run: |
           set -eu
           mkdir -p trace-artifacts
-          docker run --rm \
-            --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE \
-            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-            -v "$PWD/trace-artifacts:/artifacts" \
-            odhcp6c-harness:musl \
-            tools/harness/run-scenario.sh --trace=strace --timeout 30 \
-            --outdir /artifacts/renew-rebind renew-rebind
+          # privsep is left at its default (on) so a distinct worker exists to
+          # isolate. seccomp=unconfined so strace sees the real syscalls the
+          # worker would issue (the build itself has seccomp off here).
+          for s in $SCENARIOS; do
+            echo "::group::strace $s (${{ matrix.libc }})"
+            docker run --rm \
+              --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE \
+              --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+              -v "$PWD/trace-artifacts:/artifacts" \
+              odhcp6c-harness:${{ matrix.libc }} \
+              tools/harness/run-scenario.sh --trace=strace --timeout 30 \
+              --outdir "/artifacts/$s" "$s" \
+              || echo "::warning::strace scenario $s exited non-zero (continuing; trace still captured)"
+            echo "::endgroup::"
+          done
 
-      - name: Upload syscall lists
+      - name: Reconcile worker syscalls against the seccomp allow-list
+        run: |
+          set -eu
+          report="trace-artifacts/seccomp-reconcile.${{ matrix.libc }}.txt"
+          # Diagnostic only: never fail the job (no --strict), just publish the
+          # gap so it can be acted on alongside the libcapng-seccomp cells.
+          tools/harness/seccomp-syscall-report.sh src/seccomp.c trace-artifacts/* \
+            | tee "$report"
+          {
+            echo "### seccomp reconciliation (${{ matrix.libc }})";
+            echo '```';
+            cat "$report";
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload syscall lists + reconciliation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: syscalls-strace
-          path: trace-artifacts/**/trace/syscalls.*.txt
+          name: syscalls-strace-${{ matrix.libc }}
+          path: |
+            trace-artifacts/**/trace/syscalls.*.txt
+            trace-artifacts/seccomp-reconcile.*.txt
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
