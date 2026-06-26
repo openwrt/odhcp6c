@@ -155,14 +155,34 @@ ssize_t script_req_encode(uint8_t *out, size_t outcap,
 		const char *action, int delay, bool resume,
 		char *const *env, size_t envc)
 {
-	size_t action_len = strlen(action);
+	size_t action_len = strnlen(action, SCRIPT_ACTION_MAX + 1);
 
 	if (action_len > SCRIPT_ACTION_MAX)
 		action_len = SCRIPT_ACTION_MAX;
 
+	/*
+	 * Enforce the same hard caps the monitor's decoder requires, with
+	 * bounded reads (strnlen) and overflow-safe accumulation. Although the
+	 * only in-tree caller (the worker) already applies these caps before it
+	 * gets here, this is a reusable codec entry point: refusing oversized or
+	 * non-terminated input keeps a future or buggy caller from wrapping
+	 * env_total/msg_len past the outcap check into an out-of-bounds write,
+	 * and guarantees we never emit a datagram the decoder would reject or
+	 * that would truncate in the uint32_t header fields.
+	 */
+	if (envc > SCRIPT_ENV_MAX_COUNT)
+		return -1;
+
 	size_t env_total = 0;
-	for (size_t i = 0; i < envc; i++)
-		env_total += strlen(env[i]) + 1;
+	for (size_t i = 0; i < envc; i++) {
+		size_t l = strnlen(env[i], SCRIPT_ENV_ENTRY_MAX) + 1;
+
+		if (l > SCRIPT_ENV_ENTRY_MAX ||
+				env_total > SCRIPT_ENV_MAX_TOTAL - l)
+			return -1;
+
+		env_total += l;
+	}
 
 	size_t msg_len = sizeof(struct script_req) + action_len + env_total;
 
@@ -186,7 +206,7 @@ ssize_t script_req_encode(uint8_t *out, size_t outcap,
 	p += action_len;
 
 	for (size_t i = 0; i < envc; i++) {
-		size_t l = strlen(env[i]) + 1;
+		size_t l = strnlen(env[i], SCRIPT_ENV_ENTRY_MAX) + 1;
 
 		memcpy(p, env[i], l);
 		p += l;

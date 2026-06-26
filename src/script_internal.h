@@ -136,8 +136,11 @@ const char *script_req_strerror(int reason);
 
 /*
  * Serialize a request into out[0..outcap). Returns the number of bytes written,
- * or -1 if out is NULL or the message would not fit. Produces byte-for-byte the
- * same datagram the worker has always sent; performs no I/O.
+ * or -1 if out is NULL, the message would not fit, or the inputs exceed the
+ * SCRIPT_ENV_* hard caps (the same caps the decoder enforces). Reads are bounded
+ * (strnlen), so a non-NUL-terminated entry is rejected rather than over-read.
+ * Produces byte-for-byte the same datagram the worker has always sent for
+ * already-capped input; performs no I/O.
  */
 ssize_t script_req_encode(uint8_t *out, size_t outcap,
 		const char *action, int delay, bool resume,
