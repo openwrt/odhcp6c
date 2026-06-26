@@ -58,24 +58,25 @@ static const int8_t hexvals[] = {
 static int script_channel = -1;
 
 /*
- * Environment collector. The *_to_env() helpers historically called putenv()
- * directly from the forked script child. To support privilege separation the
- * same helpers can instead collect the formatted "NAME=value" strings so the
- * worker can serialize them for the monitor. When env.collecting is false the
- * behavior is unchanged (putenv from the child).
+ * Environment collector. The *_to_env() helpers build fully-formed
+ * "NAME=value" strings and always hand them to script_env_collect(); none of
+ * them call putenv() or sanitize directly. A single explicit emit step (see
+ * script_call_child / script_send_request) then consumes the collected list,
+ * sanitizes every entry exactly once, and chooses the sink: putenv() into the
+ * forked script child (single process) or serialization to the monitor
+ * (privsep). Making the data flow visible at one site -- rather than hidden
+ * behind a mode flag read deep inside the collector -- is the point of this
+ * design.
  */
 struct env_collector {
-	bool    collecting;
 	char  **list;
-	size_t  cnt, cap, bytes;	/* bytes: collected env bytes (incl. NULs) */
+	size_t  cnt, cap;
 };
 
 static struct env_collector env = {
-	.collecting = false,
 	.list = NULL,
 	.cnt = 0,
 	.cap = 0,
-	.bytes = 0,
 };
 
 void script_set_channel(int fd)
@@ -84,35 +85,17 @@ void script_set_channel(int fd)
 }
 
 /*
- * Take ownership of a heap-allocated "NAME=value" string. In the normal
- * (single-process) path this exports it to the child's environment. While
- * collecting (worker privsep path) it is appended to env.list for later
- * serialization.
+ * Take ownership of a heap-allocated "NAME=value" string and append it to the
+ * collector. Builders always route here; the sink (putenv vs. wire) and the
+ * mandatory sanitization are decided later by the single emit step, not here.
+ * No caps are applied at collection time: the single-process emit path is
+ * uncapped (as it has always been), while the privsep path enforces the
+ * monitor's hard caps when it serializes (see script_env_apply_caps()).
  */
-static void script_putenv(char *buf)
+static void script_env_collect(char *buf)
 {
 	if (!buf)
 		return;
-
-	if (!env.collecting) {
-		putenv(buf);
-		return;
-	}
-
-	/*
-	 * Enforce the monitor's hard caps while collecting so env.list cannot
-	 * grow past what script_send_request() would actually serialize. Drop
-	 * over-long entries and anything beyond the count/byte budget here
-	 * rather than buffering them only to truncate later.
-	 */
-	size_t len = strlen(buf) + 1;
-
-	if (len > SCRIPT_ENV_ENTRY_MAX ||
-			env.cnt >= SCRIPT_ENV_MAX_COUNT ||
-			env.bytes + len > SCRIPT_ENV_MAX_TOTAL) {
-		free(buf);
-		return;
-	}
 
 	if (env.cnt == env.cap) {
 		size_t ncap = env.cap ? env.cap * 2 : 32;
@@ -128,7 +111,6 @@ static void script_putenv(char *buf)
 	}
 
 	env.list[env.cnt++] = buf;
-	env.bytes += len;
 }
 
 static void script_env_collect_reset(void)
@@ -137,7 +119,81 @@ static void script_env_collect_reset(void)
 		free(env.list[i]);
 
 	env.cnt = 0;
-	env.bytes = 0;
+}
+
+/*
+ * The single, centralized sanitization step (Item 5). Every collected entry --
+ * regardless of which builder produced it or whether its charset was thought
+ * "safe" -- passes through script_sanitize_env() exactly once here. The value
+ * is sanitized in place; an entry whose NAME is invalid is rejected (freed and
+ * dropped from the list), which never aborts the process. Because
+ * script_sanitize_env() is idempotent on already-safe input, known-safe entries
+ * are emitted unchanged. The monitor independently re-sanitizes on the
+ * privileged side; that defense-in-depth gate is intentional and kept.
+ */
+static void script_env_sanitize(void)
+{
+	size_t out = 0;
+
+	for (size_t i = 0; i < env.cnt; i++) {
+		char *buf = env.list[i];
+
+		if (script_sanitize_env(buf))
+			env.list[out++] = buf;
+		else
+			free(buf);
+	}
+
+	env.cnt = out;
+}
+
+/*
+ * Single-process sink: export every (already sanitized) collected entry into
+ * the forked script child's environment, then forget them. putenv() does not
+ * copy, so ownership of each string transfers to environ and the strings must
+ * not be freed here; only the pointer array is released. This path is uncapped,
+ * exactly as the historical direct-putenv() path was -- the monitor's hard caps
+ * apply solely to what crosses the privsep wire.
+ */
+static void script_env_emit_putenv(void)
+{
+	for (size_t i = 0; i < env.cnt; i++)
+		putenv(env.list[i]);
+
+	free(env.list);
+	env.list = NULL;
+	env.cnt = 0;
+	env.cap = 0;
+}
+
+/*
+ * Privsep sink helper: drop (in place) any collected entry that would push the
+ * serialized request past the monitor's hard caps, so env.list holds exactly
+ * what script_send_request() will put on the wire. The per-entry skip with
+ * running totals matches the historical collect-time enforcement: an oversized
+ * entry is dropped individually while smaller later entries still fit.
+ */
+static void script_env_apply_caps(void)
+{
+	size_t out = 0;
+	size_t total = 0;
+
+	for (size_t i = 0; i < env.cnt; i++) {
+		char *buf = env.list[i];
+		size_t len = strnlen(buf, SCRIPT_ENV_ENTRY_MAX) + 1;
+
+		if (len > SCRIPT_ENV_ENTRY_MAX ||
+				out >= SCRIPT_ENV_MAX_COUNT ||
+				total + len > SCRIPT_ENV_MAX_TOTAL) {
+			free(buf);
+			continue;
+		}
+
+		total += len;
+		env.list[out++] = buf;
+	}
+
+	env.cnt = out;
 }
 
 ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src)
@@ -191,8 +247,7 @@ static void ipv6_to_env(const char *name,
 		buf_len--;
 
 	buf[buf_len] = '\0';
-	/* Values come solely from inet_ntop(AF_INET6, ...) — charset is safe. */
-	script_putenv(buf);
+	script_env_collect(buf);
 }
 
 static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
@@ -221,11 +276,7 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 		buf_len--;
 
 	buf[buf_len] = '\0';
-	/* DNS names from server; dn_expand output may contain attacker bytes. */
-	if (script_sanitize_env(buf))
-		script_putenv(buf);
-	else
-		free(buf);
+	script_env_collect(buf);
 }
 
 static void string_to_env(const char *name, const uint8_t *string, size_t len)
@@ -240,11 +291,7 @@ static void string_to_env(const char *name, const uint8_t *string, size_t len)
 	buf[name_len] = '=';
 	memcpy(&buf[name_len + 1], string, len);
 	buf[name_len + 1 + len] = '\0';
-	/* Value is server-supplied (e.g. captive-portal URI); sanitize it. */
-	if (script_sanitize_env(buf))
-		script_putenv(buf);
-	else
-		free(buf);
+	script_env_collect(buf);
 }
 
 static void bin_to_env(uint8_t *opts, size_t len)
@@ -262,9 +309,8 @@ static void bin_to_env(uint8_t *opts, size_t len)
 		snprintf(buf, 14, "OPTION_%hu=", otype);
 		buf_len += strlen(buf);
 
-		/* Value is hexlified by script_hexlify — charset is safe. */
 		script_hexlify(&buf[buf_len], odata, olen);
-		script_putenv(buf);
+		script_env_collect(buf);
 	}
 }
 
@@ -345,8 +391,7 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	if (strsize > 0 && str[strsize - 1] == ' ')
 		str[strsize - 1] = '\0';
 
-	/* All fields emitted via inet_ntop or fprintf("%u"/"%08x") — charset is safe. */
-	script_putenv(str);
+	script_env_collect(str);
 }
 
 static void search_to_env(const char *name, const uint8_t *start, size_t len)
@@ -375,11 +420,7 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 		c--;
 
 	*c = '\0';
-	/* DNS search list from RA; auxtarget bytes are attacker-controlled. */
-	if (script_sanitize_env(buf))
-		script_putenv(buf);
-	else
-		free(buf);
+	script_env_collect(buf);
 }
 
 static void int_to_env(const char *name, int value)
@@ -391,8 +432,7 @@ static void int_to_env(const char *name, int value)
 		return;
 
 	snprintf(buf, len, "%s=%d", name, value);
-	/* Value is snprintf("%d") — charset is safe. */
-	script_putenv(buf);
+	script_env_collect(buf);
 }
 
 static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
@@ -521,18 +561,15 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	}
 
 	fclose(fp);
-	/* Built from inet_ntop/fprintf on untrusted option data; sanitize for defense in depth. */
-	if (script_sanitize_env(str))
-		script_putenv(str);
-	else
-		free(str);
+	script_env_collect(str);
 }
 
 /*
  * Build the full set of "NAME=value" environment strings from the current
- * client state. Depending on env.collecting (see script_putenv) the strings are
- * either exported via putenv() in the forked script child or collected for
- * serialization to the monitor.
+ * client state into the collector. Builders never putenv() or sanitize: a
+ * single emit step (script_call_child for the forked child, or
+ * script_send_request for privsep) consumes the collector, sanitizes every
+ * entry once, and dispatches it to the chosen sink.
  */
 static void script_build_env(void)
 {
@@ -613,7 +650,7 @@ static void script_build_env(void)
 	if (buf) {
 		strncpy(buf, "PASSTHRU=", 10);
 		script_hexlify(&buf[9], passthru, passthru_len);
-		script_putenv(buf);
+		script_env_collect(buf);
 	}
 }
 
@@ -625,7 +662,6 @@ static void script_build_env(void)
  */
 static void script_send_request(const char *status, int delay, bool resume)
 {
-	env.collecting = true;
 	script_env_collect_reset();
 
 	/*
@@ -641,23 +677,25 @@ static void script_send_request(const char *status, int delay, bool resume)
 	 */
 	script_build_env();
 
+	/*
+	 * Single emit step: drop anything that would exceed the monitor's hard
+	 * caps first, then sanitize only the survivors. Filtering before
+	 * sanitizing avoids spending CPU on entries (some sized directly from
+	 * attacker-influenced option lengths) that are about to be discarded.
+	 * Sanitization is in place and never grows an entry, so the caps applied
+	 * here still hold for what is serialized.
+	 */
+	script_env_apply_caps();
+	script_env_sanitize();
+
 	size_t action_len = strlen(status);
 	if (action_len > SCRIPT_ACTION_MAX)
 		action_len = SCRIPT_ACTION_MAX;
 
 	size_t env_total = 0;
-	size_t env_count = 0;
-	for (size_t i = 0; i < env.cnt; i++) {
-		size_t l = strlen(env.list[i]) + 1;
-
-		if (l > SCRIPT_ENV_ENTRY_MAX ||
-				env_count >= SCRIPT_ENV_MAX_COUNT ||
-				env_total + l > SCRIPT_ENV_MAX_TOTAL)
-			break;
-
-		env_total += l;
-		env_count++;
-	}
+	size_t env_count = env.cnt;
+	for (size_t i = 0; i < env_count; i++)
+		env_total += strlen(env.list[i]) + 1;
 
 	struct script_req req = {
 		.magic = SCRIPT_REQ_MAGIC,
@@ -695,13 +733,13 @@ static void script_send_request(const char *status, int delay, bool resume)
 	}
 
 	script_env_collect_reset();
-	env.collecting = false;
 }
 
 /*
  * Worker-side in-child env step: if a delay was actually waited out, expire
  * stale client state first, then build the environment from live client state.
- * odhcp6c_expire() must run only here (the worker), never in the monitor.
+ * odhcp6c_expire() must run only here (the worker), never in the monitor. The
+ * collected entries are sanitized once and exported via putenv() before execv.
  */
 static void script_call_child(int delay, void *ctx)
 {
@@ -711,6 +749,8 @@ static void script_call_child(int delay, void *ctx)
 		odhcp6c_expire(false);
 
 	script_build_env();
+	script_env_sanitize();
+	script_env_emit_putenv();
 }
 
 void script_call(const char *status, int delay, bool resume)
