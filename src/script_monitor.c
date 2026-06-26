@@ -37,30 +37,6 @@
 #include "script.h"
 #include "script_internal.h"
 
-/*
- * The exact set of actions odhcp6c emits today (from the notify_state_change()
- * call sites). The monitor only ever runs the script with one of these; any
- * other action from the worker is rejected.
- */
-static const char *const script_actions[] = {
-	"started", "bound", "informed", "ra-updated",
-	"updated", "rebound", "unbound", "stopped",
-};
-
-static bool script_action_allowed(const char *act, size_t len)
-{
-	if (len == 0 || len > SCRIPT_ACTION_MAX)
-		return false;
-
-	for (size_t i = 0; i < sizeof(script_actions) / sizeof(script_actions[0]); i++) {
-		if (strlen(script_actions[i]) == len &&
-				!memcmp(script_actions[i], act, len))
-			return true;
-	}
-
-	return false;
-}
-
 static void monitor_sighandle(int signal)
 {
 	if (monitor_worker_pid <= 0)
@@ -122,119 +98,36 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 
 /*
  * Validate one request datagram from the worker and, if everything checks out,
- * run the script. The monitor must not trust the worker: every length field is
- * bounded, the datagram size must match the declared layout exactly, the action
- * must be on the allow-list, and each environment entry is re-validated and
- * re-sanitized (name charset + value sanitizer) before use. Any failure rejects
- * the whole request without executing anything.
+ * run the script. The monitor must not trust the worker, but the actual
+ * validation -- magic, padding, every length bound, the exact datagram size,
+ * the action allow-list, per-entry NUL-termination, full byte consumption and
+ * per-entry re-sanitization -- lives in the pure script_req_decode() codec so it
+ * can be unit-tested and fuzzed in isolation. This wrapper only turns an
+ * accepted request into a spawn (and logs the reason for any rejection).
  */
 static void monitor_handle_request(uint8_t *buf, size_t len)
 {
 	struct script_req req;
-
-	if (len < sizeof(req)) {
-		error("monitor: rejecting short request (%zu bytes)", len);
-		return;
-	}
-
-	memcpy(&req, buf, sizeof(req));
-
-	if (req.magic != SCRIPT_REQ_MAGIC) {
-		error("monitor: rejecting request with bad magic");
-		return;
-	}
-
-	if (req.pad[0] || req.pad[1] || req.pad[2]) {
-		error("monitor: rejecting request with non-zero padding");
-		return;
-	}
-
-	/* resume is a boolean in the IPC contract; reject anything but 0/1. */
-	if (req.resume > 1) {
-		error("monitor: rejecting request with invalid resume value");
-		return;
-	}
-
-	if (req.action_len > SCRIPT_ACTION_MAX ||
-			req.env_count > SCRIPT_ENV_MAX_COUNT ||
-			req.env_total > SCRIPT_ENV_MAX_TOTAL) {
-		error("monitor: rejecting request exceeding hard caps");
-		return;
-	}
-
-	/* The datagram size must match the declared layout exactly. */
-	if (len != sizeof(req) + req.action_len + req.env_total) {
-		error("monitor: rejecting request with inconsistent size");
-		return;
-	}
-
-	char action_buf[SCRIPT_ACTION_MAX + 1];
-	memcpy(action_buf, buf + sizeof(req), req.action_len);
-	action_buf[req.action_len] = '\0';
-
-	if (!script_action_allowed(action_buf, req.action_len)) {
-		error("monitor: rejecting unknown action");
-		return;
-	}
-
-	/* Parse and re-validate the environment entries. */
-	char **envp = NULL;
+	char action[SCRIPT_ACTION_MAX + 1];
+	char *envp[SCRIPT_ENV_MAX_COUNT];
 	size_t envc = 0;
-	bool ok = true;
 
-	if (req.env_count > 0) {
-		envp = calloc(req.env_count, sizeof(*envp));
-		if (!envp) {
-			error("monitor: out of memory handling request");
-			return;
-		}
+	int reason = script_req_decode(buf, len, &req, action, envp,
+			SCRIPT_ENV_MAX_COUNT, &envc);
+
+	if (reason != SCRIPT_REQ_OK) {
+		error("monitor: rejecting request: %s", script_req_strerror(reason));
+		return;
 	}
 
-	uint8_t *env = buf + sizeof(req) + req.action_len;
-	uint8_t *eend = env + req.env_total;
-	uint8_t *p = env;
+	int delay = req.delay;
 
-	for (size_t i = 0; i < req.env_count; i++) {
-		uint8_t *nul = memchr(p, '\0', (size_t)(eend - p));
+	if (delay < 0)
+		delay = 0;
+	else if (delay > SCRIPT_DELAY_MAX)
+		delay = SCRIPT_DELAY_MAX;
 
-		if (!nul) {
-			error("monitor: rejecting request with unterminated env entry");
-			ok = false;
-			break;
-		}
-
-		char *entry = (char *)p;
-
-		/* Re-apply the H-3 sanitizer; reject on invalid NAME. */
-		if (!script_sanitize_env(entry)) {
-			error("monitor: rejecting request with invalid env entry");
-			ok = false;
-			break;
-		}
-
-		envp[envc++] = entry;
-		p = nul + 1;
-	}
-
-	/* Every declared byte must be consumed by exactly env_count entries. */
-	if (ok && (envc != req.env_count || p != eend)) {
-		error("monitor: rejecting request with trailing env bytes");
-		ok = false;
-	}
-
-	if (ok) {
-		int delay = req.delay;
-
-		if (delay < 0)
-			delay = 0;
-		else if (delay > SCRIPT_DELAY_MAX)
-			delay = SCRIPT_DELAY_MAX;
-
-		monitor_run_script(action_buf, delay, req.resume != 0,
-				envp, envc);
-	}
-
-	free(envp);
+	monitor_run_script(action, delay, req.resume != 0, envp, envc);
 }
 
 int script_monitor_loop(int fd, const char *script, const char *ifname,

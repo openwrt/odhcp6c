@@ -10,6 +10,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	src/dhcpv6.c
 	src/odhcp6c.c
 	src/ra.c
+	src/script_codec.c
 	src/script_common.c
 	src/script_worker.c
 	src/script_monitor.c
