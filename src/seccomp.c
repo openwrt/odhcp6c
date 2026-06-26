@@ -148,6 +148,11 @@ static const int seccomp_allow[] = {
 	 * handlers resolve to tgkill (glibc) or tkill (musl); gettid
 	 * backs the tid lookup on some libc versions. */
 	SCMP_SYS(tgkill), SCMP_SYS(tkill), SCMP_SYS(gettid),
+	/* libc internals: uname is not called directly by odhcp6c but both
+	 * musl and glibc issue it lazily on the worker's post-seccomp path
+	 * (kernel-version probe). Confirmed as the sole allow-list gap on both
+	 * libcs via the SIGSYS trap diagnostic; read-only and harmless. */
+	SCMP_SYS(uname),
 	/* memory + housekeeping (madvise is used by some libc allocators) */
 	SCMP_SYS(getpid),
 	SCMP_SYS(brk), SCMP_SYS(mmap), SCMP_SYS(mmap2),
