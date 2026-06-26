@@ -56,11 +56,12 @@
  * build architecture.
  */
 static const int seccomp_allow[] = {
-	/* event loop + I/O on already-open fds */
+	/* event loop + I/O on already-open fds. writev backs buffered stdio
+	 * flushes on musl (__stdio_write), observed in the worker's log path. */
 	SCMP_SYS(ppoll), SCMP_SYS(poll),
 	SCMP_SYS(recvmsg), SCMP_SYS(recvfrom),
 	SCMP_SYS(sendmsg), SCMP_SYS(sendto),
-	SCMP_SYS(read), SCMP_SYS(write),
+	SCMP_SYS(read), SCMP_SYS(write), SCMP_SYS(writev),
 	SCMP_SYS(close),
 	/* DHCPv6 socket re-creation on DHCPV6_RESET (worker retains
 	 * CAP_NET_RAW + CAP_NET_BIND_SERVICE). socketcall covers 32-bit
