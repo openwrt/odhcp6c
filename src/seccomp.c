@@ -20,11 +20,72 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <unistd.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <seccomp.h>
 
 #include "odhcp6c.h"
+
+/*
+ * Diagnostic mode (opt-in via the ODHCP6C_SECCOMP_DIAG environment variable):
+ * instead of killing the worker on the first disallowed syscall, install the
+ * filter with SCMP_ACT_TRAP as the default action and a SIGSYS handler that
+ * records the blocked syscall number to stderr, then lets the syscall return
+ * -ENOSYS so the worker keeps running and every gap in one lifecycle is
+ * enumerated (not just the first). This turns the otherwise-silent SIGSYS kill
+ * into actionable output in the worker log -- no dmesg/audit access required,
+ * which matters inside CI containers. Production builds never set the env var
+ * and keep the fail-closed SCMP_ACT_KILL_PROCESS default.
+ */
+static int seccomp_diag_enabled(void)
+{
+	const char *v = getenv("ODHCP6C_SECCOMP_DIAG");
+	return v && v[0] && strcmp(v, "0") != 0;
+}
+
+/* async-signal-safe: write a decimal integer to fd */
+static void seccomp_diag_write_int(int fd, long v)
+{
+	char buf[24];
+	size_t i = sizeof(buf);
+	int neg = v < 0;
+	unsigned long u = neg ? (unsigned long)(-v) : (unsigned long)v;
+	if (u == 0)
+		buf[--i] = '0';
+	while (u) {
+		buf[--i] = (char)('0' + (u % 10));
+		u /= 10;
+	}
+	if (neg)
+		buf[--i] = '-';
+	while (write(fd, buf + i, sizeof(buf) - i) < 0 && errno == EINTR)
+		;
+}
+
+static void seccomp_diag_sigsys(int sig, siginfo_t *si, void *uc)
+{
+	(void)sig;
+	(void)uc;
+	/* Log each distinct syscall number once to avoid flooding the log if a
+	 * blocked syscall is retried in a loop. 512 covers all syscall numbers
+	 * on the architectures odhcp6c targets. */
+	static volatile sig_atomic_t seen[512];
+	int nr = si->si_syscall;
+	static const char pfx[] = "seccomp-diag: blocked syscall=";
+	static const char nl = '\n';
+	if (nr >= 0 && nr < (int)(sizeof(seen) / sizeof(seen[0]))) {
+		if (seen[nr])
+			return;
+		seen[nr] = 1;
+	}
+	while (write(STDERR_FILENO, pfx, sizeof(pfx) - 1) < 0 && errno == EINTR)
+		;
+	seccomp_diag_write_int(STDERR_FILENO, nr);
+	while (write(STDERR_FILENO, &nl, 1) < 0 && errno == EINTR)
+		;
+}
 
 /*
  * Default action for any syscall not explicitly allowed below. Prefer a hard
@@ -123,7 +184,29 @@ static const unsigned long seccomp_ioctl_allow[] = {
 
 void seccomp_apply(void)
 {
-	scmp_filter_ctx ctx = seccomp_init(ODHCP6C_SECCOMP_DEFAULT);
+	int diag = seccomp_diag_enabled();
+	uint32_t default_action = ODHCP6C_SECCOMP_DEFAULT;
+
+	if (diag) {
+		/* Trap (don't kill) so a SIGSYS handler can log every blocked
+		 * syscall to stderr; the syscall then returns -ENOSYS and the
+		 * worker keeps running to surface further gaps. */
+		struct sigaction sa = {0};
+		sa.sa_sigaction = seccomp_diag_sigsys;
+		sa.sa_flags = SA_SIGINFO | SA_NODEFER;
+		sigemptyset(&sa.sa_mask);
+		if (sigaction(SIGSYS, &sa, NULL) == 0) {
+			default_action = SCMP_ACT_TRAP;
+			notice("seccomp: DIAGNOSTIC mode (SCMP_ACT_TRAP) -- blocked "
+					"syscalls are logged, not fatal; do NOT use in production");
+		} else {
+			warn("seccomp: diagnostic SIGSYS handler install failed: %s",
+					strerror(errno));
+			diag = 0;
+		}
+	}
+
+	scmp_filter_ctx ctx = seccomp_init(default_action);
 	if (!ctx) {
 		critical("seccomp: seccomp_init failed");
 		exit(EXIT_FAILURE);
@@ -185,7 +268,8 @@ void seccomp_apply(void)
 	}
 
 	seccomp_release(ctx);
-	notice("seccomp: worker syscall filter active");
+	notice("seccomp: worker syscall filter active%s",
+			diag ? " (DIAGNOSTIC trap mode)" : "");
 }
 
 #else /* !WITH_SECCOMP */

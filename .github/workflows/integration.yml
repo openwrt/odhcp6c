@@ -125,6 +125,29 @@ jobs:
             else
               echo "::error::scenario failed: $s (${{ matrix.libc }}, ${{ matrix.mode }})"
               rc=1
+              # When the seccomp filter is active, a failure is usually a silent
+              # SIGSYS kill on a syscall missing from the allow-list. Re-run the
+              # scenario once with ODHCP6C_SECCOMP_DIAG=1: the worker traps
+              # (instead of dying) and logs every blocked syscall number so the
+              # gap is visible in CI instead of an opaque timeout.
+              if [ "${{ steps.cfg.outputs.seccomp }}" = "ON" ]; then
+                echo "::group::seccomp diagnostic re-run: $s"
+                docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+                  --security-opt apparmor=unconfined $extra_opts \
+                  -e HARNESS_PRIVSEP=${{ steps.cfg.outputs.privsep }} \
+                  -e ODHCP6C_SECCOMP_DIAG=1 \
+                  -v "$PWD/artifacts:/artifacts" \
+                  odhcp6c-harness:${{ matrix.libc }}-${{ matrix.mode }} \
+                  tools/harness/run-scenario.sh --timeout 30 \
+                  --outdir "/artifacts/$s-seccomp-diag" "$s" || true
+                diaglog="artifacts/$s-seccomp-diag/odhcp6c.log"
+                if [ -f "$diaglog" ]; then
+                  echo "--- blocked syscalls for $s (${{ matrix.libc }}) ---"
+                  grep -F 'seccomp-diag: blocked syscall=' "$diaglog" | sort -u \
+                    || echo "(no seccomp-diag lines captured)"
+                fi
+                echo "::endgroup::"
+              fi
             fi
             echo "::endgroup::"
           done
