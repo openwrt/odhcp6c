@@ -85,6 +85,22 @@ void script_set_channel(int fd)
 }
 
 /*
+ * Length of the NAME portion (bytes before '=') of a collected entry, bounded
+ * so a diagnostic log line can quote which variable was dropped without echoing
+ * an unbounded or value-bearing string. Used only for logging.
+ */
+static int script_env_name(const char *buf)
+{
+	const char *eq = strchr(buf, '=');
+	size_t n = eq ? (size_t)(eq - buf) : strlen(buf);
+
+	if (n > 64)
+		n = 64;
+
+	return (int)n;
+}
+
+/*
  * Take ownership of a heap-allocated "NAME=value" string and append it to the
  * collector. Builders always route here; the sink (putenv vs. wire) and the
  * mandatory sanitization are decided later by the single emit step, not here.
@@ -102,6 +118,8 @@ static void script_env_collect(char *buf)
 		char **n = realloc(env.list, ncap * sizeof(*env.list));
 
 		if (!n) {
+			debug("script: dropping env %.*s: out of memory growing collector",
+					script_env_name(buf), buf);
 			free(buf);
 			return;
 		}
@@ -140,8 +158,11 @@ static void script_env_sanitize(void)
 
 		if (script_sanitize_env(buf))
 			env.list[out++] = buf;
-		else
+		else {
+			debug("script: dropping env %.*s: invalid NAME",
+					script_env_name(buf), buf);
 			free(buf);
+		}
 	}
 
 	env.cnt = out;
@@ -185,6 +206,8 @@ static void script_env_apply_caps(void)
 		if (len > SCRIPT_ENV_ENTRY_MAX ||
 				out >= SCRIPT_ENV_MAX_COUNT ||
 				total + len > SCRIPT_ENV_MAX_TOTAL) {
+			debug("script: dropping env %.*s: exceeds privsep caps",
+					script_env_name(buf), buf);
 			free(buf);
 			continue;
 		}
@@ -231,8 +254,10 @@ static void ipv6_to_env(const char *name,
 	size_t buf_len = strlen(name);
 	char *buf = malloc(cnt * INET6_ADDRSTRLEN + buf_len + 2);
 
-	if (!buf)
+	if (!buf) {
+		debug("script: dropping %s: out of memory", name);
 		return;
+	}
 
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
@@ -257,8 +282,10 @@ static void fqdn_to_env(const char *name, const uint8_t *fqdn, size_t len)
 	const uint8_t *fqdn_end = fqdn + len;
 	char *buf = malloc(buf_size);
 
-	if (!buf)
+	if (!buf) {
+		debug("script: dropping %s: out of memory", name);
 		return;
+	}
 
 	memcpy(buf, name, buf_len);
 	buf[buf_len++] = '=';
@@ -284,8 +311,10 @@ static void string_to_env(const char *name, const uint8_t *string, size_t len)
 	size_t name_len = strlen(name);
 	char *buf = malloc(name_len + 1 + len + 1);
 
-	if (!buf)
+	if (!buf) {
+		debug("script: dropping %s: out of memory", name);
 		return;
+	}
 
 	memcpy(buf, name, name_len);
 	buf[name_len] = '=';
@@ -303,8 +332,10 @@ static void bin_to_env(uint8_t *opts, size_t len)
 		char *buf = malloc(14 + (olen * 2));
 		size_t buf_len = 0;
 
-		if (!buf)
+		if (!buf) {
+			debug("script: dropping OPTION_%hu: out of memory", otype);
 			continue;
+		}
 
 		snprintf(buf, 14, "OPTION_%hu=", otype);
 		buf_len += strlen(buf);
@@ -329,8 +360,10 @@ static void entry_to_env(const char *name, const void *data, size_t len, enum en
 	size_t strsize = 0;
 
 	FILE *fp = open_memstream(&str, &strsize);
-	if (!fp)
+	if (!fp) {
+		debug("script: dropping %s: open_memstream failed", name);
 		return;
+	}
 
 	fputs(name, fp);
 	fputc('=', fp);
@@ -400,8 +433,10 @@ static void search_to_env(const char *name, const uint8_t *start, size_t len)
 	char *buf = malloc(buf_len + 2 + len);
 	char *c;
 
-	if (!buf)
+	if (!buf) {
+		debug("script: dropping %s: out of memory", name);
 		return;
+	}
 
 	c = mempcpy(buf, name, buf_len);
 	*c++ = '=';
@@ -428,8 +463,10 @@ static void int_to_env(const char *name, int value)
 	size_t len = 13 + strlen(name);
 	char *buf = malloc(len);
 
-	if (!buf)
+	if (!buf) {
+		debug("script: dropping %s: out of memory", name);
 		return;
+	}
 
 	snprintf(buf, len, "%s=%d", name, value);
 	script_env_collect(buf);
@@ -462,6 +499,10 @@ static void s46_to_env(enum odhcp6c_state state, const uint8_t *data, size_t len
 	size_t strsize;
 
 	FILE *fp = open_memstream(&str, &strsize);
+	if (!fp) {
+		debug("script: dropping %s: open_memstream failed", name);
+		return;
+	}
 	fputs(name, fp);
 	fputc('=', fp);
 
@@ -651,6 +692,8 @@ static void script_build_env(void)
 		strncpy(buf, "PASSTHRU=", 10);
 		script_hexlify(&buf[9], passthru, passthru_len);
 		script_env_collect(buf);
+	} else {
+		debug("script: dropping PASSTHRU: out of memory");
 	}
 }
 
@@ -688,50 +731,41 @@ static void script_send_request(const char *status, int delay, bool resume)
 	script_env_apply_caps();
 	script_env_sanitize();
 
+	/*
+	 * Size the datagram, allocate it, then let the pure codec serialize the
+	 * request into it (byte-for-byte the historical wire format). The codec
+	 * recomputes the field lengths it writes, so the two must agree; a
+	 * negative return would mean the buffer was mis-sized and the request is
+	 * dropped rather than sent truncated.
+	 */
 	size_t action_len = strlen(status);
 	if (action_len > SCRIPT_ACTION_MAX)
 		action_len = SCRIPT_ACTION_MAX;
 
 	size_t env_total = 0;
-	size_t env_count = env.cnt;
-	for (size_t i = 0; i < env_count; i++)
+	for (size_t i = 0; i < env.cnt; i++)
 		env_total += strlen(env.list[i]) + 1;
 
-	struct script_req req = {
-		.magic = SCRIPT_REQ_MAGIC,
-		.action_len = action_len,
-		.delay = delay,
-		.resume = resume ? 1 : 0,
-		.env_count = env_count,
-		.env_total = env_total,
-	};
-
-	size_t msg_len = sizeof(req) + action_len + env_total;
+	size_t msg_len = sizeof(struct script_req) + action_len + env_total;
 	uint8_t *msg = malloc(msg_len);
-	if (msg) {
-		uint8_t *p = msg;
 
-		memcpy(p, &req, sizeof(req));
-		p += sizeof(req);
-		memcpy(p, status, action_len);
-		p += action_len;
-
-		for (size_t i = 0; i < env_count; i++) {
-			size_t l = strlen(env.list[i]) + 1;
-
-			memcpy(p, env.list[i], l);
-			p += l;
-		}
-
-		if (send(script_channel, msg, msg_len, MSG_NOSIGNAL | MSG_EOR) < 0)
-			error("Failed to send script request to monitor: %s",
-					strerror(errno));
-
-		free(msg);
-	} else {
-		error("Failed to allocate %zu bytes for script request", msg_len);
+	if (!msg) {
+		error("script: dropping '%s' request: out of memory for %zu-byte datagram",
+				status, msg_len);
+		script_env_collect_reset();
+		return;
 	}
 
+	ssize_t n = script_req_encode(msg, msg_len, status, delay, resume,
+			env.list, env.cnt);
+
+	if (n < 0)
+		error("script: dropping '%s' request: failed to encode datagram", status);
+	else if (send(script_channel, msg, (size_t)n, MSG_NOSIGNAL | MSG_EOR) < 0)
+		error("Failed to send script request to monitor: %s",
+				strerror(errno));
+
+	free(msg);
 	script_env_collect_reset();
 }
 
