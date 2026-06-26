@@ -149,6 +149,12 @@ static void monitor_handle_request(uint8_t *buf, size_t len)
 		return;
 	}
 
+	/* resume is a boolean in the IPC contract; reject anything but 0/1. */
+	if (req.resume > 1) {
+		error("monitor: rejecting request with invalid resume value");
+		return;
+	}
+
 	if (req.action_len > SCRIPT_ACTION_MAX ||
 			req.env_count > SCRIPT_ENV_MAX_COUNT ||
 			req.env_total > SCRIPT_ENV_MAX_TOTAL) {
@@ -224,7 +230,7 @@ static void monitor_handle_request(uint8_t *buf, size_t len)
 		else if (delay > SCRIPT_DELAY_MAX)
 			delay = SCRIPT_DELAY_MAX;
 
-		monitor_run_script(action_buf, delay, req.resume ? true : false,
+		monitor_run_script(action_buf, delay, req.resume != 0,
 				envp, envc);
 	}
 
