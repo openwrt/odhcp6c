@@ -17,12 +17,12 @@
  * Shared core of the status-script machinery. It holds the small amount of
  * state and the few primitives used by BOTH the unprivileged worker
  * (script_worker.c) and the privileged monitor (script_monitor.c): the single
- * place that forks a script child, the SIGCHLD reaping discipline, the env
- * sanitizer, and process init. Keeping these here lets the worker and monitor
- * be audited independently without duplicating the subtle fork/signal logic.
+ * place that forks a script child, the SIGCHLD reaping discipline, and process
+ * init. Keeping these here lets the worker and monitor be audited independently
+ * without duplicating the subtle fork/signal logic. (The pure request codec and
+ * the env sanitizer live in script_codec.c.)
  */
 
-#include <ctype.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -243,76 +243,4 @@ void script_spawn(const char *act, int delay, bool resume,
 		execv(script_child.argv[0], script_child.argv);
 		_exit(128);
 	}
-}
-
-/*
- * Prepare an already-assembled "NAME=value" buffer that originates from
- * untrusted network input before it is exported to the environment of the
- * (root) status script.
- *
- * The variable NAME (the bytes before the first '=') is validated, not
- * rewritten. It is only accepted if it is a non-empty run of the portable
- * environment-variable charset ([A-Za-z_][A-Za-z0-9_]*). Silently rewriting an
- * invalid name could map a value onto an unexpected variable, so a missing or
- * invalid name causes the whole entry to be rejected: the function returns
- * false and the caller must not putenv() it. Rejecting a single entry (rather
- * than aborting the process) avoids handing an attacker a denial-of-service
- * trigger. The names used in this file are compile-time constants, so this is
- * defense in depth against future call sites.
- *
- * The value (the bytes after the first '=') is sanitized in place. DHCPv6
- * replies and ICMPv6 Router Advertisements are attacker-controlled, so option
- * payloads may contain newlines or other non-printable bytes. Any byte that is
- * not printable ASCII, or that could trigger shell quoting/expansion, is
- * replaced with '_'. This cannot remove embedded NUL bytes (they already
- * terminate the C string) and does not by itself guarantee shell-safety: the
- * consuming script must still quote variables.
- *
- * Returns true if the entry is safe to export, false if it must be discarded.
- */
-bool script_sanitize_env(char *env)
-{
-	char *p = strchr(env, '=');
-
-	/* A well-formed entry must have a non-empty NAME before the '='. */
-	if (p == NULL || p == env)
-		return false;
-
-	/* Validate the NAME without modifying it. */
-	for (char *n = env; n < p; n++) {
-		unsigned char c = (unsigned char)*n;
-
-		if (c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
-			continue;
-		/* Digits are allowed, but not as the first character. */
-		if (n != env && c >= '0' && c <= '9')
-			continue;
-
-		return false;
-	}
-
-	/* Sanitize the value portion in place. */
-	for (p++; *p; p++) {
-		unsigned char c = (unsigned char)*p;
-
-		/* Reject non-printable and non-ASCII bytes */
-		if (c < 0x20 || c > 0x7e) {
-			*p = '_';
-			continue;
-		}
-
-		/* Reject shell-significant characters */
-		switch (c) {
-		case '`': case '$': case '\\': case '"': case '\'':
-			*p = '_';
-			break;
-		default:
-			/* Replace whitespace other than a single regular space */
-			if (c != ' ' && isspace(c))
-				*p = '_';
-			break;
-		}
-	}
-
-	return true;
 }

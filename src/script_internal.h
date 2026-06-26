@@ -18,8 +18,12 @@
 
 #include <signal.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <time.h>
+
+#include "script.h"
 
 /*
  * Internal surface shared between the script translation units. It exists only
@@ -98,5 +102,64 @@ void script_sleep_ms(long ms);
  * monitor on every received entry.
  */
 bool script_sanitize_env(char *env);
+
+/*
+ * Pure, side-effect-free codec for the worker<->monitor request datagram
+ * (script_codec.c). These functions touch no sockets, no globals, do not fork
+ * and never exec; they operate purely on caller buffers so the privileged
+ * parser can be unit-tested and fuzzed in isolation. The wire format is the one
+ * documented in script.h.
+ */
+
+/*
+ * Reason codes returned by script_req_decode(). 0 means accept; every reject is
+ * a distinct negative value so callers can log exactly why a datagram was
+ * dropped. Map to text with script_req_strerror().
+ */
+enum script_req_reason {
+	SCRIPT_REQ_OK = 0,
+	SCRIPT_REQ_ERR_SHORT = -1,		/* datagram smaller than the header */
+	SCRIPT_REQ_ERR_MAGIC = -2,		/* bad magic sentinel */
+	SCRIPT_REQ_ERR_PADDING = -3,		/* non-zero reserved padding */
+	SCRIPT_REQ_ERR_RESUME = -4,		/* resume flag not 0/1 */
+	SCRIPT_REQ_ERR_CAPS = -5,		/* a length field exceeds its hard cap */
+	SCRIPT_REQ_ERR_SIZE = -6,		/* datagram size != declared layout */
+	SCRIPT_REQ_ERR_ACTION = -7,		/* action not on the allow-list */
+	SCRIPT_REQ_ERR_ENV_UNTERMINATED = -8,	/* env entry missing its NUL */
+	SCRIPT_REQ_ERR_ENV_INVALID = -9,	/* env entry rejected by sanitizer */
+	SCRIPT_REQ_ERR_ENV_TRAILING = -10,	/* declared bytes not fully consumed */
+	SCRIPT_REQ_ERR_ENV_CAP = -11,		/* env_count exceeds caller array */
+};
+
+/* Human-readable text for a script_req_decode() reason code. */
+const char *script_req_strerror(int reason);
+
+/*
+ * Serialize a request into out[0..outcap). Returns the number of bytes written,
+ * or -1 if out is NULL, the message would not fit, or the inputs exceed the
+ * SCRIPT_ENV_* hard caps (the same caps the decoder enforces). Reads are bounded
+ * (strnlen), so a non-NUL-terminated entry is rejected rather than over-read.
+ * Produces byte-for-byte the same datagram the worker has always sent for
+ * already-capped input; performs no I/O.
+ */
+ssize_t script_req_encode(uint8_t *out, size_t outcap,
+		const char *action, int delay, bool resume,
+		char *const *env, size_t envc);
+
+/*
+ * Validate one request datagram and, on success, fill the caller's buffers:
+ *   - out_hdr     the parsed (and bounds-checked) header;
+ *   - action      the NUL-terminated action string (<= SCRIPT_ACTION_MAX);
+ *   - env_out     up to env_cap pointers to the re-sanitized "NAME=value"
+ *                 entries (which point into buf);
+ *   - env_count_out  number of env entries written.
+ * Returns SCRIPT_REQ_OK (0) on accept or a negative script_req_reason on reject;
+ * never forks or execs. buf is mutable because each env entry is re-sanitized in
+ * place (the same defense-in-depth gate the monitor has always applied); the
+ * caller owns buf and must keep it alive while the env_out pointers are used.
+ */
+int script_req_decode(uint8_t *buf, size_t len,
+		struct script_req *out_hdr, char action[SCRIPT_ACTION_MAX + 1],
+		char **env_out, size_t env_cap, size_t *env_count_out);
 
 #endif /* ODHCP6C_SCRIPT_INTERNAL_H */

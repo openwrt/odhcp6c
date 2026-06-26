@@ -1,0 +1,128 @@
+name: fuzz
+
+# Fuzzing for the privilege-separation request codec (script_req_decode()), the
+# root-side parser the monitor runs on datagrams from the unprivileged worker.
+# It is a separate workflow because it uses a different toolchain from the rest
+# of CI: host-native clang + libFuzzer + ASan/UBSan, building only the pure codec
+# (no libubox/ubus/json-c, no cross-compile, no netns). See tools/fuzz/README.md.
+
+on:
+  pull_request:
+    paths:
+      - 'src/script_codec.c'
+      - 'src/script.h'
+      - 'src/script_internal.h'
+      - 'tools/fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/script_codec.c'
+      - 'src/script.h'
+      - 'src/script_internal.h'
+      - 'tools/fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  schedule:
+    # Nightly longer campaign.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Campaign duration in seconds'
+        default: '900'
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Per-PR gate: deterministic and fast. Replays the committed seed corpus and
+  # every saved crash regression, then a short bounded run. A regression that was
+  # fixed stays fixed; a newly reachable crash fails the PR.
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: codec fuzz smoke
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Build fuzz target
+        run: CC=clang tools/fuzz/build.sh "$GITHUB_WORKSPACE/script_req_fuzz"
+
+      - name: Generate seed corpus
+        run: tools/fuzz/gen_seed_corpus.sh
+
+      - name: Replay crash regressions (deterministic)
+        run: |
+          if [ -n "$(find tools/fuzz/regressions -type f ! -name 'README.md' -print -quit)" ]; then
+            find tools/fuzz/regressions -type f ! -name 'README.md' -print0 \
+              | xargs -0 "$GITHUB_WORKSPACE/script_req_fuzz"
+          else
+            echo "no saved regressions to replay"
+          fi
+
+      - name: Short fuzz run
+        run: |
+          "$GITHUB_WORKSPACE/script_req_fuzz" tools/fuzz/corpus \
+            -max_total_time=60 -error_exitcode=1
+
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-smoke
+          path: |
+            crash-*
+            timeout-*
+            oom-*
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Nightly / on-demand campaign: best-effort, never gates a PR. Persists the
+  # evolving corpus across runs so coverage accumulates over time.
+  # ---------------------------------------------------------------------------
+  campaign:
+    name: codec fuzz campaign
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Restore corpus
+        uses: actions/cache@v4
+        with:
+          path: tools/fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-
+
+      - name: Build fuzz target
+        run: CC=clang tools/fuzz/build.sh "$GITHUB_WORKSPACE/script_req_fuzz"
+
+      - name: Seed corpus (additive)
+        run: tools/fuzz/gen_seed_corpus.sh
+
+      - name: Fuzz
+        run: |
+          "$GITHUB_WORKSPACE/script_req_fuzz" tools/fuzz/corpus \
+            -max_total_time=${{ github.event.inputs.duration || 900 }} \
+            -error_exitcode=1
+
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-campaign
+          path: |
+            crash-*
+            timeout-*
+            oom-*
+          if-no-files-found: ignore
