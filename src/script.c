@@ -860,150 +860,29 @@ static void script_send_request(const char *status, int delay, bool resume)
 	env_collecting = false;
 }
 
-void script_call(const char *status, int delay, bool resume)
-{
-	if (!argv[0])
-		return;
-
-	if (script_channel >= 0) {
-		script_send_request(status, delay, resume);
-		return;
-	}
-
-	time_t now = odhcp6c_get_milli_time() / 1000;
-	bool running_script = false;
-
-	pid_t prev = running;
-	if (prev > 0) {
-		time_t diff = now - started;
-
-		if (diff < started_delay) {
-			/* Still in its pre-exec delay window: a newer state
-			 * supersedes it, so cancel and replace it (state
-			 * batching). */
-			kill(prev, SIGTERM);
-
-			if (diff > delay)
-				delay -= diff;
-			else
-				delay = 0;
-
-			running_script = true;
-		} else {
-			/* Already executing: let it finish so its notification
-			 * is not lost (e.g. the terminal unbound -> stopped
-			 * sequence) before starting the next one. */
-			script_drain_running();
-		}
-	}
-
-	if (resume || !running_script || !action[0])
-		strncpy(action, status, sizeof(action) - 1);
-
-	sigset_t omask;
-	script_block_sigchld(&omask);
-
-	pid_t pid = fork();
-
-	if (pid < 0) {
-		error("Failed to fork script handler: %s", strerror(errno));
-		/*
-		 * Leave 'running' unchanged: a previous script child may still be
-		 * in-flight (script_drain_running() can return after SIGTERM while
-		 * the child is still exiting). Clearing it would drop that child
-		 * from tracking and let the next request start an overlapping
-		 * script without draining it first.
-		 */
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-		return;
-	}
-
-	if (pid > 0) {
-		running = pid;
-		started = now;
-		started_delay = delay;
-
-		if (!resume)
-			action[0] = 0;
-
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-	} else if (pid == 0) {
-		sigprocmask(SIG_SETMASK, &omask, NULL);
-		signal(SIGTERM, SIG_DFL);
-		if (delay > 0) {
-			sleep(delay);
-			odhcp6c_expire(false);
-		}
-
-		script_build_env();
-
-		execv(argv[0], argv);
-		_exit(128);
-	}
-}
-
 /*
- * The exact set of actions odhcp6c emits today (from the notify_state_change()
- * call sites). The monitor only ever runs the script with one of these; any
- * other action from the worker is rejected.
+ * The single place that forks a script child. Both the single-process worker
+ * (script_call) and the privileged monitor (monitor_run_script) delegate here
+ * so the subtle fork/signal bookkeeping lives in exactly one spot and the two
+ * paths can never drift.
+ *
+ * The shared bookkeeping is:
+ *   - supersede-or-drain a still-running script: if the previous child is still
+ *     in its pre-exec delay window a newer state supersedes it (SIGTERM + delay
+ *     inheritance = state batching); an already-executing one is drained so its
+ *     notification (e.g. the terminal unbound -> stopped sequence) is not lost;
+ *   - latch the action into the shared action[] buffer (resume/replace rules);
+ *   - block SIGCHLD across fork() so the handler cannot reap the child before
+ *     'running' is recorded, and snapshot it in the parent;
+ *   - in the child, reset SIGTERM, sleep out the delay, then run the
+ *     caller-supplied env step before execv.
+ *
+ * The only real difference between the two callers is what the child does to
+ * prepare its environment immediately before execv; that is supplied via
+ * child_setup(delay, ctx) so the rest stays identical.
  */
-static const char *const script_actions[] = {
-	"started", "bound", "informed", "ra-updated",
-	"updated", "rebound", "unbound", "stopped",
-};
-
-static bool script_action_allowed(const char *act, size_t len)
-{
-	if (len == 0 || len > SCRIPT_ACTION_MAX)
-		return false;
-
-	for (size_t i = 0; i < sizeof(script_actions) / sizeof(script_actions[0]); i++) {
-		if (strlen(script_actions[i]) == len &&
-				!memcmp(script_actions[i], act, len))
-			return true;
-	}
-
-	return false;
-}
-
-/* Pid of the worker; declared above with the SIGCHLD status-capture globals. */
-
-static void monitor_sighandle(int signal)
-{
-	if (monitor_worker_pid <= 0)
-		return;
-
-	switch (signal) {
-	case SIGUSR1:
-	case SIGUSR2:
-		/*
-		 * Reconfiguration signals (renew/rebind) are handled by the
-		 * worker, which owns the DHCPv6 state machine. Forward them so
-		 * that callers (e.g. init scripts) signalling the launcher PID
-		 * reach the worker in privsep mode.
-		 */
-		kill(monitor_worker_pid, signal);
-		break;
-	default:
-		/*
-		 * Ask the worker to begin its graceful DHCPV6_EXIT/RELEASE
-		 * path. The worker's final notifications arrive over the
-		 * channel and the monitor exits once the channel reaches EOF.
-		 */
-		kill(monitor_worker_pid, SIGTERM);
-		break;
-	}
-}
-
-/*
- * Run the status script for an already validated request. Mirrors the
- * single-process script_call() bookkeeping (kill/replace a still-running
- * script, delay adjustment, action/resume handling) but runs as the privileged
- * monitor with a fixed script path/argv and a caller-supplied, re-sanitized
- * environment. No client state is consulted here.
- */
-static void monitor_run_script(const char *act, int delay, bool resume,
-		char *const *envp, size_t envc)
+static void script_spawn(const char *act, int delay, bool resume,
+		void (*child_setup)(int delay, void *ctx), void *ctx)
 {
 	time_t now = odhcp6c_get_milli_time() / 1000;
 	bool running_script = false;
@@ -1070,12 +949,124 @@ static void monitor_run_script(const char *act, int delay, bool resume,
 		if (delay > 0)
 			sleep(delay);
 
-		for (size_t i = 0; i < envc; i++)
-			putenv(envp[i]);
+		child_setup(delay, ctx);
 
 		execv(argv[0], argv);
 		_exit(128);
 	}
+}
+
+/*
+ * Worker-side in-child env step: if a delay was actually waited out, expire
+ * stale client state first, then build the environment from live client state.
+ * odhcp6c_expire() must run only here (the worker), never in the monitor.
+ */
+static void script_call_child(int delay, void *ctx)
+{
+	(void)ctx;
+
+	if (delay > 0)
+		odhcp6c_expire(false);
+
+	script_build_env();
+}
+
+void script_call(const char *status, int delay, bool resume)
+{
+	if (!argv[0])
+		return;
+
+	if (script_channel >= 0) {
+		script_send_request(status, delay, resume);
+		return;
+	}
+
+	script_spawn(status, delay, resume, script_call_child, NULL);
+}
+
+/*
+ * The exact set of actions odhcp6c emits today (from the notify_state_change()
+ * call sites). The monitor only ever runs the script with one of these; any
+ * other action from the worker is rejected.
+ */
+static const char *const script_actions[] = {
+	"started", "bound", "informed", "ra-updated",
+	"updated", "rebound", "unbound", "stopped",
+};
+
+static bool script_action_allowed(const char *act, size_t len)
+{
+	if (len == 0 || len > SCRIPT_ACTION_MAX)
+		return false;
+
+	for (size_t i = 0; i < sizeof(script_actions) / sizeof(script_actions[0]); i++) {
+		if (strlen(script_actions[i]) == len &&
+				!memcmp(script_actions[i], act, len))
+			return true;
+	}
+
+	return false;
+}
+
+/* Pid of the worker; declared above with the SIGCHLD status-capture globals. */
+
+static void monitor_sighandle(int signal)
+{
+	if (monitor_worker_pid <= 0)
+		return;
+
+	switch (signal) {
+	case SIGUSR1:
+	case SIGUSR2:
+		/*
+		 * Reconfiguration signals (renew/rebind) are handled by the
+		 * worker, which owns the DHCPv6 state machine. Forward them so
+		 * that callers (e.g. init scripts) signalling the launcher PID
+		 * reach the worker in privsep mode.
+		 */
+		kill(monitor_worker_pid, signal);
+		break;
+	default:
+		/*
+		 * Ask the worker to begin its graceful DHCPV6_EXIT/RELEASE
+		 * path. The worker's final notifications arrive over the
+		 * channel and the monitor exits once the channel reaches EOF.
+		 */
+		kill(monitor_worker_pid, SIGTERM);
+		break;
+	}
+}
+
+/*
+ * In-child env step for the monitor: putenv() each already-re-validated
+ * NAME=value entry from the request. No client state is consulted, so the
+ * delay is unused here.
+ */
+struct monitor_env_ctx { char *const *envp; size_t envc; };
+
+static void monitor_run_script_child(int delay, void *ctx)
+{
+	(void)delay;
+
+	const struct monitor_env_ctx *e = ctx;
+
+	for (size_t i = 0; i < e->envc; i++)
+		putenv(e->envp[i]);
+}
+
+/*
+ * Run the status script for an already validated request. Reuses the shared
+ * script_spawn() bookkeeping (kill/replace a still-running script, delay
+ * adjustment, action/resume handling, SIGCHLD discipline) but runs as the
+ * privileged monitor with a fixed script path/argv and a caller-supplied,
+ * re-sanitized environment. No client state is consulted here.
+ */
+static void monitor_run_script(const char *act, int delay, bool resume,
+		char *const *envp, size_t envc)
+{
+	struct monitor_env_ctx ctx = { .envp = envp, .envc = envc };
+
+	script_spawn(act, delay, resume, monitor_run_script_child, &ctx);
 }
 
 /*
