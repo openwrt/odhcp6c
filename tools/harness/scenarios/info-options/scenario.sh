@@ -2,7 +2,7 @@
 #
 # The server returns multiple RDNSS addresses and multiple search domains in its
 # REPLY. odhcp6c formats them into the space-separated RDNSS / DOMAINS env values
-# (src/script.c ipv6_to_env / fqdn_to_env). We assert each value is present and
+# (src/script_worker.c ipv6_to_env / fqdn_to_env). We assert each value is present and
 # sanitized.
 #
 # Note: the backend's --dns/--domains use argparse action="append" with NON-empty

@@ -42,7 +42,7 @@ rec="$capture/rec.$stamp.$$"
 
 # The odhcp6c-exported variables we care about. We capture the full environment
 # but tag the odhcp6c-specific names so assertions are easy to write and records
-# stay readable. The list mirrors script.c (*_to_env) and ra.c.
+# stay readable. The list mirrors script_worker.c (*_to_env) and ra.c.
 odhcp6c_vars="ACTION IFACE \
 PREFIXES ADDRESSES SERVER RDNSS DOMAINS SNTP_IP NTP_IP NTP_FQDN \
 SIP_IP SIP_DOMAIN AFTR MAPE MAPT LW4O6 \

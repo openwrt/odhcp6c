@@ -346,7 +346,7 @@ _harness_ppid() {
 }
 
 # Resolve the PID of a privsep role: "monitor" (the privileged parent that owns
-# signal forwarding/translation -- src/script.c monitor_sighandle) or "worker"
+# signal forwarding/translation -- src/script_monitor.c monitor_sighandle) or "worker"
 # (the unprivileged child running the DHCPv6 state machine). The worker is the
 # odhcp6c process whose parent is itself an odhcp6c process; the monitor is the
 # one whose parent is not. In single-process (non-privsep) mode both roles
@@ -501,7 +501,7 @@ harness_odhcp6c_stop_monitor() {
 # exit status in HARNESS_ODHCP6C_EXIT. This is the failure-path counterpart to
 # harness_odhcp6c_stop_monitor: in privsep mode the monitor must SURVIVE the
 # worker's death, observe it, clean up, and exit non-zero (the monitor loop
-# returns 1 for a worker that did not exit normally -- src/script.c
+# returns 1 for a worker that did not exit normally -- src/script_monitor.c
 # script_monitor_loop), WITHOUT the worker having had a chance to send a
 # graceful RELEASE. In single-process (non-privsep) mode the role resolver
 # targets the sole process, so this kills it directly (wait reports 128+signal).
