@@ -120,9 +120,14 @@ static const int seccomp_allow[] = {
 	/* event loop + I/O on already-open fds. writev backs buffered stdio
 	 * flushes on musl (__stdio_write), observed in the worker's log path. */
 	SCMP_SYS(ppoll), SCMP_SYS(poll),
+	/* y2038 time64 / pselect forms of the event loop, used on 32-bit
+	 * arches (ARM/MIPS OpenWrt targets). Same semantics as ppoll/poll. */
+	SCMP_SYS(ppoll_time64), SCMP_SYS(pselect6), SCMP_SYS(pselect6_time64),
 	SCMP_SYS(recvmsg), SCMP_SYS(recvfrom),
 	SCMP_SYS(sendmsg), SCMP_SYS(sendto),
 	SCMP_SYS(read), SCMP_SYS(write), SCMP_SYS(writev),
+	/* positional I/O on already-open fds (no exposure beyond read/write) */
+	SCMP_SYS(pread64), SCMP_SYS(pwrite64),
 	SCMP_SYS(close),
 	/* DHCPv6 socket re-creation on DHCPV6_RESET (worker retains
 	 * CAP_NET_RAW + CAP_NET_BIND_SERVICE). socketcall covers 32-bit
@@ -136,6 +141,7 @@ static const int seccomp_allow[] = {
 	/* time + randomness + alarms */
 	SCMP_SYS(clock_gettime), SCMP_SYS(clock_gettime64),
 	SCMP_SYS(gettimeofday), SCMP_SYS(time),
+	SCMP_SYS(clock_getres), SCMP_SYS(clock_getres_time64),
 	SCMP_SYS(nanosleep), SCMP_SYS(clock_nanosleep),
 	SCMP_SYS(clock_nanosleep_time64),
 	SCMP_SYS(getrandom),
@@ -148,6 +154,12 @@ static const int seccomp_allow[] = {
 	 * handlers resolve to tgkill (glibc) or tkill (musl); gettid
 	 * backs the tid lookup on some libc versions. */
 	SCMP_SYS(tgkill), SCMP_SYS(tkill), SCMP_SYS(gettid),
+	/* libc synchronization + scheduling housekeeping. futex backs libc
+	 * mutex/stdio/malloc locking (process-local fast-userspace lock; only
+	 * traps under contention). rseq is registered by glibc's thread setup.
+	 * All are process-local and cannot reach other tasks. */
+	SCMP_SYS(futex), SCMP_SYS(futex_time64),
+	SCMP_SYS(sched_yield), SCMP_SYS(rseq),
 	/* libc internals: uname is not called directly by odhcp6c but both
 	 * musl and glibc issue it lazily on the worker's post-seccomp path
 	 * (kernel-version probe). Confirmed as the sole allow-list gap on both
@@ -162,6 +174,9 @@ static const int seccomp_allow[] = {
 	SCMP_SYS(openat), SCMP_SYS(open),
 	SCMP_SYS(lseek), SCMP_SYS(_llseek),
 	SCMP_SYS(fstat), SCMP_SYS(fstat64), SCMP_SYS(newfstatat),
+	/* statx is glibc's stat() backend on >=2.33; getdents64 backs
+	 * readdir(3). Same read-only exposure as the stat/open calls above. */
+	SCMP_SYS(statx), SCMP_SYS(getdents64),
 	/* clean shutdown */
 	SCMP_SYS(exit), SCMP_SYS(exit_group),
 };
