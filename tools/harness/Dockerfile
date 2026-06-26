@@ -71,11 +71,15 @@ COPY . /src
 # Minimal build: no ubus (avoids ubusd); enable the exploit-mitigation
 # (hardening) flags and libcap-ng so privilege separation is actually
 # compiled in -- privsep_should_enable() is gated on WITH_LIBCAP_NG, so
-# without it odhcp6c silently runs single-process. Seccomp is intentionally
-# left off here; the worker BPF allow-list is exercised as a separate step.
-# The grep guard keeps the flag a no-op on trees without the option. The
-# harness points ODHCP6C_BIN at this.
-RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
+# without it odhcp6c silently runs single-process. Seccomp confinement of the
+# worker is opt-in via the SECCOMP build-arg (default OFF): the integration
+# matrix builds a SECCOMP=ON image for the libcapng-seccomp cell and leaves it
+# OFF for the others. The grep guards keep each flag a no-op on trees without
+# the option. The harness points ODHCP6C_BIN at this.
+ARG SECCOMP=OFF
+RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
+        $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
+        $([ "$SECCOMP" = "ON" ] && grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel \
     && cp build/odhcp6c /usr/local/bin/odhcp6c
 
@@ -89,7 +93,10 @@ RUN echo "[privsep-debug] LIBCAP_NG flag => [$(grep -q 'option(LIBCAP_NG' CMakeL
     else echo "[privsep-debug] linked libcap-ng = NO"; fi; \
     if strings /usr/local/bin/odhcp6c 2>/dev/null | grep -q 'staying single-process'; then \
         echo "[privsep-debug] WITH_LIBCAP_NG compiled = YES"; \
-    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi
+    else echo "[privsep-debug] WITH_LIBCAP_NG compiled = NO"; fi; \
+    if readelf -d /usr/local/bin/odhcp6c 2>/dev/null | grep -qi 'libseccomp'; then \
+        echo "[privsep-debug] linked libseccomp (SECCOMP build) = YES"; \
+    else echo "[privsep-debug] linked libseccomp (SECCOMP build) = NO"; fi
 
 ENV ODHCP6C_BIN=/usr/local/bin/odhcp6c
 ENV PYTHON=python3

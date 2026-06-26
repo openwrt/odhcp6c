@@ -50,7 +50,7 @@ jobs:
   # Per-PR gate: musl (Alpine) + glibc (Debian), amd64.
   # ---------------------------------------------------------------------------
   scenarios:
-    name: scenarios (${{ matrix.libc }}, privsep ${{ matrix.privsep }})
+    name: scenarios (${{ matrix.libc }}, ${{ matrix.mode }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,9 +58,18 @@ jobs:
         libc:
           - musl
           - glibc
-        privsep:
-          - 'on'
-          - 'off'
+        # Security posture under test. Each cell builds/runs the worker
+        # differently:
+        #   no-privsep        single-process worker (HARNESS_PRIVSEP=off); no
+        #                     libcap-ng drop or seccomp filter is applied.
+        #   libcapng          privsep on: monitor/worker split + libcap-ng
+        #                     privilege drop, but no seccomp filter.
+        #   libcapng-seccomp  privsep on: libcap-ng drop AND the worker
+        #                     seccomp-BPF syscall filter (SECCOMP=ON build).
+        mode:
+          - no-privsep
+          - libcapng
+          - libcapng-seccomp
         include:
           - libc: musl
             dockerfile: tools/harness/Dockerfile
@@ -69,27 +78,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build harness image (${{ matrix.libc }})
+      - name: Resolve mode configuration
+        id: cfg
         run: |
-          docker build -f "${{ matrix.dockerfile }}" -t odhcp6c-harness:${{ matrix.libc }} .
+          set -eu
+          # privsep: runtime flag passed to the harness (HARNESS_PRIVSEP).
+          # seccomp: build-time CMake option baked into the image.
+          case "${{ matrix.mode }}" in
+            no-privsep)        privsep=off; seccomp=OFF ;;
+            libcapng)          privsep=on;  seccomp=OFF ;;
+            libcapng-seccomp)  privsep=on;  seccomp=ON  ;;
+            *) echo "::error::unknown mode '${{ matrix.mode }}'"; exit 1 ;;
+          esac
+          echo "privsep=$privsep" >> "$GITHUB_OUTPUT"
+          echo "seccomp=$seccomp" >> "$GITHUB_OUTPUT"
 
-      - name: Run scenarios (privsep ${{ matrix.privsep }})
+      - name: Build harness image (${{ matrix.libc }}, ${{ matrix.mode }})
+        run: |
+          docker build -f "${{ matrix.dockerfile }}" \
+            --build-arg SECCOMP=${{ steps.cfg.outputs.seccomp }} \
+            -t odhcp6c-harness:${{ matrix.libc }}-${{ matrix.mode }} .
+
+      - name: Run scenarios (${{ matrix.libc }}, ${{ matrix.mode }})
         run: |
           set -eu
           mkdir -p artifacts
           rc=0
+          # When the worker installs its own seccomp-BPF filter, disable
+          # Docker's outer seccomp profile so the in-process filter is the
+          # sole confinement under test (mirrors the syscall-trace job). The
+          # other modes keep Docker's default profile.
+          extra_opts=""
+          if [ "${{ steps.cfg.outputs.seccomp }}" = "ON" ]; then
+            extra_opts="--security-opt seccomp=unconfined"
+          fi
           for s in $SCENARIOS; do
-            echo "::group::scenario $s (${{ matrix.libc }}, privsep ${{ matrix.privsep }})"
+            echo "::group::scenario $s (${{ matrix.libc }}, ${{ matrix.mode }})"
             if docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
-                 --security-opt apparmor=unconfined \
-                 -e HARNESS_PRIVSEP=${{ matrix.privsep }} \
+                 --security-opt apparmor=unconfined $extra_opts \
+                 -e HARNESS_PRIVSEP=${{ steps.cfg.outputs.privsep }} \
                  -v "$PWD/artifacts:/artifacts" \
-                 odhcp6c-harness:${{ matrix.libc }} \
+                 odhcp6c-harness:${{ matrix.libc }}-${{ matrix.mode }} \
                  tools/harness/run-scenario.sh --timeout 30 \
                  --outdir "/artifacts/$s" "$s"; then
               echo "PASS: $s"
             else
-              echo "::error::scenario failed: $s (${{ matrix.libc }}, privsep ${{ matrix.privsep }})"
+              echo "::error::scenario failed: $s (${{ matrix.libc }}, ${{ matrix.mode }})"
               rc=1
             fi
             echo "::endgroup::"
@@ -100,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scenarios-${{ matrix.libc }}-privsep-${{ matrix.privsep }}
+          name: scenarios-${{ matrix.libc }}-${{ matrix.mode }}
           path: artifacts/
           if-no-files-found: ignore
 
