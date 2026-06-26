@@ -180,7 +180,7 @@ static void script_env_apply_caps(void)
 
 	for (size_t i = 0; i < env.cnt; i++) {
 		char *buf = env.list[i];
-		size_t len = strlen(buf) + 1;
+		size_t len = strnlen(buf, SCRIPT_ENV_ENTRY_MAX) + 1;
 
 		if (len > SCRIPT_ENV_ENTRY_MAX ||
 				out >= SCRIPT_ENV_MAX_COUNT ||
@@ -678,12 +678,15 @@ static void script_send_request(const char *status, int delay, bool resume)
 	script_build_env();
 
 	/*
-	 * Single emit step: sanitize every entry once, then drop anything that
-	 * would exceed the monitor's hard caps. env.list now holds exactly the
-	 * entries that will be serialized.
+	 * Single emit step: drop anything that would exceed the monitor's hard
+	 * caps first, then sanitize only the survivors. Filtering before
+	 * sanitizing avoids spending CPU on entries (some sized directly from
+	 * attacker-influenced option lengths) that are about to be discarded.
+	 * Sanitization is in place and never grows an entry, so the caps applied
+	 * here still hold for what is serialized.
 	 */
-	script_env_sanitize();
 	script_env_apply_caps();
+	script_env_sanitize();
 
 	size_t action_len = strlen(status);
 	if (action_len > SCRIPT_ACTION_MAX)
