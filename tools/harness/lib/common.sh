@@ -276,7 +276,14 @@ harness_odhcp6c_start() {
 	strace)
 		# Follow forks (-f) so BOTH privsep processes (monitor + worker) are
 		# traced; -ff writes one file per pid; -qq quiets attach/exit noise.
-		_pre="strace -f -ff -qq -e trace=%network,%desc,%memory,%signal,%process -o $HARNESS_TRACE_DIR/trace"
+		# Trace EVERY syscall (no -e trace= class filter): the seccomp
+		# reconciliation must see the worker's complete syscall set, including
+		# ones outside the network/desc/memory/signal/process classes (e.g.
+		# futex, getrandom, the clock_* family, getuid/getpid). A class filter
+		# here creates a blind spot -- a syscall the worker really issues but
+		# strace never records -- which makes the reconciliation falsely report
+		# the allow-list as complete while seccomp kills the worker at runtime.
+		_pre="strace -f -ff -qq -o $HARNESS_TRACE_DIR/trace"
 		;;
 	seccomp-log)
 		# Snapshot dmesg position so we can scrape only new SECCOMP records.
