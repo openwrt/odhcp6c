@@ -173,6 +173,27 @@ if(SECCOMP)
 endif(SECCOMP)
 
 
+# Fuzzing: build a libFuzzer target for the pure privilege-separation request
+# codec (script_req_decode). Opt-in and self-contained -- it links ONLY the pure
+# codec translation unit plus a tiny harness, so a normal build is completely
+# unaffected and the fuzzer pulls in no sockets, fork/exec or daemon state.
+# Requires a libFuzzer-capable compiler (e.g. clang -fsanitize=fuzzer).
+option(FUZZING "Build the libFuzzer target for the privsep request codec" OFF)
+if(FUZZING)
+	add_executable(script_req_fuzz
+		src/script_codec.c
+		tools/fuzz/script_req_fuzz.c
+	)
+	set_target_properties(script_req_fuzz PROPERTIES C_STANDARD 11)
+	target_compile_definitions(script_req_fuzz PRIVATE _GNU_SOURCE)
+	target_include_directories(script_req_fuzz PRIVATE src)
+	target_compile_options(script_req_fuzz PRIVATE
+		-g -fsanitize=fuzzer,address,undefined)
+	target_link_options(script_req_fuzz PRIVATE
+		-fsanitize=fuzzer,address,undefined)
+endif(FUZZING)
+
+
 # Installation
 install(TARGETS ${PROJECT_NAME} DESTINATION sbin/)
 
