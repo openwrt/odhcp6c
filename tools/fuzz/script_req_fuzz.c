@@ -26,7 +26,6 @@
  *   ./build-fuzz/script_req_fuzz tools/fuzz/corpus
  */
 
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,15 +34,11 @@
 #include "script_internal.h"
 
 /*
- * The pure codec logs decode rejections through the project's __iflog() sink
- * (debug()/error()). Provide a no-op so the fuzz target links without dragging
- * in the daemon's logging implementation.
+ * The codec is pure: script_req_decode() only validates and returns a reason
+ * code, it does not log (the monitor wrapper logs the reason). So the fuzz
+ * target needs no logging sink and links against nothing from the daemon -- it
+ * is just src/script_codec.c plus this harness.
  */
-void __iflog(int lvl, const char *fmt, ...)
-{
-	(void)lvl;
-	(void)fmt;
-}
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {

@@ -21,7 +21,10 @@ MAGIC = 0x6f366970
 
 def req(action, delay, resume, envs):
     env_blob = b"".join(e.encode() + b"\0" for e in envs)
-    hdr = struct.pack("<IIiB3xII", MAGIC, len(action), delay,
+    # struct script_req is sent as a raw memcpy() of the native C struct, so it
+    # uses host byte order. Pack with "=" (native endianness, standard sizes)
+    # and an explicit 3-byte pad so the seeds are valid on any target.
+    hdr = struct.pack("=IIiB3xII", MAGIC, len(action), delay,
                       resume, len(envs), len(env_blob))
     return hdr + action.encode() + env_blob
 
