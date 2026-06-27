@@ -1,5 +1,5 @@
-# ubus-reconnect: exercise the ubus code path under privsep + seccomp, including
-# a broker disconnect/reconnect cycle.
+# ubus-reconnect: exercise the ubus code path under privsep + seccomp across a
+# full broker disconnect/reconnect lifecycle.
 #
 # Why this scenario exists
 # ------------------------
@@ -17,18 +17,21 @@
 #   1. Connected: the worker registers "odhcp6c.<iface>" and serves `ubus call
 #      ... renew`, which raises SIGUSR1 -> a renew -> an 'updated' record. That
 #      one call exercises recvmsg/sendmsg/writev + raise(->tgkill) under seccomp.
-#   2. Disconnect: killing ubusd makes the worker run ubus_disconnect_cb ->
-#      ubus_reconnect(), i.e. socket()+connect() AFTER seccomp. If those weren't
-#      allow-listed the worker would be killed (fail-closed) -- so the worker
-#      logging "Cannot reconnect to ubus" and STAYING ALIVE is the proof the
-#      reconnect syscalls are permitted. A direct SIGUSR1 to the worker then
-#      yields a second 'updated', proving the DHCPv6 state machine is unharmed by
-#      the ubus loss.
-#   3. Reconnect: ubusd is brought back. This is best-effort only -- there is a
-#      known, separately-tracked deferred bug (the worker's poll loop keeps the
-#      stale ubus fd after a reconnect, and a disconnect that destroys the ctx is
-#      never retried), so this scenario deliberately does NOT assert the object
-#      re-registers. It only asserts the worker survives the whole cycle.
+#   2. Successful reconnect: the worker is frozen (SIGSTOP), the broker is bounced
+#      so a fresh ubusd is already listening, then the worker is thawed (SIGCONT).
+#      Its connection_lost callback runs ubus_reconnect() -- socket()+connect()+
+#      object re-registration under seccomp -- which SUCCEEDS on a brand new
+#      socket. The scenario asserts the object re-registers AND that a subsequent
+#      `renew` is still serviced, i.e. odhcp6c followed the connection onto the
+#      new fd. Before the poll-fd-refresh fix the main loop kept polling the old,
+#      closed fd, so the new socket's events were never delivered and this renew
+#      would never be serviced -- so this is the regression test for that fix.
+#   3. Failed reconnect: the broker is killed and LEFT down. The worker runs the
+#      reconnect path (socket()+connect() under seccomp), it fails, the context
+#      is torn down cleanly (no use-after-free of the freed ctx), and the worker
+#      STAYS ALIVE -- proven by "Cannot reconnect to ubus" plus a direct SIGUSR1
+#      still yielding an 'updated', i.e. the DHCPv6 state machine is unharmed by
+#      the permanent ubus loss.
 #   4. Seccomp: with ODHCP6C_SECCOMP_DIAG=1 a blocked syscall is trapped and
 #      logged as "seccomp-diag: blocked syscall=<n>" instead of killing the
 #      worker. The scenario asserts NO such line appears across the entire ubus
@@ -72,8 +75,10 @@ scenario_setup() {
 }
 
 scenario_teardown() {
-	# The harness owns the broker lifecycle (it stops ubusd itself); only the
-	# subscriber this scenario spawned needs cleaning up here.
+	# The harness owns the broker lifecycle (it stops ubusd itself) and this
+	# scenario no longer spawns a background subscriber, so there is nothing of
+	# our own to tear down here. Kept as an explicit no-op for clarity; the
+	# subscribe_stop call is harmless even if nothing was started.
 	harness_ubus_subscribe_stop
 }
 
@@ -103,38 +108,51 @@ scenario_drive() {
 	# (1) Connected: object visible + a method round-trip that renews.
 	harness_ubus_wait_object 10 \
 		|| fatal "odhcp6c object $(harness_ubus_object_name) never appeared on the bus"
-	harness_ubus_subscribe_bg
 	harness_ubus call "$(harness_ubus_object_name)" renew \
 		|| fatal "ubus call renew failed while connected"
 	wait_for 15 "first 'updated' from ubus renew" _ubus_updated_at_least 1 \
 		|| fatal "no 'updated' after ubus call renew (method dispatch broken under seccomp?)"
 
-	# (2) Disconnect: kill the broker and leave it down. The worker must run the
-	# reconnect path (socket()+connect() under seccomp), fail gracefully, and
-	# survive. Stop the subscriber first so it does not race the broker death.
-	harness_ubus_subscribe_stop
+	# (2) Successful reconnect. Freeze the worker BEFORE killing the broker so it
+	# cannot process the disconnect until a fresh ubusd is already listening; then
+	# bounce the broker and thaw the worker. On thaw the worker's poll sees the old
+	# socket closed, runs ubus_disconnect_cb -> ubus_reconnect(), and -- because a
+	# broker is up again -- reconnects on a NEW socket and re-registers the object,
+	# all under seccomp. SIGSTOP is uncatchable, so this is race-free; the monitor
+	# reaps with waitpid(WNOHANG) (no WUNTRACED) so a stopped worker is invisible
+	# to it and it keeps waiting rather than declaring the worker dead.
+	harness_odhcp6c_signal_role worker STOP \
+		|| fatal "could not freeze worker before broker bounce"
+	harness_ubusd_restart
+	harness_odhcp6c_signal_role worker CONT \
+		|| fatal "could not thaw worker after broker bounce"
+
+	# Re-registration proves the reconnect's socket()/connect()/add_object path
+	# ran under seccomp; the serviced renew below proves odhcp6c followed the
+	# connection onto the NEW fd (the poll-fd refresh) rather than polling the
+	# stale, closed one.
+	harness_ubus_wait_object 15 \
+		|| fatal "object did not re-register after a successful reconnect"
+	harness_ubus call "$(harness_ubus_object_name)" renew \
+		|| fatal "ubus call renew failed after reconnect"
+	wait_for 15 "second 'updated' after successful reconnect" _ubus_updated_at_least 2 \
+		|| fatal "renew not serviced after reconnect (stale poll fd kept? events not delivered on the new socket)"
+
+	# (3) Failed reconnect: kill the broker and leave it down. The worker must run
+	# the reconnect path (socket()+connect() under seccomp), fail gracefully, tear
+	# the context down without a use-after-free, and survive.
 	harness_ubusd_stop
 	wait_for_log "Cannot reconnect to ubus" 15 \
 		|| fatal "worker did not run/return from the ubus reconnect path after broker death (seccomp kill?)"
 	harness_odhcp6c_running \
 		|| fatal "worker did not survive ubus broker death"
 
-	# Worker still drives DHCPv6 after losing ubus: a direct SIGUSR1 renews again.
+	# Worker still drives DHCPv6 after losing ubus for good: a direct SIGUSR1
+	# renews again, proving the state machine is unharmed by the ubus teardown.
 	harness_odhcp6c_signal_role worker USR1 \
 		|| fatal "could not signal worker with SIGUSR1 after ubus loss"
-	wait_for 15 "second 'updated' after post-disconnect SIGUSR1" _ubus_updated_at_least 2 \
+	wait_for 15 "third 'updated' after post-disconnect SIGUSR1" _ubus_updated_at_least 3 \
 		|| fatal "worker did not renew after ubus loss (state machine harmed?)"
-
-	# (3) Reconnect: bring the broker back. Best-effort only -- see the header note
-	# on the deferred stale-fd bug; we do NOT assert re-registration. A best-effort
-	# renew call may legitimately not be serviced.
-	harness_ubusd_restart
-	if harness_ubus_wait_object 5; then
-		info "object re-registered after broker restart"
-		harness_ubus call "$(harness_ubus_object_name)" renew >/dev/null 2>&1 || true
-	else
-		info "object not re-registered after broker restart (known deferred reconnect bug; not asserted)"
-	fi
 
 	# Stop odhcp6c gracefully so the release-on-stop path runs before asserting.
 	harness_odhcp6c_stop_monitor
@@ -146,15 +164,17 @@ scenario_assert() {
 		return 0
 	fi
 
-	# Connected + post-disconnect renews both reached the script.
+	# Connected, post-reconnect, and post-disconnect renews all reached the
+	# script: one per phase (connected renew, serviced renew after a successful
+	# reconnect, SIGUSR1 renew after the broker is gone for good).
 	harness_assert_action_seen bound
-	if [ "$(_ubus_updated_count)" -ge 2 ]; then
-		assert_pass "two 'updated' records (ubus renew + post-disconnect SIGUSR1)"
+	if [ "$(_ubus_updated_count)" -ge 3 ]; then
+		assert_pass "three 'updated' records (connected renew + reconnect renew + post-disconnect SIGUSR1)"
 	else
-		assert_fail "expected >=2 'updated' records, saw $(_ubus_updated_count)"
+		assert_fail "expected >=3 'updated' records, saw $(_ubus_updated_count)"
 	fi
 
-	# The worker ran the reconnect path and survived the broker death.
+	# The worker ran the reconnect path and survived the broker death (phase 3).
 	harness_assert_log "Cannot reconnect to ubus" "worker ran ubus reconnect path after broker death"
 
 	# Seccomp reconciliation: the worker filter must cover every ubus syscall. With
