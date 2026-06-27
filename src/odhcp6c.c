@@ -229,6 +229,7 @@ static struct odhcp6c_opt_cfg opt_cfg = {
 static struct option opt_long[] = {
 	{ "strict-rfc7550", no_argument, &opt_cfg.strict_rfc7550, 1 },
 	{ "no-privsep", no_argument, NULL, 256 },
+	{ "user", required_argument, NULL, 257 },
 	{ NULL, 0, NULL, 0 },
 };
 
@@ -273,15 +274,18 @@ static bool privsep_should_enable(bool no_privsep)
  * best-effort defence in depth (they cannot re-expose privilege) and only warn
  * on failure.
  */
-static int drop_privileges(void)
+static int drop_privileges(const char *user)
 {
-	struct passwd *pw = getpwnam(ODHCP6C_USER);
+	if (!user)
+		user = ODHCP6C_USER;
 
-	if (!pw && strcmp(ODHCP6C_USER, "nobody"))
+	struct passwd *pw = getpwnam(user);
+
+	if (!pw && strcmp(user, "nobody"))
 		pw = getpwnam("nobody");
 
 	if (!pw) {
-		critical("privsep: cannot resolve unprivileged user '%s'", ODHCP6C_USER);
+		critical("privsep: cannot resolve unprivileged user '%s'", user);
 		return -1;
 	}
 
@@ -383,6 +387,7 @@ int main(_o_unused int argc, char* const argv[])
 	bool terminate = false;
 	bool deprecated_opt = false;
 	bool no_privsep = false;
+	const char *privsep_user = NULL;
 
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
@@ -396,6 +401,10 @@ int main(_o_unused int argc, char* const argv[])
 
 		case 256:	/* --no-privsep */
 			no_privsep = true;
+			break;
+
+		case 257:	/* --user */
+			privsep_user = optarg;
 			break;
 
 		case 'S':
@@ -816,7 +825,7 @@ int main(_o_unused int argc, char* const argv[])
 	 * credential/capability drop is fail-closed (failure aborts the worker);
 	 * the core-dump/dumpable mitigations inside are best-effort.
 	 */
-	if (privsep && drop_privileges()) {
+	if (privsep && drop_privileges(privsep_user)) {
 		error("privsep: failed to drop privileges, aborting");
 		return 4;
 	}
@@ -1152,6 +1161,7 @@ static int usage(void)
 	"	-U		Ignore Server Unicast option\n"
 	"       --strict-rfc7550 Enforce RFC7550 compliance\n"
 	"       --no-privsep	Disable privilege separation (run as a single root process)\n"
+	"       --user <name>	Unprivileged user to drop to for privsep worker (" ODHCP6C_USER ")\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
