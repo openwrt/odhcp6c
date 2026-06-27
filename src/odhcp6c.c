@@ -229,7 +229,7 @@ static struct odhcp6c_opt_cfg opt_cfg = {
 static struct option opt_long[] = {
 	{ "strict-rfc7550", no_argument, &opt_cfg.strict_rfc7550, 1 },
 	{ "no-privsep", no_argument, NULL, 256 },
-	{ "user", required_argument, NULL, 257 },
+	{ "privsep-user", required_argument, NULL, 257 },
 	{ NULL, 0, NULL, 0 },
 };
 
@@ -276,7 +276,7 @@ static bool privsep_should_enable(bool no_privsep)
  */
 static int drop_privileges(const char *user)
 {
-	if (!user)
+	if (!user || !*user)
 		user = ODHCP6C_USER;
 
 	struct passwd *pw = getpwnam(user);
@@ -403,8 +403,8 @@ int main(_o_unused int argc, char* const argv[])
 			no_privsep = true;
 			break;
 
-		case 257:	/* --user */
-			privsep_user = optarg;
+		case 257:	/* --privsep-user */
+			privsep_user = (optarg && *optarg) ? optarg : NULL;
 			break;
 
 		case 'S':
@@ -726,6 +726,10 @@ int main(_o_unused int argc, char* const argv[])
 	 */
 	bool privsep = privsep_should_enable(no_privsep);
 	int script_chan = -1;
+
+	if (privsep_user && !privsep)
+		warn("privsep: --privsep-user '%s' ignored because privilege separation is disabled",
+				privsep_user);
 
 	if (privsep) {
 		int sp[2];
@@ -1161,7 +1165,7 @@ static int usage(void)
 	"	-U		Ignore Server Unicast option\n"
 	"       --strict-rfc7550 Enforce RFC7550 compliance\n"
 	"       --no-privsep	Disable privilege separation (run as a single root process)\n"
-	"       --user <name>	Unprivileged user to drop to for privsep worker (" ODHCP6C_USER ")\n"
+	"       --privsep-user <name>	Unprivileged user the privsep worker drops to (" ODHCP6C_USER ")\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"

@@ -125,6 +125,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 | `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 | `abnormal-exit` | scapy serve | **privsep failure-path**: the worker is SIGKILLed (uncatchable) so it cannot release; proves the monitor survives, emits no graceful `stopped`/RELEASE, and propagates a **non-zero** exit (`1`) rather than mis-reporting the crash as success |
+| `privsep-user` | scapy serve | **privsep drop user**: runs with `--privsep-user nobody` and (when privsep is active) asserts the worker logs its `uid=/gid=` drop, covering the runtime-configurable drop-target option and its plumbing into `drop_privileges()` |
 
 ### The status script (assertion surface)
 
