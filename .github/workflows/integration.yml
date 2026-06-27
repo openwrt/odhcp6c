@@ -234,6 +234,92 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
+  # ubus reconciliation: the only cell that builds odhcp6c WITH ubus (-DUBUS=ON)
+  # and exercises the ubus code path under the worker seccomp filter. The default
+  # images build without ubus, so the renew/release method dispatch and -- most
+  # importantly -- the post-drop reconnect path (socket()+connect() AFTER seccomp
+  # is applied) are reconciled against the allow-list only here. Runs the
+  # ubus-reconnect scenario, which self-skips on non-ubus images but does the
+  # real disconnect/reconnect work on this one.
+  # ---------------------------------------------------------------------------
+  ubus-reconcile:
+    name: ubus seccomp reconcile (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build harness image (ubus + seccomp)
+        run: |
+          docker build -f tools/harness/Dockerfile \
+            --build-arg UBUS=ON --build-arg SECCOMP=ON \
+            -t odhcp6c-harness:ubus-seccomp .
+
+      - name: Run ubus-reconnect under the worker seccomp filter
+        run: |
+          set -eu
+          mkdir -p artifacts
+          # privsep on (a distinct, seccomp-confined worker); Docker's own
+          # seccomp profile disabled so the worker's in-process BPF filter is the
+          # sole confinement under test (mirrors the libcapng-seccomp cell).
+          # ODHCP6C_SECCOMP_DIAG=1 so a syscall missing from the allow-list traps
+          # and is logged ("seccomp-diag: blocked syscall=") instead of an opaque
+          # SIGSYS kill -- the scenario asserts there are none.
+          rc=0
+          docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            -e HARNESS_PRIVSEP=on -e ODHCP6C_SECCOMP_DIAG=1 \
+            -v "$PWD/artifacts:/artifacts" \
+            odhcp6c-harness:ubus-seccomp \
+            tools/harness/run-scenario.sh --timeout 45 \
+            --outdir /artifacts/ubus-reconnect ubus-reconnect || rc=1
+          if [ "$rc" -ne 0 ] && [ -f artifacts/ubus-reconnect/odhcp6c.log ]; then
+            echo "--- seccomp-diag blocked syscalls (ubus-reconnect) ---"
+            grep -F 'seccomp-diag: blocked syscall=' \
+              artifacts/ubus-reconnect/odhcp6c.log | sort -u \
+              || echo "(no seccomp-diag lines captured)"
+          fi
+          exit $rc
+
+      - name: Strace reconcile the ubus worker syscalls (diagnostic, on failure)
+        if: failure()
+        run: |
+          set -eu
+          # Rebuild WITH ubus but WITHOUT the in-process seccomp filter so strace
+          # observes the real syscalls the worker issues across the ubus
+          # lifecycle, then reconcile them against the checked-in allow-list to
+          # name exactly what is missing.
+          docker build -f tools/harness/Dockerfile \
+            --build-arg UBUS=ON --build-arg SECCOMP=OFF \
+            -t odhcp6c-harness:ubus-trace .
+          mkdir -p trace-artifacts
+          docker run --rm \
+            --cap-add=NET_ADMIN --cap-add=SYS_ADMIN --cap-add=SYS_PTRACE \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            -v "$PWD/trace-artifacts:/artifacts" \
+            odhcp6c-harness:ubus-trace \
+            tools/harness/run-scenario.sh --trace=strace --timeout 45 \
+            --outdir /artifacts/ubus-reconnect ubus-reconnect || true
+          report=trace-artifacts/seccomp-reconcile.ubus.txt
+          tools/harness/seccomp-syscall-report.sh src/seccomp.c trace-artifacts/* \
+            | tee "$report" || true
+          {
+            echo "### ubus seccomp reconciliation";
+            echo '```';
+            cat "$report" 2>/dev/null || echo "(no report)";
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts (records, logs + reconciliation report)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubus-reconcile
+          path: |
+            artifacts/
+            trace-artifacts/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
   # Nightly / dispatch: QEMU-emulated architectures + OpenWrt rootfs (the
   # authoritative musl environment for the N-2 syscall list).
   # ---------------------------------------------------------------------------

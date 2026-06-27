@@ -125,6 +125,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 | `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 | `abnormal-exit` | scapy serve | **privsep failure-path**: the worker is SIGKILLed (uncatchable) so it cannot release; proves the monitor survives, emits no graceful `stopped`/RELEASE, and propagates a **non-zero** exit (`1`) rather than mis-reporting the crash as success |
+| `ubus-reconnect` *(ubus images only)* | scapy serve | **ubus under privsep + seccomp**: registers `odhcp6c.<iface>`, serves `ubus call … renew` (→`updated`), then kills/restarts `ubusd` to drive the post-drop reconnect path (`socket()`+`connect()` **after** seccomp). Asserts the worker survives the broker loss, keeps renewing, and that **no** ubus syscall is blocked (`ODHCP6C_SECCOMP_DIAG`). Self-skips on non-ubus images. Does **not** assert re-registration (a known deferred reconnect bug is tracked separately) |
 
 ### The status script (assertion surface)
 
@@ -156,6 +157,14 @@ N-2 syscall reconciliation rather than enforced in the scenario images, so
 the functional tests stay focused on behaviour rather than allow-list
 completeness.
 
+The one exception is **ubus**, which the default images deliberately build
+*without* (`-DUBUS=OFF`, no `ubusd`). Its runtime syscalls — the renew/release
+method dispatch and especially the reconnect path's `socket()`+`connect()` that
+runs *after* the worker drops privileges and applies seccomp — are reconciled by
+the dedicated `ubus-reconnect` scenario on a `-DUBUS=ON` image (see *Image
+variants* and the `ubus-reconcile` CI job). That scenario self-skips on the
+default images, so it is safe to run anywhere.
+
 ---
 
 ## Adding a scenario
@@ -168,6 +177,10 @@ completeness.
      `scapy serve --respond-rs --address 2001:db8:1::1000 ...`. Echo nothing for
      RA-injection-only scenarios. Words are split unquoted, so values containing
      spaces must be injected with `harness_inject` instead (see below).
+   - `scenario_setup` — run **after** the backend is up but **before** odhcp6c
+     starts. Use it for prerequisites the binary needs at startup, e.g. a
+     `ubusd` a `-DUBUS=ON` build connects to during init (see `ubus-reconnect`).
+     Default: no-op.
    - `scenario_odhcp6c` — echo the odhcp6c argument list **ending in the
      interface** (use `$HARNESS_VETH_CLIENT`). Default: `<iface>`. Do **not**
      pin the privsep mode here (no hardcoded `--no-privsep`); the `--privsep`
@@ -183,6 +196,8 @@ completeness.
      (evaluates only the *most recent* record for `<action>` — use it for
      final-state checks such as prefix withdrawal), `harness_assert_action_seen`
      / `harness_assert_no_action`, and `harness_assert_log <regex> <desc>`.
+   - `scenario_teardown` — tear down anything `scenario_setup` started (e.g.
+     `ubusd`). Runs on every exit path and must be idempotent. Default: no-op.
 
 2. Add a declarative `expect.txt` (optional). Each non-comment line is:
 
@@ -268,6 +283,23 @@ checked-in allow-list.
   Debian packages neither `libubox` nor `odhcpd`: `libubox` is built from the
   upstream source in the image, and the optional `odhcpd` real-server backend is
   omitted (scapy is the default backend for every scenario).
+- **ubus images (`--build-arg UBUS=ON`)** — both `Dockerfile` and
+  `Dockerfile.debian` accept an opt-in `UBUS` build-arg (default `OFF`). When
+  `ON`, the image builds `libubox` + `ubus` from the upstream mirrors (the same
+  repos CI uses), builds odhcp6c with `-DUBUS=ON`, and installs `ubusd` + the
+  `ubus` CLI so the `ubus-reconnect` scenario can drive a real broker. Combine
+  with `--build-arg SECCOMP=ON` to reconcile the ubus syscalls against the worker
+  filter:
+
+  ```sh
+  docker build -f tools/harness/Dockerfile \
+      --build-arg UBUS=ON --build-arg SECCOMP=ON -t odhcp6c-harness:ubus .
+  docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+      --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+      -e HARNESS_PRIVSEP=on -e ODHCP6C_SECCOMP_DIAG=1 \
+      odhcp6c-harness:ubus \
+      tools/harness/run-scenario.sh --outdir /out ubus-reconnect
+  ```
 - **OpenWrt x86-64 rootfs** — the authoritative musl environment (important for
   the N-2 syscall list, since Alpine musl ≠ OpenWrt musl exactly). Build it by
   importing the published rootfs and running the same scenarios:

@@ -68,16 +68,42 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/harness-requirem
 WORKDIR /src
 COPY . /src
 
-# Minimal build: no ubus (avoids ubusd); enable the exploit-mitigation
-# (hardening) flags and libcap-ng so privilege separation is actually
-# compiled in -- privsep_should_enable() is gated on WITH_LIBCAP_NG, so
+# Optional ubus stack (opt-in via the UBUS build-arg, default OFF). The default
+# images deliberately build WITHOUT ubus -- it pulls in ubusd and is only needed
+# by the ubus-reconnect scenario, which self-skips when ubus is absent. When
+# UBUS=ON, build libubox + ubus from the upstream mirrors (the same repos CI uses
+# in .github/workflows/ci.yml) into /usr so the musl loader finds the shared libs
+# on its default path, and install ubusd + the ubus CLI for the harness to drive.
+# json-c is ubus' JSON dependency.
+ARG UBUS=OFF
+RUN if [ "$UBUS" = "ON" ]; then set -eux; \
+        apk add --no-cache git json-c-dev pkgconf; \
+        git clone --depth=1 https://github.com/openwrt/libubox.git /tmp/libubox; \
+        cmake -S /tmp/libubox -B /tmp/libubox/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF -DBUILD_STATIC=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr; \
+        cmake --build /tmp/libubox/build --parallel; \
+        cmake --install /tmp/libubox/build; \
+        git clone --depth=1 https://github.com/openwrt/ubus.git /tmp/ubus; \
+        cmake -S /tmp/ubus -B /tmp/ubus/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            -DCMAKE_PREFIX_PATH=/usr -DCMAKE_INSTALL_PREFIX=/usr; \
+        cmake --build /tmp/ubus/build --parallel; \
+        cmake --install /tmp/ubus/build; \
+        rm -rf /tmp/libubox /tmp/ubus; \
+    fi
+
+# Build odhcp6c: ubus is opt-in (UBUS build-arg above); enable the
+# exploit-mitigation (hardening) flags and libcap-ng so privilege separation is
+# actually compiled in -- privsep_should_enable() is gated on WITH_LIBCAP_NG, so
 # without it odhcp6c silently runs single-process. Seccomp confinement of the
 # worker is opt-in via the SECCOMP build-arg (default OFF): the integration
 # matrix builds a SECCOMP=ON image for the libcapng-seccomp cell and leaves it
 # OFF for the others. The grep guards keep each flag a no-op on trees without
 # the option. The harness points ODHCP6C_BIN at this.
 ARG SECCOMP=OFF
-RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
+RUN cmake -S . -B build -DHARDENING=ON -DCMAKE_PREFIX_PATH=/usr \
+        $([ "$UBUS" = "ON" ] && echo -DUBUS=ON || echo -DUBUS=OFF) \
         $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
         $([ "$SECCOMP" = "ON" ] && grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel \

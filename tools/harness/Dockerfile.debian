@@ -49,8 +49,27 @@ RUN git clone --depth=1 https://github.com/openwrt/libubox.git /tmp/libubox \
 WORKDIR /src
 COPY . /src
 
+# Optional ubus stack (opt-in via the UBUS build-arg, default OFF). libubox is
+# already built above (odhcp6c links it even without ubus); when UBUS=ON also
+# build ubus from the upstream mirror and install ubusd + the ubus CLI so the
+# ubus-reconnect scenario can drive them. json-c (libjson-c-dev, installed above)
+# is ubus' JSON dependency. The default images leave this OFF and the scenario
+# self-skips when ubus is absent.
+ARG UBUS=OFF
+RUN if [ "$UBUS" = "ON" ]; then set -eux; \
+        git clone --depth=1 https://github.com/openwrt/ubus.git /tmp/ubus; \
+        cmake -S /tmp/ubus -B /tmp/ubus/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            -DCMAKE_PREFIX_PATH=/usr/local; \
+        cmake --build /tmp/ubus/build --parallel; \
+        cmake --install /tmp/ubus/build; \
+        ldconfig; \
+        rm -rf /tmp/ubus; \
+    fi
+
 ARG SECCOMP=OFF
-RUN cmake -S . -B build -DUBUS=OFF -DHARDENING=ON \
+RUN cmake -S . -B build -DHARDENING=ON -DCMAKE_PREFIX_PATH=/usr/local \
+        $([ "$UBUS" = "ON" ] && echo -DUBUS=ON || echo -DUBUS=OFF) \
         $(grep -q 'option(LIBCAP_NG' CMakeLists.txt && echo -DLIBCAP_NG=ON) \
         $([ "$SECCOMP" = "ON" ] && grep -q 'option(SECCOMP' CMakeLists.txt && echo -DSECCOMP=ON) \
     && cmake --build build --parallel \

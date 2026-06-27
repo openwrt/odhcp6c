@@ -23,12 +23,18 @@
 #
 #   scenario_backend     echo the backend + args, e.g. "scapy ra --prefix ..."
 #                        (empty / unset => no server backend, RA-injection only)
+#   scenario_setup       run AFTER the backend is up but BEFORE odhcp6c starts.
+#                        Use for prerequisites the binary needs at startup (e.g.
+#                        a ubusd instance a WITH_UBUS build connects to during
+#                        init). Default: no-op.
 #   scenario_odhcp6c     echo the odhcp6c argument list, ending in the interface
 #                        (default: "<iface>"). Do NOT pin the privsep mode here;
 #                        the --privsep axis controls it (see below).
 #   scenario_drive       perform the lifecycle (waits, signals, injections) and
 #                        leave captured records in $HARNESS_CAPTURE
 #   scenario_assert      run assertions (default: assert against expect.txt)
+#   scenario_teardown    tear down anything scenario_setup started (e.g. ubusd).
+#                        Runs on every exit path (idempotent). Default: no-op.
 #
 # Exit status: 0 if the scenario completed and all assertions passed, non-zero
 # otherwise. The driver never hangs: every wait is bounded by --timeout.
@@ -94,6 +100,8 @@ harness_require_paths "$LIB" "$ODHCP6C_ARG"
 
 # ---- default scenario hooks (overridable by scenario.sh) ----
 scenario_backend()  { :; }
+scenario_setup()    { :; }
+scenario_teardown() { :; }
 # Default to just the interface so the --privsep axis (below) is free to select
 # the mode. Pinning --no-privsep here would defeat the both-modes CI matrix.
 scenario_odhcp6c()  { echo "$HARNESS_VETH_CLIENT"; }
@@ -111,7 +119,7 @@ scenario_drive() { fatal "scenario $SCENARIO does not define scenario_drive()"; 
 . "$SCN_DIR/scenario.sh"
 
 # ---- run ----
-trap 'harness_cleanup' EXIT INT TERM
+trap 'scenario_teardown; harness_cleanup' EXIT INT TERM
 
 harness_workdir_init
 harness_set_trace "$TRACE_MODE" "$HARNESS_WORKDIR/trace"
@@ -123,6 +131,11 @@ if [ -n "$_backend_spec" ]; then
 	# shellcheck disable=SC2086
 	harness_backend_start $_backend_spec
 fi
+
+# Scenario-specific prerequisites that must exist BEFORE odhcp6c starts (e.g. a
+# ubusd a WITH_UBUS build connects to during init). Runs after the backend so it
+# can depend on the network fabric being up.
+scenario_setup
 
 # Start odhcp6c with the scenario's arguments. When privsep is disabled, prepend
 # --no-privsep so the same scenarios exercise the single-process path too. (If a
@@ -154,6 +167,7 @@ log "artifacts in: $HARNESS_WORKDIR"
 [ "$RC" -eq 0 ] && info "SCENARIO PASSED: $SCENARIO" || warn "SCENARIO FAILED: $SCENARIO (rc=$RC)"
 
 # Clean the network fabric now; keep files unless --keep was given.
+scenario_teardown
 harness_cleanup
 trap - EXIT INT TERM
 if [ "$KEEP" = 0 ] && [ -z "${HARNESS_OUTDIR:-}" ]; then
