@@ -38,7 +38,6 @@
 #include <sys/socket.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
-#include <sys/resource.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
