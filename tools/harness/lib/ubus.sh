@@ -21,6 +21,7 @@
 
 HARNESS_UBUSD_PID=""
 HARNESS_UBUS_SUB_PID=""
+HARNESS_UBUS_ACL_DIR=""
 
 # True when both ubusd (the broker) and the ubus CLI are on PATH. Without these
 # the scenario cannot run and must skip.
@@ -70,6 +71,32 @@ harness_ubus() {
 	$SUDO ubus -s "$HARNESS_UBUS_SOCKET" "$@"
 }
 
+# ubusd refuses object registration ("publish") from a non-root client unless an
+# ACL grants it (ubusd_obj.c -> ubusd_acl_check(UBUS_ACL_PUBLISH); a root client,
+# uid 0, bypasses the check). odhcp6c's initial ubus_init() registers as root,
+# BEFORE drop_privileges(), so it slips through -- but the privsep worker
+# reconnects as 'nobody' AFTER the drop, and ubusd then silently denies the
+# re-publish (libubus ignores the add_object error), so the object never reappears
+# on the bus after a broker restart. A real OpenWrt deployment grants this via an
+# /usr/share/acl.d file; mirror that here with a throwaway ACL dir handed to ubusd
+# via -A. ubusd requires each *.json to be owned root:root and to be neither
+# group/other-writable nor other-executable, so it is written 0644 as root.
+harness_ubus_acl_prepare() {
+	HARNESS_UBUS_ACL_DIR="${HARNESS_WORKDIR:-/tmp}/ubus-acl.d"
+	$SUDO mkdir -p "$HARNESS_UBUS_ACL_DIR" \
+		|| fatal "ubus acl: cannot create $HARNESS_UBUS_ACL_DIR"
+	printf '%s\n' \
+		'{' \
+		'	"user": "nobody",' \
+		'	"publish": [ "odhcp6c.*" ]' \
+		'}' \
+		| $SUDO tee "$HARNESS_UBUS_ACL_DIR/odhcp6c.json" >/dev/null \
+		|| fatal "ubus acl: cannot write odhcp6c.json"
+	$SUDO chown 0:0 "$HARNESS_UBUS_ACL_DIR/odhcp6c.json" 2>/dev/null || true
+	$SUDO chmod 0644 "$HARNESS_UBUS_ACL_DIR/odhcp6c.json" \
+		|| fatal "ubus acl: cannot chmod odhcp6c.json"
+}
+
 # Start ubusd on the default socket and wait for it to listen. ubusd hardcodes
 # creating the socket's parent dir and needs root for it, so this runs under
 # $SUDO; the harness already runs as root in CI. Records the PID for stop/restart.
@@ -81,7 +108,10 @@ harness_ubusd_start() {
 	# A stale socket from a crashed prior run makes ubusd fail to bind.
 	$SUDO rm -f "$HARNESS_UBUS_SOCKET" 2>/dev/null || true
 
-	$SUDO ubusd -s "$HARNESS_UBUS_SOCKET" \
+	# Authorize the unprivileged worker to (re-)register its object post-drop.
+	harness_ubus_acl_prepare
+
+	$SUDO ubusd -A "$HARNESS_UBUS_ACL_DIR" -s "$HARNESS_UBUS_SOCKET" \
 		> "$HARNESS_WORKDIR/ubusd.log" 2>&1 &
 	HARNESS_UBUSD_PID=$!
 

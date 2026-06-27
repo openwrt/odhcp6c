@@ -171,6 +171,15 @@ every cell (no separate CI job). On an image built `--build-arg UBUS=OFF` the
 broker autostart is a no-op and `ubus-reconnect` self-skips, so the set is still
 safe to run anywhere.
 
+The harness starts `ubusd` with a generated ACL (`ubusd -A <dir>`, dir owned
+`root:root`, file `0644`) granting `nobody` `publish` on `odhcp6c.*`. This is
+required because the privsep worker reconnects **after** dropping to `nobody`,
+and ubusd denies object registration ("publish") from a non-root client unless
+an ACL allows it (a root client bypasses the check, which is why the initial
+pre-drop registration always works). A real OpenWrt deployment grants the same
+via `/usr/share/acl.d`; the harness mirrors that so the worker can re-register
+its object on the new socket after a broker restart.
+
 ---
 
 ## Adding a scenario
