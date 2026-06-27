@@ -123,6 +123,16 @@ static const int seccomp_allow[] = {
 	/* y2038 time64 / pselect forms of the event loop, used on 32-bit
 	 * arches (ARM/MIPS OpenWrt targets). Same semantics as ppoll/poll. */
 	SCMP_SYS(ppoll_time64), SCMP_SYS(pselect6), SCMP_SYS(pselect6_time64),
+	/* libubox uloop's epoll-backed fd management on the ubus (re)connect
+	 * path. libubus initialises uloop during ubus_connect(), which runs as
+	 * root before the worker drops privileges, so the epoll instance itself
+	 * (epoll_create) and the initial waker-pipe registration happen
+	 * pre-seccomp. Only epoll_ctl recurs post-drop, when libubus re-arms the
+	 * uloop fd set while reconnecting after the broker restarts; odhcp6c
+	 * drives its own poll() loop rather than uloop_run(), so epoll_wait is
+	 * never reached. Confirmed as the sole gap via ODHCP6C_SECCOMP_DIAG in
+	 * the ubus-reconnect harness scenario (syscall 233 on x86-64). */
+	SCMP_SYS(epoll_ctl),
 	SCMP_SYS(recvmsg), SCMP_SYS(recvfrom),
 	SCMP_SYS(sendmsg), SCMP_SYS(sendto),
 	SCMP_SYS(read), SCMP_SYS(write), SCMP_SYS(writev),
