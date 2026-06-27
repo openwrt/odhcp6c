@@ -49,13 +49,14 @@ RUN git clone --depth=1 https://github.com/openwrt/libubox.git /tmp/libubox \
 WORKDIR /src
 COPY . /src
 
-# Optional ubus stack (opt-in via the UBUS build-arg, default OFF). libubox is
-# already built above (odhcp6c links it even without ubus); when UBUS=ON also
-# build ubus from the upstream mirror and install ubusd + the ubus CLI so the
-# ubus-reconnect scenario can drive them. json-c (libjson-c-dev, installed above)
-# is ubus' JSON dependency. The default images leave this OFF and the scenario
-# self-skips when ubus is absent.
-ARG UBUS=OFF
+# ubus stack (built by default; override with --build-arg UBUS=OFF). libubox is
+# already built above (odhcp6c links it even without ubus); ubus is the main
+# OpenWrt configuration, so by default also build ubus from the upstream mirror
+# and install ubusd + the ubus CLI so the ubus-reconnect scenario can drive them
+# as part of the standard matrix. json-c (libjson-c-dev, installed above) is ubus'
+# JSON dependency. With UBUS=OFF the image builds the non-ubus odhcp6c instead and
+# the ubus-reconnect scenario self-skips.
+ARG UBUS=ON
 RUN if [ "$UBUS" = "ON" ]; then set -eux; \
         git clone --depth=1 https://github.com/openwrt/ubus.git /tmp/ubus; \
         cmake -S /tmp/ubus -B /tmp/ubus/build \

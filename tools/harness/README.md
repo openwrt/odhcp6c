@@ -125,7 +125,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 | `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 | `abnormal-exit` | scapy serve | **privsep failure-path**: the worker is SIGKILLed (uncatchable) so it cannot release; proves the monitor survives, emits no graceful `stopped`/RELEASE, and propagates a **non-zero** exit (`1`) rather than mis-reporting the crash as success |
-| `ubus-reconnect` *(ubus images only)* | scapy serve | **ubus under privsep + seccomp**: registers `odhcp6c.<iface>`, serves `ubus call … renew` (→`updated`), then kills/restarts `ubusd` to drive the post-drop reconnect path (`socket()`+`connect()` **after** seccomp). Asserts the worker survives the broker loss, keeps renewing, and that **no** ubus syscall is blocked (`ODHCP6C_SECCOMP_DIAG`). Self-skips on non-ubus images. Does **not** assert re-registration (a known deferred reconnect bug is tracked separately) |
+| `ubus-reconnect` | scapy serve | **ubus under privsep + seccomp**: registers `odhcp6c.<iface>`, serves `ubus call … renew` (→`updated`), then kills/restarts `ubusd` to drive the post-drop reconnect path (`socket()`+`connect()` **after** seccomp). Asserts the worker survives the broker loss, keeps renewing, and that **no** ubus syscall is blocked (`ODHCP6C_SECCOMP_DIAG`). Runs in every cell since the images build with ubus; self-skips on any `--build-arg UBUS=OFF` image. Does **not** assert re-registration (a known deferred reconnect bug is tracked separately) |
 
 ### The status script (assertion surface)
 
@@ -157,13 +157,14 @@ N-2 syscall reconciliation rather than enforced in the scenario images, so
 the functional tests stay focused on behaviour rather than allow-list
 completeness.
 
-The one exception is **ubus**, which the default images deliberately build
-*without* (`-DUBUS=OFF`, no `ubusd`). Its runtime syscalls — the renew/release
-method dispatch and especially the reconnect path's `socket()`+`connect()` that
-runs *after* the worker drops privileges and applies seccomp — are reconciled by
-the dedicated `ubus-reconnect` scenario on a `-DUBUS=ON` image (see *Image
-variants* and the `ubus-reconcile` CI job). That scenario self-skips on the
-default images, so it is safe to run anywhere.
+The harness images build **with ubus** (`-DUBUS=ON`, `ubusd` + the `ubus` CLI
+installed) because that is the main OpenWrt configuration. ubus' runtime
+syscalls — the renew/release method dispatch and especially the reconnect path's
+`socket()`+`connect()`/`epoll_ctl` that run *after* the worker drops privileges
+and applies seccomp — are reconciled by the `ubus-reconnect` scenario, which now
+runs as part of the standard scenario set in every cell (no separate CI job). On
+an image built `--build-arg UBUS=OFF` the scenario self-skips, so the set is
+still safe to run anywhere.
 
 ---
 
@@ -283,17 +284,17 @@ checked-in allow-list.
   Debian packages neither `libubox` nor `odhcpd`: `libubox` is built from the
   upstream source in the image, and the optional `odhcpd` real-server backend is
   omitted (scapy is the default backend for every scenario).
-- **ubus images (`--build-arg UBUS=ON`)** — both `Dockerfile` and
-  `Dockerfile.debian` accept an opt-in `UBUS` build-arg (default `OFF`). When
-  `ON`, the image builds `libubox` + `ubus` from the upstream mirrors (the same
-  repos CI uses), builds odhcp6c with `-DUBUS=ON`, and installs `ubusd` + the
-  `ubus` CLI so the `ubus-reconnect` scenario can drive a real broker. Combine
-  with `--build-arg SECCOMP=ON` to reconcile the ubus syscalls against the worker
-  filter:
+- **ubus (default; opt out with `--build-arg UBUS=OFF`)** — both `Dockerfile`
+  and `Dockerfile.debian` build `libubox` + `ubus` from the upstream mirrors (the
+  same repos CI uses), build odhcp6c with `-DUBUS=ON`, and install `ubusd` + the
+  `ubus` CLI so the `ubus-reconnect` scenario can drive a real broker. Pass
+  `--build-arg UBUS=OFF` to build the non-ubus odhcp6c instead (the scenario then
+  self-skips). Combine with `--build-arg SECCOMP=ON` to reconcile the ubus
+  syscalls against the worker filter:
 
   ```sh
   docker build -f tools/harness/Dockerfile \
-      --build-arg UBUS=ON --build-arg SECCOMP=ON -t odhcp6c-harness:ubus .
+      --build-arg SECCOMP=ON -t odhcp6c-harness:ubus .
   docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
       --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
       -e HARNESS_PRIVSEP=on -e ODHCP6C_SECCOMP_DIAG=1 \
@@ -343,6 +344,8 @@ capability set and AppArmor profile both block.
   scenarios cannot reach `bound`. The CI container imposes no such restriction.
   The RA-driven scenarios (`ra-slaac`, `ra-options-edge`, `captive-portal`) are
   receive-driven and work even where egress is blocked.
-- **ubus:** the harness builds with `-DUBUS=OFF` to avoid needing `ubusd`.
+- **ubus:** the harness builds with `-DUBUS=ON` (the main OpenWrt configuration)
+  and ships `ubusd`, so `ubus-reconnect` runs in every cell. Build
+  `--build-arg UBUS=OFF` for the non-ubus path; the scenario then self-skips.
 - **musl ≠ OpenWrt musl exactly:** Alpine is a fast proxy; the OpenWrt-rootfs
   cell is the authoritative environment for the N-2 syscall list.

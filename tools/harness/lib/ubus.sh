@@ -5,10 +5,10 @@
 # path under privsep + seccomp.
 #
 # Why this lives apart from common.sh: ubus is an optional build of odhcp6c
-# (-DUBUS=ON) and the default harness images deliberately build WITHOUT it. Only
-# the ubus-reconnect scenario sources this file, and it self-gates on the helpers
-# below so it is a clean no-op (skip) wherever ubusd / a ubus-enabled binary are
-# absent.
+# (-DUBUS=ON). The harness images build it in by default, but it can be built out
+# with --build-arg UBUS=OFF. Only the ubus-reconnect scenario sources this file,
+# and it self-gates on the helpers below so it is a clean no-op (skip) wherever
+# ubusd / a ubus-enabled binary are absent.
 #
 # Transport note: ubus uses a filesystem UNIX socket (default
 # /var/run/ubus/ubus.sock), not the network, so ubusd runs on the host while

@@ -68,14 +68,15 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/harness-requirem
 WORKDIR /src
 COPY . /src
 
-# Optional ubus stack (opt-in via the UBUS build-arg, default OFF). The default
-# images deliberately build WITHOUT ubus -- it pulls in ubusd and is only needed
-# by the ubus-reconnect scenario, which self-skips when ubus is absent. When
-# UBUS=ON, build libubox + ubus from the upstream mirrors (the same repos CI uses
-# in .github/workflows/ci.yml) into /usr so the musl loader finds the shared libs
-# on its default path, and install ubusd + the ubus CLI for the harness to drive.
-# json-c is ubus' JSON dependency.
-ARG UBUS=OFF
+# ubus stack (built by default; override with --build-arg UBUS=OFF). ubus is the
+# main OpenWrt configuration, so every harness image builds it in and the
+# ubus-reconnect scenario runs as part of the standard matrix rather than a
+# separate job. Build libubox + ubus from the upstream mirrors (the same repos CI
+# uses in .github/workflows/ci.yml) into /usr so the musl loader finds the shared
+# libs on its default path, and install ubusd + the ubus CLI for the harness to
+# drive. json-c is ubus' JSON dependency. With UBUS=OFF the image builds the
+# non-ubus odhcp6c instead and the ubus-reconnect scenario self-skips.
+ARG UBUS=ON
 RUN if [ "$UBUS" = "ON" ]; then set -eux; \
         apk add --no-cache git json-c-dev pkgconf; \
         git clone --depth=1 https://github.com/openwrt/libubox.git /tmp/libubox; \
@@ -93,7 +94,7 @@ RUN if [ "$UBUS" = "ON" ]; then set -eux; \
         rm -rf /tmp/libubox /tmp/ubus; \
     fi
 
-# Build odhcp6c: ubus is opt-in (UBUS build-arg above); enable the
+# Build odhcp6c: ubus is on by default (UBUS build-arg above); enable the
 # exploit-mitigation (hardening) flags and libcap-ng so privilege separation is
 # actually compiled in -- privsep_should_enable() is gated on WITH_LIBCAP_NG, so
 # without it odhcp6c silently runs single-process. Seccomp confinement of the
