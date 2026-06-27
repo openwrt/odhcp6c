@@ -43,6 +43,22 @@ harness_odhcp6c_has_ubus() {
 	return 1
 }
 
+# Ensure a baseline ubus broker for the binary under test, called once by
+# run-scenario.sh before odhcp6c starts. A WITH_UBUS odhcp6c calls ubus_connect()
+# during init and cannot run without a listening broker -- ubus_init() returns
+# NULL and the caller then dereferences the NULL context -- so EVERY scenario
+# needs a ubusd when the binary has ubus, exactly as ubusd is always running on
+# OpenWrt. On a no-ubus build (UBUS=OFF) this is a clean no-op so the non-ubus
+# scenarios still run. The ubus-reconnect scenario drives this same broker through
+# its disconnect/reconnect cycle; all other scenarios just register their object
+# against it. Idempotent (harness_ubusd_start returns early if already running).
+harness_ubus_autostart() {
+	harness_odhcp6c_has_ubus || return 0
+	harness_ubus_tooling_present \
+		|| fatal "odhcp6c built WITH ubus but ubusd/ubus not installed in image"
+	harness_ubusd_start
+}
+
 # The object name odhcp6c registers: "odhcp6c.<interface>" (src/ubus.c ubus_init).
 harness_ubus_object_name() {
 	printf 'odhcp6c.%s\n' "$HARNESS_VETH_CLIENT"

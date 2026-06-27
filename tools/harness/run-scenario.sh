@@ -23,18 +23,20 @@
 #
 #   scenario_backend     echo the backend + args, e.g. "scapy ra --prefix ..."
 #                        (empty / unset => no server backend, RA-injection only)
-#   scenario_setup       run AFTER the backend is up but BEFORE odhcp6c starts.
-#                        Use for prerequisites the binary needs at startup (e.g.
-#                        a ubusd instance a WITH_UBUS build connects to during
-#                        init). Default: no-op.
+#   scenario_setup       run AFTER the backend + ubus broker are up but BEFORE
+#                        odhcp6c starts. Use for extra prerequisites the binary
+#                        needs at startup. A WITH_UBUS build's ubusd is started
+#                        for you by the harness (see harness_ubus_autostart), so
+#                        scenarios no longer need to manage it. Default: no-op.
 #   scenario_odhcp6c     echo the odhcp6c argument list, ending in the interface
 #                        (default: "<iface>"). Do NOT pin the privsep mode here;
 #                        the --privsep axis controls it (see below).
 #   scenario_drive       perform the lifecycle (waits, signals, injections) and
 #                        leave captured records in $HARNESS_CAPTURE
 #   scenario_assert      run assertions (default: assert against expect.txt)
-#   scenario_teardown    tear down anything scenario_setup started (e.g. ubusd).
-#                        Runs on every exit path (idempotent). Default: no-op.
+#   scenario_teardown    tear down anything scenario_setup started. The harness
+#                        stops its own ubus broker separately. Runs on every exit
+#                        path (idempotent). Default: no-op.
 #
 # Exit status: 0 if the scenario completed and all assertions passed, non-zero
 # otherwise. The driver never hangs: every wait is bounded by --timeout.
@@ -50,6 +52,8 @@ LIB="$SELF/lib"
 . "$LIB/assert.sh"
 # shellcheck disable=SC1091
 . "$LIB/trace.sh"
+# shellcheck disable=SC1091
+. "$LIB/ubus.sh"
 
 usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
 
@@ -119,7 +123,7 @@ scenario_drive() { fatal "scenario $SCENARIO does not define scenario_drive()"; 
 . "$SCN_DIR/scenario.sh"
 
 # ---- run ----
-trap 'scenario_teardown; harness_cleanup' EXIT INT TERM
+trap 'scenario_teardown; harness_ubusd_stop; harness_cleanup' EXIT INT TERM
 
 harness_workdir_init
 harness_set_trace "$TRACE_MODE" "$HARNESS_WORKDIR/trace"
@@ -132,9 +136,15 @@ if [ -n "$_backend_spec" ]; then
 	harness_backend_start $_backend_spec
 fi
 
-# Scenario-specific prerequisites that must exist BEFORE odhcp6c starts (e.g. a
-# ubusd a WITH_UBUS build connects to during init). Runs after the backend so it
-# can depend on the network fabric being up.
+# A WITH_UBUS odhcp6c connects to ubusd during init and crashes if no broker is
+# listening, so provide one for every scenario on a ubus build (no-op on a
+# UBUS=OFF binary) -- exactly as ubusd is always up on OpenWrt. Must run before
+# scenario_setup and odhcp6c so both can rely on the broker.
+harness_ubus_autostart
+
+# Scenario-specific prerequisites that must exist BEFORE odhcp6c starts. Runs
+# after the backend and the ubus broker so it can depend on the network fabric
+# and a live bus being up.
 scenario_setup
 
 # Start odhcp6c with the scenario's arguments. When privsep is disabled, prepend
@@ -168,6 +178,7 @@ log "artifacts in: $HARNESS_WORKDIR"
 
 # Clean the network fabric now; keep files unless --keep was given.
 scenario_teardown
+harness_ubusd_stop
 harness_cleanup
 trap - EXIT INT TERM
 if [ "$KEEP" = 0 ] && [ -z "${HARNESS_OUTDIR:-}" ]; then

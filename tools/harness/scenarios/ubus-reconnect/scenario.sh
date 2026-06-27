@@ -66,17 +66,15 @@ scenario_setup() {
 		warn "odhcp6c built without ubus; skipping ubus-reconnect scenario"
 		return 0
 	fi
-	# The binary HAS ubus: it will ubus_connect() at startup and NULL-deref if no
-	# broker is listening, so ubusd is mandatory here -- a missing broker is a
-	# broken image, not a skip.
-	harness_ubus_tooling_present \
-		|| fatal "odhcp6c built WITH ubus but ubusd/ubus not installed in image"
-	harness_ubusd_start
+	# The broker itself is started by the harness (harness_ubus_autostart) before
+	# odhcp6c, exactly as ubusd is already running on OpenWrt. This scenario only
+	# drives that broker through a disconnect/reconnect cycle in scenario_drive.
 }
 
 scenario_teardown() {
+	# The harness owns the broker lifecycle (it stops ubusd itself); only the
+	# subscriber this scenario spawned needs cleaning up here.
 	harness_ubus_subscribe_stop
-	harness_ubusd_stop
 }
 
 # Number of captured 'updated' records so far (each renew that reaches the script

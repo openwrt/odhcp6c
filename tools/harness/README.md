@@ -158,13 +158,18 @@ the functional tests stay focused on behaviour rather than allow-list
 completeness.
 
 The harness images build **with ubus** (`-DUBUS=ON`, `ubusd` + the `ubus` CLI
-installed) because that is the main OpenWrt configuration. ubus' runtime
-syscalls — the renew/release method dispatch and especially the reconnect path's
-`socket()`+`connect()`/`epoll_ctl` that run *after* the worker drops privileges
-and applies seccomp — are reconciled by the `ubus-reconnect` scenario, which now
-runs as part of the standard scenario set in every cell (no separate CI job). On
-an image built `--build-arg UBUS=OFF` the scenario self-skips, so the set is
-still safe to run anywhere.
+installed) because that is the main OpenWrt configuration. A ubus-enabled
+odhcp6c connects to `ubusd` during init and cannot start without a live broker,
+so the harness starts a `ubusd` for **every** scenario (`harness_ubus_autostart`
+in `run-scenario.sh`) — exactly as ubusd is always running on OpenWrt — and every
+scenario therefore registers its `odhcp6c.<iface>` object as part of normal
+startup. ubus' runtime syscalls — the renew/release method dispatch and especially
+the reconnect path's `socket()`+`connect()`/`epoll_ctl` that run *after* the
+worker drops privileges and applies seccomp — are reconciled by the
+`ubus-reconnect` scenario, which runs as part of the standard scenario set in
+every cell (no separate CI job). On an image built `--build-arg UBUS=OFF` the
+broker autostart is a no-op and `ubus-reconnect` self-skips, so the set is still
+safe to run anywhere.
 
 ---
 
@@ -345,7 +350,9 @@ capability set and AppArmor profile both block.
   The RA-driven scenarios (`ra-slaac`, `ra-options-edge`, `captive-portal`) are
   receive-driven and work even where egress is blocked.
 - **ubus:** the harness builds with `-DUBUS=ON` (the main OpenWrt configuration)
-  and ships `ubusd`, so `ubus-reconnect` runs in every cell. Build
-  `--build-arg UBUS=OFF` for the non-ubus path; the scenario then self-skips.
+  and ships `ubusd`. A ubus-enabled odhcp6c needs a live broker at startup, so
+  the harness starts `ubusd` for every scenario and `ubus-reconnect` runs in
+  every cell. Build `--build-arg UBUS=OFF` for the non-ubus path; the broker
+  autostart is then a no-op and the scenario self-skips.
 - **musl ≠ OpenWrt musl exactly:** Alpine is a fast proxy; the OpenWrt-rootfs
   cell is the authoritative environment for the N-2 syscall list.
