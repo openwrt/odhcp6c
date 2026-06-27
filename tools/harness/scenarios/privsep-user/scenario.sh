@@ -37,7 +37,10 @@ scenario_drive() {
 			'privsep: worker running as uid=[0-9]+ gid=[0-9]+' \
 			"worker reports uid/gid after --privsep-user drop"
 	else
-		info "single-process mode (no privilege drop); --privsep-user not exercised"
+		info "single-process mode (no privilege drop); asserting --privsep-user warning"
+		harness_assert_log \
+			"privsep: --privsep-user 'nobody' ignored because privilege separation is disabled" \
+			"--privsep-user warns when privsep is disabled"
 	fi
 
 	harness_assert_summary
