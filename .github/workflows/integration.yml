@@ -45,6 +45,7 @@ env:
     release-on-stop
     s46-mape
     privsep-signals
+    privsep-user
     abnormal-exit
     pd-exclude
     ubus-reconnect
