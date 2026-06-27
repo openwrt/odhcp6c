@@ -841,6 +841,19 @@ int main(_o_unused int argc, char* const argv[])
 		if (signal_usr2 || signal_term)
 			dhcpv6_set_state(DHCPV6_EXIT);
 
+#ifdef WITH_UBUS
+		/*
+		 * The connection_lost callback may call ubus_reconnect(), which
+		 * allocates a fresh socket, or destroy the context entirely if
+		 * the reconnect fails. Re-fetch the context and refresh the
+		 * polled fd each iteration so we never poll a stale descriptor
+		 * or dereference a freed context; a NULL context disables the
+		 * ubus slot by polling fd = -1.
+		 */
+		ubus = ubus_get_ctx();
+		fds[UBUS_FD_INDEX].fd = ubus ? ubus->sock.fd : -1;
+#endif /* WITH_UBUS */
+
 		poll_res = poll(fds, nfds, dhcpv6_get_state_timeout());
 		dhcpv6_reset_state_timeout();
 		if (poll_res == -1 && (errno == EINTR || errno == EAGAIN)) {
@@ -859,7 +872,7 @@ int main(_o_unused int argc, char* const argv[])
 	notify_state_change("stopped", 0, true);
 
 #ifdef WITH_UBUS
-	ubus_destroy(ubus);
+	ubus_destroy(ubus_get_ctx());
 #endif /* WITH_UBUS */
 
 	return 0;
