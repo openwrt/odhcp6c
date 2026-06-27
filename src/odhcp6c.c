@@ -841,6 +841,16 @@ int main(_o_unused int argc, char* const argv[])
 		if (signal_usr2 || signal_term)
 			dhcpv6_set_state(DHCPV6_EXIT);
 
+#ifdef WITH_UBUS
+		/*
+		 * ubus_reconnect() (triggered by the connection_lost callback)
+		 * allocates a fresh socket, so refresh the polled fd each
+		 * iteration; otherwise we keep polling a closed descriptor and
+		 * ubus events stop being delivered after the first reconnect.
+		 */
+		fds[UBUS_FD_INDEX].fd = ubus->sock.fd;
+#endif /* WITH_UBUS */
+
 		poll_res = poll(fds, nfds, dhcpv6_get_state_timeout());
 		dhcpv6_reset_state_timeout();
 		if (poll_res == -1 && (errno == EINTR || errno == EAGAIN)) {
