@@ -30,7 +30,10 @@ permissions:
 
 # Scenarios that run hermetically even where client datagram egress is
 # restricted (receive-driven RA scenarios) versus the full set. The per-PR gate
-# runs the full set in the container (no egress restriction there).
+# runs the full set in the container (no egress restriction there). The harness
+# images build odhcp6c WITH ubus (the main OpenWrt configuration), so
+# ubus-reconnect runs in every cell here; it self-skips on any image built
+# --build-arg UBUS=OFF.
 env:
   SCENARIOS: >-
     stateful-basic
@@ -44,6 +47,7 @@ env:
     privsep-signals
     abnormal-exit
     pd-exclude
+    ubus-reconnect
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -107,7 +111,9 @@ jobs:
           # When the worker installs its own seccomp-BPF filter, disable
           # Docker's outer seccomp profile so the in-process filter is the
           # sole confinement under test (mirrors the syscall-trace job). The
-          # other modes keep Docker's default profile.
+          # other modes keep Docker's default profile. This is what reconciles
+          # the ubus-reconnect post-drop syscalls (the reconnect socket()/
+          # connect() and epoll_ctl) against the worker allow-list.
           extra_opts=""
           if [ "${{ steps.cfg.outputs.seccomp }}" = "ON" ]; then
             extra_opts="--security-opt seccomp=unconfined"

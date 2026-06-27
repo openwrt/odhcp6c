@@ -298,12 +298,18 @@ harness_odhcp6c_start() {
 	*) fatal "unknown trace mode: $HARNESS_TRACE_MODE" ;;
 	esac
 
-	# Environment the stub script reads.
+	# Environment the stub script reads, plus optional pass-throughs. The
+	# seccomp diagnostic toggle (ODHCP6C_SECCOMP_DIAG) is forwarded explicitly
+	# so it reaches the worker even when the harness runs via `sudo` (which
+	# scrubs the ambient environment): with it set, a blocked syscall traps and
+	# is logged instead of silently killing the worker. Empty by default => the
+	# worker keeps its fail-closed SCMP_ACT_KILL_PROCESS behaviour.
 	ODHCP6C_HARNESS_CAPTURE="$HARNESS_CAPTURE" \
 	ODHCP6C_HARNESS_LOG="$HARNESS_WORKDIR/records.log" \
 	$SUDO env \
 		ODHCP6C_HARNESS_CAPTURE="$HARNESS_CAPTURE" \
 		ODHCP6C_HARNESS_LOG="$HARNESS_WORKDIR/records.log" \
+		ODHCP6C_SECCOMP_DIAG="${ODHCP6C_SECCOMP_DIAG:-}" \
 		ip netns exec "$HARNESS_NS_CLIENT" \
 		$_pre "$_cmd" -s "$HARNESS_STUB" -e "$@" \
 		> "$HARNESS_WORKDIR/odhcp6c.stdout" \

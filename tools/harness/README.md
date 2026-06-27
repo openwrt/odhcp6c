@@ -125,6 +125,7 @@ hangs CI; failures print a clear message naming the unmet condition.
 | `malformed-dhcpv6` | scapy serve | DHCPv6 **reply**-parser robustness: a malformed option trailer (`--reply-raw-trailer`) is rejected — odhcp6c survives and never binds |
 | `privsep-signals` | scapy serve | **privsep signal paths in isolation**: `SIGUSR1`/`SIGTERM` sent to the *monitor only* prove the monitor forwards renew to the worker and translates `TERM` into a graceful RELEASE, propagating the worker's exit status (`0`) |
 | `abnormal-exit` | scapy serve | **privsep failure-path**: the worker is SIGKILLed (uncatchable) so it cannot release; proves the monitor survives, emits no graceful `stopped`/RELEASE, and propagates a **non-zero** exit (`1`) rather than mis-reporting the crash as success |
+| `ubus-reconnect` | scapy serve | **ubus under privsep + seccomp**: registers `odhcp6c.<iface>`, serves `ubus call … renew` (→`updated`), then drives a full broker disconnect/reconnect lifecycle (`socket()`+`connect()` **after** seccomp). Phase 2 freezes the worker (`SIGSTOP`), bounces `ubusd`, and thaws it so the reconnect **succeeds** on a new socket — asserting the object **re-registers** and a follow-up `renew` is still serviced (regression test for the poll-fd refresh). Phase 3 kills `ubusd` and leaves it down — asserting the worker survives the failed reconnect cleanly, keeps renewing, and that **no** ubus syscall is blocked (`ODHCP6C_SECCOMP_DIAG`). Runs in every cell since the images build with ubus; self-skips on any `--build-arg UBUS=OFF` image |
 
 ### The status script (assertion surface)
 
@@ -156,6 +157,29 @@ N-2 syscall reconciliation rather than enforced in the scenario images, so
 the functional tests stay focused on behaviour rather than allow-list
 completeness.
 
+The harness images build **with ubus** (`-DUBUS=ON`, `ubusd` + the `ubus` CLI
+installed) because that is the main OpenWrt configuration. A ubus-enabled
+odhcp6c connects to `ubusd` during init and cannot start without a live broker,
+so the harness starts a `ubusd` for **every** scenario (`harness_ubus_autostart`
+in `run-scenario.sh`) — exactly as ubusd is always running on OpenWrt — and every
+scenario therefore registers its `odhcp6c.<iface>` object as part of normal
+startup. ubus' runtime syscalls — the renew/release method dispatch and especially
+the reconnect path's `socket()`+`connect()`/`epoll_ctl` that run *after* the
+worker drops privileges and applies seccomp — are reconciled by the
+`ubus-reconnect` scenario, which runs as part of the standard scenario set in
+every cell (no separate CI job). On an image built `--build-arg UBUS=OFF` the
+broker autostart is a no-op and `ubus-reconnect` self-skips, so the set is still
+safe to run anywhere.
+
+The harness starts `ubusd` with a generated ACL (`ubusd -A <dir>`, dir owned
+`root:root`, file `0644`) granting `nobody` `publish` on `odhcp6c.*`. This is
+required because the privsep worker reconnects **after** dropping to `nobody`,
+and ubusd denies object registration ("publish") from a non-root client unless
+an ACL allows it (a root client bypasses the check, which is why the initial
+pre-drop registration always works). A real OpenWrt deployment grants the same
+via `/usr/share/acl.d`; the harness mirrors that so the worker can re-register
+its object on the new socket after a broker restart.
+
 ---
 
 ## Adding a scenario
@@ -168,6 +192,10 @@ completeness.
      `scapy serve --respond-rs --address 2001:db8:1::1000 ...`. Echo nothing for
      RA-injection-only scenarios. Words are split unquoted, so values containing
      spaces must be injected with `harness_inject` instead (see below).
+   - `scenario_setup` — run **after** the backend is up but **before** odhcp6c
+     starts. Use it for prerequisites the binary needs at startup, e.g. a
+     `ubusd` a `-DUBUS=ON` build connects to during init (see `ubus-reconnect`).
+     Default: no-op.
    - `scenario_odhcp6c` — echo the odhcp6c argument list **ending in the
      interface** (use `$HARNESS_VETH_CLIENT`). Default: `<iface>`. Do **not**
      pin the privsep mode here (no hardcoded `--no-privsep`); the `--privsep`
@@ -183,6 +211,8 @@ completeness.
      (evaluates only the *most recent* record for `<action>` — use it for
      final-state checks such as prefix withdrawal), `harness_assert_action_seen`
      / `harness_assert_no_action`, and `harness_assert_log <regex> <desc>`.
+   - `scenario_teardown` — tear down anything `scenario_setup` started (e.g.
+     `ubusd`). Runs on every exit path and must be idempotent. Default: no-op.
 
 2. Add a declarative `expect.txt` (optional). Each non-comment line is:
 
@@ -268,6 +298,23 @@ checked-in allow-list.
   Debian packages neither `libubox` nor `odhcpd`: `libubox` is built from the
   upstream source in the image, and the optional `odhcpd` real-server backend is
   omitted (scapy is the default backend for every scenario).
+- **ubus (default; opt out with `--build-arg UBUS=OFF`)** — both `Dockerfile`
+  and `Dockerfile.debian` build `libubox` + `ubus` from the upstream mirrors (the
+  same repos CI uses), build odhcp6c with `-DUBUS=ON`, and install `ubusd` + the
+  `ubus` CLI so the `ubus-reconnect` scenario can drive a real broker. Pass
+  `--build-arg UBUS=OFF` to build the non-ubus odhcp6c instead (the scenario then
+  self-skips). Combine with `--build-arg SECCOMP=ON` to reconcile the ubus
+  syscalls against the worker filter:
+
+  ```sh
+  docker build -f tools/harness/Dockerfile \
+      --build-arg SECCOMP=ON -t odhcp6c-harness:ubus .
+  docker run --rm --cap-add=NET_ADMIN --cap-add=SYS_ADMIN \
+      --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+      -e HARNESS_PRIVSEP=on -e ODHCP6C_SECCOMP_DIAG=1 \
+      odhcp6c-harness:ubus \
+      tools/harness/run-scenario.sh --outdir /out ubus-reconnect
+  ```
 - **OpenWrt x86-64 rootfs** — the authoritative musl environment (important for
   the N-2 syscall list, since Alpine musl ≠ OpenWrt musl exactly). Build it by
   importing the published rootfs and running the same scenarios:
@@ -311,6 +358,10 @@ capability set and AppArmor profile both block.
   scenarios cannot reach `bound`. The CI container imposes no such restriction.
   The RA-driven scenarios (`ra-slaac`, `ra-options-edge`, `captive-portal`) are
   receive-driven and work even where egress is blocked.
-- **ubus:** the harness builds with `-DUBUS=OFF` to avoid needing `ubusd`.
+- **ubus:** the harness builds with `-DUBUS=ON` (the main OpenWrt configuration)
+  and ships `ubusd`. A ubus-enabled odhcp6c needs a live broker at startup, so
+  the harness starts `ubusd` for every scenario and `ubus-reconnect` runs in
+  every cell. Build `--build-arg UBUS=OFF` for the non-ubus path; the broker
+  autostart is then a no-op and the scenario self-skips.
 - **musl ≠ OpenWrt musl exactly:** Alpine is a fast proxy; the OpenWrt-rootfs
   cell is the authoritative environment for the N-2 syscall list.
