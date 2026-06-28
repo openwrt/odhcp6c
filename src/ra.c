@@ -594,8 +594,15 @@ bool ra_process(void)
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			switch(opt->type) {
 			case ND_OPT_MTU:
-				uint32_t *mtu = (uint32_t*)&opt->data[2];
-				changed |= ra_set_mtu(ntohl(*mtu));
+				if (opt->len != 1)
+					continue;
+
+				if ((uint8_t*)&opt->data[2] + sizeof(uint32_t) > &buf[len])
+					continue;
+
+				uint32_t mtu;
+				memcpy(&mtu, &opt->data[2], sizeof(mtu));
+				changed |= ra_set_mtu(ntohl(mtu));
 				break;
 
 			case ND_OPT_ROUTE_INFORMATION:
