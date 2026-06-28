@@ -224,12 +224,17 @@ struct ubus_context *ubus_get_ctx(void)
 	return ubus;
 }
 
-void ubus_destroy(struct ubus_context *ubus)
+void ubus_destroy(struct ubus_context *ctx)
 {
 	notice("Disconnecting from ubus");
 
-	if (ubus != NULL)
-		ubus_free(ubus);
+	if (ctx != NULL)
+		ubus_free(ctx);
+	/*
+	 * Clear the cached global so ubus_get_ctx() returns NULL after a
+	 * teardown (e.g. a failed reconnect). Previously the parameter
+	 * shadowed the global, leaving it dangling at a freed context.
+	 */
 	ubus = NULL;
 
 	/* Forces re-initialization when we're reusing the same definitions later on. */
