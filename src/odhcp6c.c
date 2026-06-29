@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/random.h>
 #include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
@@ -63,7 +64,6 @@ static volatile bool signal_usr2 = false;
 static volatile bool signal_term = false;
 
 static bool client_id_param = false;
-static int urandom_fd = -1;
 static bool bound = false, ra = false;
 static time_t last_update = 0;
 static char *ifname = NULL;
@@ -81,11 +81,6 @@ static void odhcp6c_cleanup(void)
 	if (config_dhcp && config_dhcp->auth_token) {
 		free(config_dhcp->auth_token);
 		config_dhcp->auth_token = NULL;
-	}
-
-	if (urandom_fd >= 0) {
-		close(urandom_fd);
-		urandom_fd = -1;
 	}
 
 	if (pidfile_path) {
@@ -557,8 +552,7 @@ int main(_o_unused int argc, char* const argv[])
 	if (deprecated_opt)
 		warn("The -v flag is deprecated and will be removed. Use -l[0-7].");
 
-	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
+	if (ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
 	    script_init(script, ifname)) {
 		error("failed to initialize: %s", strerror(errno));
 		return 4;
@@ -1158,7 +1152,39 @@ uint32_t odhcp6c_elapsed(void)
 
 int odhcp6c_random(void *buf, size_t len)
 {
-	return read(urandom_fd, buf, len);
+	if (len == 0)
+		return 0;
+
+	/* The return type is a signed int, but len is size_t. Refuse any
+	 * request that cannot be represented in the return value so the
+	 * (int) cast below can never overflow into a negative count. */
+	if (len > INT_MAX) {
+		critical("odhcp6c_random: request of %zu bytes exceeds INT_MAX", len);
+		exit(EXIT_FAILURE);
+	}
+
+	uint8_t *out = buf;
+	size_t filled = 0;
+
+	/* getrandom(2) with flags == 0 draws from the kernel urandom CSPRNG,
+	 * blocking until it is seeded. Once seeded, requests up to 256 bytes
+	 * always fill the buffer and are not interrupted by signals. Two cases
+	 * still need handling: a signal can interrupt the call while it blocks
+	 * waiting for the initial seed (EINTR, no bytes written), and requests
+	 * larger than 256 bytes may return a short read. Loop on both until the
+	 * whole buffer is filled. No file descriptor is needed. */
+	while (filled < len) {
+		ssize_t ret = getrandom(out + filled, len - filled, 0);
+		if (ret < 0) {
+			if (errno == EINTR)
+				continue;
+			critical("getrandom failed: %s", strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+		filled += (size_t)ret;
+	}
+
+	return (int)filled;
 }
 
 bool odhcp6c_is_bound(void)
