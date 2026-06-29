@@ -18,11 +18,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <grp.h>
 #include <limits.h>
 #include <linux/if_addr.h>
 #include <net/if.h>
 #include <netinet/icmp6.h>
 #include <poll.h>
+#include <pwd.h>
 #include <resolv.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -32,14 +34,29 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef WITH_LIBCAP_NG
+#include <cap-ng.h>
+#include <linux/capability.h>
+#endif
 
 #include "config.h"
 #include "odhcp6c.h"
 #include "ra.h"
+#include "script.h"
+#include "odhcp6c_seccomp.h"
 #include "ubus.h"
+
+#ifndef ODHCP6C_USER
+#define ODHCP6C_USER "nobody"
+#endif
 
 #define DHCPV6_FD_INDEX 0
 #define UBUS_FD_INDEX 1
@@ -215,8 +232,141 @@ static struct odhcp6c_opt_cfg opt_cfg = {
 
 static struct option opt_long[] = {
 	{ "strict-rfc7550", no_argument, &opt_cfg.strict_rfc7550, 1 },
+	{ "no-privsep", no_argument, NULL, 256 },
+	{ "privsep-user", required_argument, NULL, 257 },
 	{ NULL, 0, NULL, 0 },
 };
+
+/*
+ * Decide whether to run the privilege-separated monitor/worker split. The split
+ * is only useful (and only safe with retained capabilities) when built with
+ * libcap-ng and started as root; otherwise we keep today's single-process
+ * behavior so existing deployments do not regress.
+ */
+static bool privsep_should_enable(bool no_privsep)
+{
+#ifdef WITH_LIBCAP_NG
+	if (no_privsep)
+		return false;
+
+	/*
+	 * Gate on the effective uid: that is what determines whether we can
+	 * actually drop privileges (e.g. when launched via a setuid-root
+	 * wrapper the real uid may be non-zero while euid is 0).
+	 */
+	if (geteuid() != 0) {
+		notice("privsep: not running as root, staying single-process");
+		return false;
+	}
+
+	return true;
+#else
+	(void)no_privsep;
+	return false;
+#endif
+}
+
+/*
+ * Worker-side privilege drop. Called after the privileged sockets and fds have
+ * been created (ra_init, /dev/urandom, ubus) but before the main loop. Drops to
+ * an unprivileged uid/gid with no supplementary groups, retains only the two
+ * capabilities needed to re-create the DHCPv6 socket after a DHCPV6_RESET, sets
+ * PR_SET_NO_NEW_PRIVS, and verifies the drop actually took effect.
+ *
+ * The credential and capability reduction is fail-closed: any failure returns
+ * -1 and the caller aborts. The trailing core-dump/dumpable mitigations are
+ * best-effort defence in depth (they cannot re-expose privilege) and only warn
+ * on failure.
+ */
+static int drop_privileges(const char *user)
+{
+	if (!user || !*user)
+		user = ODHCP6C_USER;
+
+	struct passwd *pw = getpwnam(user);
+
+	if (!pw && strcmp(user, "nobody"))
+		pw = getpwnam("nobody");
+
+	if (!pw) {
+		critical("privsep: cannot resolve unprivileged user '%s'", user);
+		return -1;
+	}
+
+	uid_t uid = pw->pw_uid;
+	gid_t gid = pw->pw_gid;
+
+	if (uid == 0 || gid == 0) {
+		critical("privsep: refusing to drop to uid/gid 0");
+		return -1;
+	}
+
+#ifdef WITH_LIBCAP_NG
+	capng_clear(CAPNG_SELECT_BOTH);
+	capng_update(CAPNG_ADD, CAPNG_EFFECTIVE | CAPNG_PERMITTED | CAPNG_INHERITABLE,
+			CAP_NET_RAW);
+	capng_update(CAPNG_ADD, CAPNG_EFFECTIVE | CAPNG_PERMITTED | CAPNG_INHERITABLE,
+			CAP_NET_BIND_SERVICE);
+
+	/* change_id drops supplementary groups, gid and uid, and re-raises the
+	 * staged caps as ambient where supported. */
+	if (capng_change_id(uid, gid, CAPNG_DROP_SUPP_GRP | CAPNG_CLEAR_BOUNDING) != 0) {
+		critical("privsep: failed to drop privileges via libcap-ng");
+		return -1;
+	}
+#else
+	/* No libcap-ng: best-effort uid/gid drop only. Without ambient-cap
+	 * retention, re-creating the DHCPv6 socket after DHCPV6_RESET may fail. */
+	if (setgroups(0, NULL) != 0) {
+		critical("privsep: setgroups failed: %s", strerror(errno));
+		return -1;
+	}
+
+	if (setgid(gid) != 0 || setuid(uid) != 0) {
+		critical("privsep: failed to drop uid/gid: %s", strerror(errno));
+		return -1;
+	}
+#endif
+
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+		critical("privsep: PR_SET_NO_NEW_PRIVS failed: %s", strerror(errno));
+		return -1;
+	}
+
+	/* Verify the drop actually took effect and cannot be undone. */
+	if (getuid() != uid || geteuid() != uid ||
+			getgid() != gid || getegid() != gid) {
+		critical("privsep: privilege drop verification failed");
+		return -1;
+	}
+
+	if (setuid(0) == 0) {
+		critical("privsep: still able to regain root after drop");
+		return -1;
+	}
+
+	/*
+	 * Defence in depth against worker memory disclosure: the worker parses
+	 * untrusted network data and keeps DHCPv6 authentication/reconfigure
+	 * keys in memory. Forbid core dumps and clear the dumpable flag so a
+	 * crash cannot spill that memory to a core file and another same-uid
+	 * process cannot ptrace the worker or read /proc/<pid>/mem. This must
+	 * run after the uid change (which resets dumpability) and before
+	 * seccomp is applied. Best-effort: failure here does not weaken the
+	 * uid/gid/capability drop above, so it does not fail closed.
+	 */
+	struct rlimit no_core = { .rlim_cur = 0, .rlim_max = 0 };
+	if (setrlimit(RLIMIT_CORE, &no_core) != 0)
+		warn("privsep: failed to disable core dumps: %s", strerror(errno));
+
+	if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0)
+		warn("privsep: failed to clear dumpable flag: %s", strerror(errno));
+
+	notice("privsep: worker running as uid=%u gid=%u",
+			(unsigned)uid, (unsigned)gid);
+
+	return 0;
+}
 
 int main(_o_unused int argc, char* const argv[])
 {
@@ -240,6 +390,8 @@ int main(_o_unused int argc, char* const argv[])
 	ra_ifid_mode_t ra_ifid_mode = RA_IFID_LLA;
 	bool terminate = false;
 	bool deprecated_opt = false;
+	bool no_privsep = false;
+	const char *privsep_user = NULL;
 
 	config_dhcp = config_dhcp_get();
 	config_dhcp_reset();
@@ -249,6 +401,14 @@ int main(_o_unused int argc, char* const argv[])
 	while ((c = getopt_long(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:", opt_long, &optidx)) != -1) {
 		switch (c) {
 		case 0:
+			break;
+
+		case 256:	/* --no-privsep */
+			no_privsep = true;
+			break;
+
+		case 257:	/* --privsep-user */
+			privsep_user = (optarg && *optarg) ? optarg : NULL;
 			break;
 
 		case 'S':
@@ -557,9 +717,84 @@ int main(_o_unused int argc, char* const argv[])
 	if (deprecated_opt)
 		warn("The -v flag is deprecated and will be removed. Use -l[0-7].");
 
+	if (script_init(script, ifname)) {
+		error("failed to initialize: %s", strerror(errno));
+		return 4;
+	}
+
+	/*
+	 * Privilege separation: the privileged monitor only ever fork/execs the
+	 * status script; the unprivileged worker does all the attacker-facing
+	 * socket I/O and option parsing. The split happens here, before the
+	 * sockets are opened, so the worker can drop privilege once it owns them.
+	 */
+	bool privsep = privsep_should_enable(no_privsep);
+	int script_chan = -1;
+
+	if (privsep_user && !privsep)
+		warn("privsep: --privsep-user '%s' ignored because privilege separation is disabled",
+				privsep_user);
+
+	if (privsep) {
+		int sp[2];
+
+		if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sp)) {
+			error("privsep: socketpair failed: %s", strerror(errno));
+			return 4;
+		}
+
+		/*
+		 * Block SIGCHLD across the fork so a fast-exiting worker cannot be
+		 * reaped by script_sighandle() before monitor_worker_pid is set,
+		 * which would lose the worker's real exit status. The monitor
+		 * unblocks once it records the pid; the worker unblocks after it
+		 * resets the handler.
+		 */
+		sigset_t chld_mask, prev_mask;
+
+		sigemptyset(&chld_mask);
+		sigaddset(&chld_mask, SIGCHLD);
+		sigprocmask(SIG_BLOCK, &chld_mask, &prev_mask);
+
+		pid_t worker = fork();
+
+		if (worker < 0) {
+			sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+			error("privsep: fork failed: %s", strerror(errno));
+			return 4;
+		}
+
+		if (worker > 0) {
+			/* MONITOR: stays root, only runs the script. */
+			/* Relabel comm (ps/top, /proc/<pid>/comm and kernel
+			 * logs such as the seccomp/OOM killer) so the two
+			 * privsep processes are distinguishable; cosmetic and
+			 * best-effort, truncated to 15 chars by the kernel. */
+			prctl(PR_SET_NAME, "odhcp6c-monitor", 0, 0, 0);
+			close(sp[1]);
+			return script_monitor_loop(sp[0], script, ifname, worker);
+		}
+
+		/* WORKER: opens the sockets, then drops privilege below. */
+		prctl(PR_SET_NAME, "odhcp6c-worker", 0, 0, 0);
+		close(sp[0]);
+		script_chan = sp[1];
+		script_set_channel(script_chan);
+
+		/* The monitor reaps the script children; the worker never forks
+		 * the script, so reset the inherited SIGCHLD handler. */
+		signal(SIGCHLD, SIG_DFL);
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+
+		/* Only the monitor owns and removes the pidfile. */
+		if (pidfile_path) {
+			free(pidfile_path);
+			pidfile_path = NULL;
+		}
+	}
+
 	if ((urandom_fd = open("/dev/urandom", O_CLOEXEC | O_RDONLY)) < 0 ||
-	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval) ||
-	    script_init(script, ifname)) {
+	    ra_init(ifname, &ifid, ra_ifid_mode, ra_options, ra_holdoff_interval)) {
 		error("failed to initialize: %s", strerror(errno));
 		return 4;
 	}
@@ -591,6 +826,28 @@ int main(_o_unused int argc, char* const argv[])
 	fds[UBUS_FD_INDEX].events = POLLIN;
 	nfds++;
 #endif /* WITH_UBUS */
+
+	/*
+	 * All privileged fds (ICMPv6/netlink via ra_init, /dev/urandom, ubus)
+	 * are now open. Drop to an unprivileged uid/gid, retaining only the caps
+	 * needed to re-create the DHCPv6 socket after a DHCPV6_RESET. The
+	 * credential/capability drop is fail-closed (failure aborts the worker);
+	 * the core-dump/dumpable mitigations inside are best-effort.
+	 */
+	if (privsep && drop_privileges(privsep_user)) {
+		error("privsep: failed to drop privileges, aborting");
+		return 4;
+	}
+
+	/*
+	 * Confine the worker with a seccomp-BPF syscall allow-list as the last
+	 * initialization step: all fds are open and privileges are dropped, but
+	 * no attacker data has been read yet. No-op unless built with SECCOMP.
+	 * Only the unprivileged worker is filtered; the monitor (which needs
+	 * fork/execve) returned earlier via script_monitor_loop().
+	 */
+	if (privsep)
+		seccomp_apply();
 
 	notify_state_change("started", 0, false);
 
@@ -899,6 +1156,8 @@ static int usage(void)
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"	-U		Ignore Server Unicast option\n"
 	"       --strict-rfc7550 Enforce RFC7550 compliance\n"
+	"       --no-privsep	Disable privilege separation (run as a single root process)\n"
+	"       --privsep-user <name>	Unprivileged user the privsep worker drops to (" ODHCP6C_USER ")\n"
 	"\nInvocation options:\n"
 	"	-p <pidfile>	Set pidfile (/var/run/odhcp6c.pid)\n"
 	"	-d		Daemonize\n"
@@ -960,6 +1219,8 @@ static bool odhcp6c_server_advertised()
 
 bool odhcp6c_signal_process(void)
 {
+	ra_poll_rs();
+
 	while (signal_io) {
 		signal_io = false;
 
@@ -1189,7 +1450,8 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 
 		buf[--len] = '\0';
 
-		if (sscanf(buf, "%s %x %x %x %x %s",
+		/* addr_buf is 33 bytes; name is IF_NAMESIZE (16) bytes */
+		if (sscanf(buf, "%32s %x %x %x %x %15s",
 				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
 			break;
 

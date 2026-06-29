@@ -10,7 +10,11 @@ target_sources(${PROJECT_NAME} PRIVATE
 	src/dhcpv6.c
 	src/odhcp6c.c
 	src/ra.c
-	src/script.c
+	src/script_codec.c
+	src/script_common.c
+	src/script_worker.c
+	src/script_monitor.c
+	src/seccomp.c
 )
 
 
@@ -49,6 +53,45 @@ if(${UBUS})
 	find_library(libubus ubus)
 	target_link_libraries(${PROJECT_NAME} PRIVATE ${libubus})
 endif(${UBUS})
+
+# Privilege separation: retain CAP_NET_RAW + CAP_NET_BIND_SERVICE in the
+# unprivileged worker so it can re-create the DHCPv6 socket after a reset.
+option(LIBCAP_NG "Drop privileges using libcap-ng" OFF)
+# Unprivileged user the worker drops to (falls back to "nobody" if absent).
+set(ODHCP6C_USER "odhcp6c" CACHE STRING "Unprivileged user for the privsep worker")
+if(LIBCAP_NG)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_LIBCAP_NG)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE ODHCP6C_USER="${ODHCP6C_USER}")
+	find_path(capng_include_dir cap-ng.h)
+	find_library(libcapng cap-ng)
+	if(NOT capng_include_dir OR NOT libcapng)
+		message(FATAL_ERROR "LIBCAP_NG=ON but libcap-ng was not found (install libcap-ng-dev or disable LIBCAP_NG)")
+	endif()
+	target_include_directories(${PROJECT_NAME} PRIVATE ${capng_include_dir})
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${libcapng})
+endif(LIBCAP_NG)
+
+# Seccomp-BPF confinement: restrict the network-facing privsep worker to a
+# minimal syscall allow-list via libseccomp. Opt-in; with SECCOMP=OFF (default)
+# seccomp_apply() is a no-op and no extra link dependency is added.
+option(SECCOMP "Confine the worker with a seccomp-BPF syscall filter" OFF)
+# Make a failed filter load non-fatal (warn + continue) for bring-up on new
+# architectures. Default is fail-closed: the worker exits if the filter cannot
+# be loaded.
+option(SECCOMP_FAIL_OPEN "Continue unconfined if the seccomp filter fails to load" OFF)
+if(SECCOMP)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_SECCOMP)
+	if(SECCOMP_FAIL_OPEN)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_SECCOMP_FAIL_OPEN)
+	endif(SECCOMP_FAIL_OPEN)
+	find_path(seccomp_include_dir seccomp.h)
+	find_library(libseccomp seccomp)
+	if(NOT seccomp_include_dir OR NOT libseccomp)
+		message(FATAL_ERROR "SECCOMP=ON but libseccomp was not found (install libseccomp-dev or disable SECCOMP)")
+	endif()
+	target_include_directories(${PROJECT_NAME} PRIVATE ${seccomp_include_dir})
+	target_link_libraries(${PROJECT_NAME} PRIVATE ${libseccomp})
+endif(SECCOMP)
 
 
 # Installation
