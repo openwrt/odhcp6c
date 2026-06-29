@@ -58,7 +58,7 @@ endif(${UBUS})
 # unprivileged worker so it can re-create the DHCPv6 socket after a reset.
 option(LIBCAP_NG "Drop privileges using libcap-ng" OFF)
 # Unprivileged user the worker drops to (falls back to "nobody" if absent).
-set(ODHCP6C_USER "nobody" CACHE STRING "Unprivileged user for the privsep worker")
+set(ODHCP6C_USER "odhcp6c" CACHE STRING "Unprivileged user for the privsep worker")
 if(LIBCAP_NG)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_LIBCAP_NG)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE ODHCP6C_USER="${ODHCP6C_USER}")
