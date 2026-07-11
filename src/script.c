@@ -14,6 +14,7 @@
  */
 
 #include <stdio.h>
+#include <errno.h>
 #include <netdb.h>
 #include <resolv.h>
 #include <stdlib.h>
@@ -440,6 +441,12 @@ void script_call(const char *status, int delay, bool resume)
 		strncpy(action, status, sizeof(action) - 1);
 
 	pid_t pid = fork();
+
+	if (pid < 0) {
+		syslog(LOG_ERR, "Failed to fork script handler: %s", strerror(errno));
+		running = 0;
+		return;
+	}
 
 	if (pid > 0) {
 		running = pid;
