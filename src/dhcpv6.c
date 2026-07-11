@@ -437,13 +437,16 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 				if (e[j].iaid != iaid)
 					continue;
 
-				uint8_t ex_len = 0;
-				if (e[j].priority > 0)
-					ex_len = ((e[j].priority - e[j].length - 1) / 8) + 6;
+				uint8_t excl_subnet_id_nbits, excl_subnet_id_nbytes, excl_opt_len = 0;
+				if (e[j].priority > 0) {
+					excl_subnet_id_nbits = e[j].priority - e[j].length;
+					excl_subnet_id_nbytes = ((excl_subnet_id_nbits - 1) / 8) + 1;
+					excl_opt_len = excl_subnet_id_nbytes + 4 + 1;
+				}
 
 				struct dhcpv6_ia_prefix p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
-					.len = htons(sizeof(p) - 4U + ex_len),
+					.len = htons(sizeof(p) - 4U + excl_opt_len),
 					.prefix = e[j].length,
 					.addr = e[j].target
 				};
@@ -456,20 +459,22 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 				memcpy(ia_pd + ia_pd_len, &p, sizeof(p));
 				ia_pd_len += sizeof(p);
 
-				if (ex_len) {
+				if (excl_opt_len) {
 					ia_pd[ia_pd_len++] = 0;
 					ia_pd[ia_pd_len++] = DHCPV6_OPT_PD_EXCLUDE;
 					ia_pd[ia_pd_len++] = 0;
-					ia_pd[ia_pd_len++] = ex_len - 4;
+					ia_pd[ia_pd_len++] = excl_opt_len - 4;
 					ia_pd[ia_pd_len++] = e[j].priority;
 
-					uint32_t excl = ntohl(e[j].router.s6_addr32[1]);
-					excl >>= (64 - e[j].priority);
-					excl <<= 8 - ((e[j].priority - e[j].length) % 8);
+					uint32_t excluded_bits = ntohl(e[j].router.s6_addr32[1]);
+					excluded_bits >>= (64 - e[j].priority); /* Right align subnet ID bits */
+					excluded_bits <<= (32 - excl_subnet_id_nbits); /* Left align subnet ID bits */
 
-					for (size_t i = ex_len - 5; i > 0; --i, excl >>= 8)
-						ia_pd[ia_pd_len + i] = excl & 0xff;
-					ia_pd_len += ex_len - 5;
+					/* Copy subnet ID bits into the option MSB first */
+					for (size_t k = 0; k < excl_subnet_id_nbytes; ++k) {
+						ia_pd[ia_pd_len++] = excluded_bits >> 24;
+						excluded_bits <<= 8;
+					}
 				}
 
 				hdr->len = htons(ntohs(hdr->len) + ntohs(p.len) + 4U);
@@ -1408,7 +1413,9 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 				if (stype != DHCPV6_OPT_PD_EXCLUDE || slen < 2)
 					continue;
 
+				/*	RFC 6603 §4.2 Prefix Exclude option */
 				uint8_t elen = sdata[0];
+				uint8_t *excl_subnet_id = &sdata[1];
 				if (elen > 64)
 					elen = 64;
 
@@ -1417,19 +1424,19 @@ static unsigned int dhcpv6_parse_ia(void *opt, void *end)
 					continue;
 				}
 
-				uint8_t bytes = ((elen - entry.length - 1) / 8) + 1;
-				if (slen <= bytes) {
+				uint8_t excl_subnet_id_nbits = elen - entry.length;
+				uint8_t excl_subnet_id_nbytes = ((excl_subnet_id_nbits - 1) / 8) + 1;
+				if ((excl_subnet_id + excl_subnet_id_nbytes) > (sdata + slen)) {
 					ok = false;
 					continue;
 				}
 
 				uint32_t exclude = 0;
-				do {
-					exclude = exclude << 8 | sdata[bytes];
-				} while (--bytes);
-
-				exclude >>= 8 - ((elen - entry.length) % 8);
-				exclude <<= 64 - elen;
+				/* Copy subnet ID bits out of the option MSB first */
+				for (size_t k = 0; k < excl_subnet_id_nbytes; k++)
+					exclude = (exclude << 8) | excl_subnet_id[k];
+				exclude >>= (8 * excl_subnet_id_nbytes) - excl_subnet_id_nbits; /* Right align subnet ID bits */
+				exclude <<= (64 - elen); /* Shift subnet ID bits into the low-order bits of the prefix */
 
 				// Abusing router & priority fields for exclusion
 				entry.router = entry.target;
