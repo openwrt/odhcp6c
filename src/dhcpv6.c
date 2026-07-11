@@ -959,7 +959,7 @@ static int dhcpv6_handle_advert(enum dhcpv6_msg orig, const int rc,
 				 (otype == DHCPV6_OPT_IA_NA && na_mode != IA_MODE_NONE)) &&
 				olen > -4 + sizeof(struct dhcpv6_ia_hdr)) {
 			struct dhcpv6_ia_hdr *ia_hdr = (void*)(&odata[-4]);
-			dhcpv6_parse_ia(ia_hdr, odata + olen + sizeof(*ia_hdr));
+			dhcpv6_parse_ia(ia_hdr, odata + olen);
 		}
 
 		if (otype == DHCPV6_OPT_SERVERID && olen <= 130) {
