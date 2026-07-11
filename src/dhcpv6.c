@@ -341,7 +341,8 @@ static void dhcpv6_send(enum dhcpv6_msg type, uint8_t trid[3], uint32_t ecs)
 {
 	// Build FQDN
 	char fqdn_buf[256];
-	gethostname(fqdn_buf, sizeof(fqdn_buf));
+	gethostname(fqdn_buf, sizeof(fqdn_buf) - 1);
+	fqdn_buf[sizeof(fqdn_buf) - 1] = '\0';
 	struct {
 		uint16_t type;
 		uint16_t len;
