@@ -819,7 +819,7 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			if (server_id_len)
 				serverid_ok = (olen + 4U == server_id_len) && !memcmp(
 						&odata[-4], server_id, server_id_len);
-			else
+			else if (type != DHCPV6_MSG_UNKNOWN)
 				serverid_ok = true;
 		} else if (otype == DHCPV6_OPT_AUTH && olen == -4 +
 				sizeof(struct dhcpv6_auth_reconfigure)) {
