@@ -15,6 +15,7 @@
 
 #include <time.h>
 #include <fcntl.h>
+#include <endian.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
@@ -111,6 +112,8 @@ static struct in6_addr server_addr = IN6ADDR_ANY_INIT;
 
 // Reconfigure key
 static uint8_t reconf_key[16];
+static uint64_t reconf_replay;
+static bool reconf_replay_seen;
 
 // client options
 static unsigned int client_options = 0;
@@ -827,6 +830,16 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			if (r->protocol != 3 || r->algorithm != 1 || r->reconf_type != 2)
 				continue;
 
+			/* RFC 8415 §20.4.3: the replay-detection field must be
+			 * monotonically increasing per (client, server-id) pair.
+			 * Drop any Reconfigure whose replay value does not exceed
+			 * the highest one we have already accepted. */
+			uint64_t replay;
+			memcpy(&replay, &r->replay, sizeof(replay));
+			replay = be64toh(replay);
+			if (reconf_replay_seen && replay <= reconf_replay)
+				continue;
+
 			md5_ctx_t md5;
 			uint8_t serverhash[16], secretbytes[64];
 			uint32_t hash[4];
@@ -855,6 +868,10 @@ static bool dhcpv6_response_is_valid(const void *buf, ssize_t len,
 			md5_end(hash, &md5);
 
 			rcauth_ok = !memcmp(hash, serverhash, sizeof(hash));
+			if (rcauth_ok) {
+				reconf_replay = replay;
+				reconf_replay_seen = true;
+			}
 		} else if (otype == DHCPV6_OPT_RECONF_MESSAGE && olen == 1) {
 			rcmsg = odata[0];
 		} else if ((otype == DHCPV6_OPT_IA_PD || otype == DHCPV6_OPT_IA_NA)) {
@@ -1680,6 +1697,8 @@ int dhcpv6_promote_server_cand(void)
 	odhcp6c_add_state(STATE_SERVER_ID, hdr, sizeof(hdr));
 	odhcp6c_add_state(STATE_SERVER_ID, cand->duid, cand->duid_len);
 	accept_reconfig = cand->wants_reconfigure;
+	reconf_replay = 0;
+	reconf_replay_seen = false;
 
 	if (cand->ia_na_len) {
 		odhcp6c_add_state(STATE_IA_NA, cand->ia_na, cand->ia_na_len);
