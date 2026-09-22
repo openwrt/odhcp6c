@@ -321,8 +321,15 @@ static void s46_to_env_portparams(const uint8_t *data, size_t len, FILE *fp)
 		if (otype == DHCPV6_OPT_S46_PORTPARAMS &&
 				olen == sizeof(struct dhcpv6_s46_portparams)) {
 			struct dhcpv6_s46_portparams *params = (void*)odata;
+			uint16_t psid = ntohs(params->psid);
+
+			/* RFC 7598 4.5: the psid field is left-aligned, only the
+			 * psid_len most significant bits are meaningful. */
+			psid = (params->psid_len > 0 && params->psid_len <= 16) ?
+					psid >> (16 - params->psid_len) : 0;
+
 			fprintf(fp, "offset=%d,psidlen=%d,psid=%d,",
-					params->offset, params->psid_len, ntohs(params->psid));
+					params->offset, params->psid_len, psid);
 		}
 	}
 }
