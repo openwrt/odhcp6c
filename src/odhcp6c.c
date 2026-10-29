@@ -246,7 +246,7 @@ int main(_o_unused int argc, char* const argv[])
 
 	atexit(odhcp6c_cleanup);
 
-	while ((c = getopt_long(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:C:m:Lhedp:favl:", opt_long, &optidx)) != -1) {
+	while ((c = getopt_long(argc, argv, "SDN:V:P:FB:c:i:r:Ru:Ux:s:EkK:t:T:C:m:Lhedp:favl:", opt_long, &optidx)) != -1) {
 		switch (c) {
 		case 0:
 			break;
@@ -449,6 +449,20 @@ int main(_o_unused int argc, char* const argv[])
 		case 't':
 			config_set_rtx_timeout_max(CONFIG_DHCP_SOLICIT, atoi(optarg));
 			break;
+
+		case 'T': {
+			unsigned int delay, irt, mrt, mrd;
+			int max;
+
+			if (sscanf(optarg, "%u,%u,%u,%d,%u", &delay, &irt, &mrt, &max, &mrd) != 5 ||
+			    !irt || max < -1) {
+				error("invalid RS timing '%s'", optarg);
+				return 1;
+			}
+
+			ra_set_rs_timing(delay, irt, mrt, max, mrd);
+			break;
+		}
 
 		case 'C':
 			config_set_dscp(atoi(optarg));
@@ -895,6 +909,10 @@ static int usage(void)
 	"	-K <sk-prio>	Set packet kernel priority (0)\n"
 	"	-C <dscp>	Set packet DSCP value (0)\n"
 	"	-t <seconds>	Maximum timeout for DHCPv6-SOLICIT (120)\n"
+	"	-T <d>,<irt>,<mrt>,<n>,<mrd>\n"
+	"			Router Solicitation timing in ms: initial random delay,\n"
+	"			interval, back-off limit (0: fixed interval), count\n"
+	"			(-1: unlimited), duration limit (0: none) (0,4000,0,4,0)\n"
 	"	-m <seconds>	Minimum time between accepting RA updates (3)\n"
 	"	-L		Ignore default lifetime for RDNSS records\n"
 	"	-U		Ignore Server Unicast option\n"

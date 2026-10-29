@@ -68,6 +68,8 @@ typedef enum ra_ifid_mode {
 int ra_init(const char *ifname, const struct in6_addr *ifid,
 	    ra_ifid_mode_t ifid_mode, unsigned int options,
 	    unsigned int holdoff_interval);
+void ra_set_rs_timing(unsigned int delay, unsigned int irt, unsigned int mrt,
+		      int max, unsigned int mrd);
 bool ra_link_up(void);
 bool ra_process(void);
 

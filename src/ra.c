@@ -30,7 +30,9 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "odhcp6c.h"
@@ -55,6 +57,15 @@ static int sock = -1, rtnl = -1;
 static int if_index = 0;
 static char if_name[IF_NAMESIZE] = {0};
 static volatile int rs_attempt = 0;
+
+/* RS timing in ms. The defaults keep the old four RS 4 s apart. */
+static unsigned int rs_delay = 0;
+static unsigned int rs_irt = 4000;
+static unsigned int rs_mrt = 0;
+static int rs_max = 4;
+static unsigned int rs_mrd = 0;
+static unsigned int rs_rt = 0;
+static struct timespec rs_first;
 static struct in6_addr ra_addr = IN6ADDR_ANY_INIT;
 static unsigned int ra_options = 0;
 static unsigned int ra_holdoff_interval = 0;
@@ -73,6 +84,57 @@ struct {
 };
 
 static void ra_send_rs(_o_unused int signal);
+
+void ra_set_rs_timing(unsigned int delay, unsigned int irt, unsigned int mrt,
+		      int max, unsigned int mrd)
+{
+	rs_delay = delay;
+	rs_irt = irt;
+	rs_mrt = mrt;
+	rs_max = max;
+	rs_mrd = mrd;
+}
+
+static void rs_timer_set(unsigned int ms)
+{
+	struct itimerval it = {
+		.it_value = { .tv_sec = ms / 1000, .tv_usec = (ms % 1000) * 1000 },
+	};
+
+	setitimer(ITIMER_REAL, &it, NULL);
+}
+
+/* base +/- 10 %, the RAND factor of RFC 7559 section 2 */
+static unsigned int rs_jitter(unsigned int base)
+{
+	unsigned int span = base / 5;
+
+	if (!span)
+		return base;
+
+	return base - base / 10 + (unsigned int)random() % (span + 1);
+}
+
+static unsigned int rs_elapsed(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	return (now.tv_sec - rs_first.tv_sec) * 1000 +
+		(now.tv_nsec - rs_first.tv_nsec) / 1000000;
+}
+
+static void rs_round_start(void)
+{
+	rs_attempt = 0;
+	rs_rt = 0;
+
+	if (rs_delay)
+		rs_timer_set(1 + (unsigned int)random() % rs_delay);
+	else
+		ra_send_rs(SIGALRM);
+}
 
 int ra_init(const char *ifname, const struct in6_addr *ifid,
 	    ra_ifid_mode_t ifid_mode, unsigned int options,
@@ -204,7 +266,7 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 
 	// Send RS
 	signal(SIGALRM, ra_send_rs);
-	ra_send_rs(SIGALRM);
+	rs_round_start();
 
 	return 0;
 
@@ -224,6 +286,9 @@ static void ra_send_rs(_o_unused int signal)
 	const struct icmpv6_opt llnull = {ND_OPT_SOURCE_LINKADDR, 1, {0}};
 	size_t len;
 
+	if (rs_max >= 0 && rs_attempt >= rs_max)
+		return;
+
 	if ((rs_attempt % 2 == 0) && memcmp(&rs.lladdr, &llnull, sizeof(llnull)))
 		len = sizeof(rs);
 	else
@@ -232,8 +297,26 @@ static void ra_send_rs(_o_unused int signal)
 	if (sendto(sock, &rs, len, MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		error("Failed to send RS (%s)",  strerror(errno));
 
-	if (++rs_attempt <= 3)
-		alarm(4);
+	if (rs_attempt++ == 0)
+		clock_gettime(CLOCK_MONOTONIC, &rs_first);
+
+	if (rs_max >= 0 && rs_attempt >= rs_max)
+		return;
+
+	if (!rs_mrt)
+		rs_rt = rs_irt;
+	else if (!rs_rt)
+		rs_rt = rs_jitter(rs_irt);
+	else
+		rs_rt = rs_jitter(2 * rs_rt);
+
+	if (rs_mrt && rs_rt > rs_mrt)
+		rs_rt = rs_jitter(rs_mrt);
+
+	if (rs_mrd && rs_elapsed() + rs_rt > rs_mrd)
+		return;
+
+	rs_timer_set(rs_rt);
 }
 
 static int16_t pref_to_priority(uint8_t flags)
@@ -282,8 +365,7 @@ bool ra_link_up(void)
 	if (ret) {
 		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
 
-		rs_attempt = 0;
-		ra_send_rs(SIGALRM);
+		rs_round_start();
 	}
 
 	return ret;
@@ -564,7 +646,7 @@ bool ra_process(void)
 		 * where an advertisement is received prior to having sent a solicitation.
 		 */
 		if (rs_attempt > 0 && router_valid > 0) {
-			alarm(0);
+			rs_timer_set(0);
 			rs_attempt = 0;
 		}
 

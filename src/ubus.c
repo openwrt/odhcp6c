@@ -540,10 +540,11 @@ static int states_to_blob(void)
 {
 	char *buf = NULL;
 	size_t dns_len, search_len, custom_len, sntp_ip_len, ntp_ip_len, ntp_dns_len;
-	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, addr_len;
+	size_t sip_ip_len, sip_fqdn_len, aftr_name_len, addr_len, server_id_len;
 	size_t s46_mapt_len, s46_mape_len, s46_lw_len, passthru_len;
 	size_t capt_port_ra_len, capt_port_dhcpv6_len;
 	struct in6_addr *addr = odhcp6c_get_state(STATE_SERVER_ADDR, &addr_len);
+	uint8_t *server_id = odhcp6c_get_state(STATE_SERVER_ID, &server_id_len);
 	struct in6_addr *dns = odhcp6c_get_state(STATE_DNS, &dns_len);
 	uint8_t *search = odhcp6c_get_state(STATE_SEARCH, &search_len);
 	uint8_t *custom = odhcp6c_get_state(STATE_CUSTOM_OPTS, &custom_len);
@@ -630,6 +631,15 @@ static int states_to_blob(void)
 	CHECK_ALLOC(buf);
 	script_hexlify(buf, passthru, passthru_len);
 	blobmsg_add_string_buffer(&b);
+
+	if (server_id_len > DHCPV6_OPT_HDR_SIZE) {
+		size_t duid_len = server_id_len - DHCPV6_OPT_HDR_SIZE;
+
+		buf = blobmsg_alloc_string_buffer(&b, "SERVERID", duid_len * 2);
+		CHECK_ALLOC(buf);
+		script_hexlify(buf, server_id + DHCPV6_OPT_HDR_SIZE, duid_len);
+		blobmsg_add_string_buffer(&b);
+	}
 
 	return UBUS_STATUS_OK;
 }
