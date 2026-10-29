@@ -222,6 +222,7 @@ enum dhcpv6_msg {
 	DHCPV6_MSG_SOLICIT = 1,
 	DHCPV6_MSG_ADVERT = 2,
 	DHCPV6_MSG_REQUEST = 3,
+	DHCPV6_MSG_CONFIRM = 4,
 	DHCPV6_MSG_RENEW = 5,
 	DHCPV6_MSG_REBIND = 6,
 	DHCPV6_MSG_REPLY = 7,
@@ -252,6 +253,9 @@ enum dhcpv6_state {
 	DHCPV6_REBIND,
 	DHCPV6_REBIND_PROCESSING,
 	DHCPV6_REBIND_REPLY,
+	DHCPV6_CONFIRM,
+	DHCPV6_CONFIRM_PROCESSING,
+	DHCPV6_CONFIRM_REPLY,
 	DHCPV6_INFO,
 	DHCPV6_INFO_PROCESSING,
 	DHCPV6_INFO_REPLY,
@@ -445,6 +449,7 @@ enum odhcp6c_state {
 	STATE_SIP_FQDN,
 	STATE_RA_ROUTE,
 	STATE_RA_PREFIX,
+	STATE_RA_ONLINK,
 	STATE_RA_DNS,
 	STATE_RA_SEARCH,
 	STATE_AFTR_NAME,
@@ -561,6 +566,7 @@ struct odhcp6c_opt_cfg {
 int init_dhcpv6(const char *ifname);
 int dhcpv6_get_ia_mode(void);
 int dhcpv6_promote_server_cand(void);
+void dhcpv6_refresh(int mode);
 int dhcpv6_send_request(enum dhcpv6_msg type);
 int dhcpv6_receive_response(enum dhcpv6_msg type);
 enum dhcpv6_state dhcpv6_get_state(void);
@@ -590,7 +596,7 @@ ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
 void script_hexlify(char *dst, const uint8_t *src, size_t len);
 void script_call(const char *status, int delay, bool resume);
 
-bool odhcp6c_signal_process(void);
+bool odhcp6c_signal_process(int mode);
 uint64_t odhcp6c_get_milli_time(void);
 int odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);

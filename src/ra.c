@@ -499,7 +499,32 @@ int ra_get_retransmit(void)
 	return ra_retransmit;
 }
 
-bool ra_process(void)
+static bool ra_update_onlink(struct odhcp6c_entry *entry)
+{
+	struct odhcp6c_entry prefix = *entry;
+	bool significant = false;
+	size_t len;
+	struct odhcp6c_entry *old = odhcp6c_get_state(STATE_RA_ONLINK, &len);
+
+	// Ignore host bits in a PIO's prefix identity.
+	for (unsigned int bit = prefix.length; bit < 128; bit++)
+		prefix.target.s6_addr[bit / 8] &= ~(0x80 >> (bit % 8));
+
+	for (size_t i = 0; i < len / sizeof(*old); i++) {
+		if (old[i].length != prefix.length ||
+				memcmp(&old[i].target, &prefix.target, sizeof(prefix.target)))
+			continue;
+		significant = old[i].iaid && !prefix.preferred;
+		goto update;
+	}
+	significant = prefix.valid > 0;
+update:
+	// Remember advertised preference independently of lifetime aging.
+	prefix.iaid = !!prefix.preferred;
+	return odhcp6c_update_entry(STATE_RA_ONLINK, &prefix, 0) && significant;
+}
+
+bool ra_process(bool *prefix_changed)
 {
 	bool found = false;
 	bool changed = false;
@@ -658,6 +683,9 @@ bool ra_process(void)
 						|| IN6_IS_ADDR_MULTICAST(&entry->target)
 						|| entry->valid < entry->preferred)
 					continue;
+
+				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
+					*prefix_changed |= ra_update_onlink(entry);
 
 				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) && !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
