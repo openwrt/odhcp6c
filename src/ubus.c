@@ -204,7 +204,7 @@ char *ubus_init(const char* interface)
 	int ret = 0;
 
  	if (!(ubus = ubus_connect(NULL)))
-		return NULL;
+		return "Cannot connect to ubus";
 
 	snprintf(ubus_name, 24, "odhcp6c.%s", interface);
 	odhcp6c_object.name = ubus_name;
