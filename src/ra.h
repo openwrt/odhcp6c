@@ -71,4 +71,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 bool ra_link_up(void);
 bool ra_process(void);
 
+/* Returns true once if a DAD failure was detected; copies the conflicted addr */
+bool ra_take_dad_trigger(struct in6_addr *addr_out);
 #endif /* _RA_H_ */

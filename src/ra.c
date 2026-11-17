@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/rtnetlink.h>
+#include <linux/if_addr.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
@@ -48,6 +49,9 @@
 #define IFF_LOWER_UP 0x10000
 #endif
 
+#include "odhcp6c.h"
+#include "ra.h"
+
 static bool nocarrier = false;
 static bool ptp_link = false;
 
@@ -63,6 +67,8 @@ static int ra_hoplimit = 0;
 static int ra_mtu = 0;
 static int ra_reachable = 0;
 static int ra_retransmit = 0;
+static bool dadfail_pending = false;
+static struct in6_addr dadfail_addr = IN6ADDR_ANY_INIT;
 
 struct {
 	struct icmp6_hdr hdr;
@@ -114,6 +120,11 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 		goto failure;
 
 	int val = RTNLGRP_LINK;
+	if (setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val)) < 0)
+		goto failure;
+
+	/* Subscribe to IPv6 ifaddr updates to catch events like DADFAILED */
+	val = RTNLGRP_IPV6_IFADDR;
 	if (setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val)) < 0)
 		goto failure;
 
@@ -247,37 +258,65 @@ static int16_t pref_to_priority(uint8_t flags)
 bool ra_link_up(void)
 {
 	static bool firstcall = true;
-	struct {
-		struct nlmsghdr hdr;
-		struct ifinfomsg msg;
-		uint8_t pad[4000];
-	} resp;
+	uint8_t buf[8192];
 	bool ret = false;
-	ssize_t read;
+	ssize_t nread;
 
 	do {
-		read = recv(rtnl, &resp, sizeof(resp), MSG_DONTWAIT);
+		nread = recv(rtnl, buf, sizeof(buf), MSG_DONTWAIT);
+		if (nread <= 0)
+			break;
 
-		if (read < 0 || !NLMSG_OK(&resp.hdr, (size_t)read) ||
-				resp.hdr.nlmsg_type != RTM_NEWLINK ||
-				resp.msg.ifi_index != if_index)
-			continue;
+		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf;
+				NLMSG_OK(nh, (size_t)nread);
+				nh = NLMSG_NEXT(nh, nread)) {
+			if (nh->nlmsg_type == RTM_NEWLINK) {
+				struct ifinfomsg *ifi = NLMSG_DATA(nh);
+				if (ifi->ifi_index != if_index)
+					continue;
 
-		ssize_t alen = NLMSG_PAYLOAD(&resp.hdr, sizeof(resp.msg));
-		for (struct rtattr *rta = (struct rtattr*)(resp.pad);
-				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
-			if (rta->rta_type == IFLA_ADDRESS &&
-					RTA_PAYLOAD(rta) >= sizeof(rs.lladdr.data))
-				memcpy(rs.lladdr.data, RTA_DATA(rta), sizeof(rs.lladdr.data));
+				ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifi));
+				uint8_t *ap = (uint8_t*)NLMSG_DATA(nh) + sizeof(*ifi);
+				for (struct rtattr *rta = (struct rtattr*)ap;
+						RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
+					if (rta->rta_type == IFLA_ADDRESS &&
+							RTA_PAYLOAD(rta) >= sizeof(rs.lladdr.data))
+						memcpy(rs.lladdr.data, RTA_DATA(rta), sizeof(rs.lladdr.data));
+				}
+
+				bool hascarrier = ifi->ifi_flags & IFF_LOWER_UP;
+				if (!firstcall && nocarrier != !hascarrier)
+					ret = true;
+				nocarrier = !hascarrier;
+				firstcall = false;
+			} else if (nh->nlmsg_type == RTM_NEWADDR) {
+				/* Detect kernel DAD failure and remember the address */
+				struct ifaddrmsg *ifa = NLMSG_DATA(nh);
+				if ((unsigned int)ifa->ifa_index != (unsigned int)if_index)
+					continue;
+				if (!(ifa->ifa_flags & IFA_F_DADFAILED))
+					continue;
+
+				struct in6_addr *addr = NULL;
+				int rta_len = IFA_PAYLOAD(nh);
+				for (struct rtattr *rta = IFA_RTA(ifa);
+						RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
+					if (rta->rta_type == IFA_ADDRESS &&
+							RTA_PAYLOAD(rta) >= sizeof(struct in6_addr)) {
+						addr = (struct in6_addr*)RTA_DATA(rta);
+						break;
+					}
+				}
+				if (addr) {
+					dadfail_addr = *addr;
+					dadfail_pending = true;
+					char abuf[INET6_ADDRSTRLEN];
+					inet_ntop(AF_INET6, addr, abuf, sizeof(abuf));
+					notice("Kernel DADFAILED detected for %s", abuf);
+				}
+			}
 		}
-
-		bool hascarrier = resp.msg.ifi_flags & IFF_LOWER_UP;
-		if (!firstcall && nocarrier != !hascarrier)
-			ret = true;
-
-		nocarrier = !hascarrier;
-		firstcall = false;
-	} while (read > 0);
+	} while (nread > 0);
 
 	if (ret) {
 		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
@@ -593,11 +632,11 @@ bool ra_process(void)
 		// Evaluate options
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			switch(opt->type) {
-			case ND_OPT_MTU:
+			case ND_OPT_MTU: {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
 				changed |= ra_set_mtu(ntohl(*mtu));
 				break;
-
+			}
 			case ND_OPT_ROUTE_INFORMATION:
 				if (opt->len > 3)
 					continue;
@@ -775,4 +814,14 @@ bool ra_process(void)
 		odhcp6c_expire(false);
 
 	return found && changed;
+}
+
+bool ra_take_dad_trigger(struct in6_addr *addr_out)
+{
+	if (!dadfail_pending)
+		return false;
+	if (addr_out)
+		*addr_out = dadfail_addr;
+	dadfail_pending = false;
+	return true;
 }

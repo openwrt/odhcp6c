@@ -831,7 +831,46 @@ int main(_o_unused int argc, char* const argv[])
 			close(dhcpv6_get_socket());
 			fds[DHCPV6_FD_INDEX].fd = -1;
 
+			if(dhcpv6_has_conflicts()) {
+				dhcpv6_reinit_decline_target();
+			}
+
 			dhcpv6_set_state(DHCPV6_INIT);
+			break;
+
+		case DHCPV6_DECLINE:
+			dhcpv6_send_request(DHCPV6_MSG_DECLINE);
+			break;
+
+		case DHCPV6_DECLINE_PROCESSING:
+			res = dhcpv6_state_processing(DHCPV6_MSG_DECLINE);
+			if (res >= 0) {
+				size_t ia_na_len = 0, ia_pd_len = 0;
+
+				// Check if we still have valid leases after the Decline
+				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+
+				if (ia_na_len > 0) {
+					notice("Valid IA_NA remains, staying in BOUND");
+					dhcpv6_reinit_decline_target();
+					dhcpv6_set_state(DHCPV6_BOUND);
+					break ;
+				} else if (ia_pd_len > 0) {
+					notice("Only IA_PD remains, restarting with SOLICIT for new IA_NA");
+
+					// RFC 8415 : Solicit MUST NOT include Server Identifier or unicast target
+					odhcp6c_clear_state(STATE_SERVER_ID);
+					odhcp6c_clear_state(STATE_SERVER_ADDR);
+
+					dhcpv6_set_state(DHCPV6_SOLICIT);
+					break;
+				} else {
+					notice("No valid bindings left, resetting client state");
+					dhcpv6_set_state(DHCPV6_RESET);
+					break;
+				}
+			}
 			break;
 
 		default:
@@ -977,7 +1016,10 @@ bool odhcp6c_signal_process(void)
 			signal_usr2 = true;
 		}
 
-		if (ra_updated && (bound || config_dhcp->allow_slaac_only)) {
+		/* If kernel flagged DAD failure, schedule a DECLINE */
+		(void)odhcp6c_dad_handle();
+
+		if (ra_updated && (bound || config_dhcp->allow_slaac_only >= 0)) {
 			notify_state_change("ra-updated", (!ra && !bound) ?
 					script_sync_delay : script_accu_delay, false);
 			ra = true;
@@ -1227,6 +1269,23 @@ bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
 
 	fclose(fd);
 	return ret;
+}
+
+void odhcp6c_dad_handle(void) {
+	struct in6_addr bad = IN6ADDR_ANY_INIT;
+
+	if (ra_take_dad_trigger(&bad)) {
+		size_t have_na = 0;
+		(void)odhcp6c_get_state(STATE_IA_NA, &have_na);
+
+		if (have_na > 0) {
+			dhcpv6_set_decline_target(&bad);
+			notice("Triggering DHCPv6 DECLINE due to kernel DAD failure (addr=%s)",
+				inet_ntop(AF_INET6, &bad, (char[INET6_ADDRSTRLEN]){0}, INET6_ADDRSTRLEN));
+			dhcpv6_set_state(DHCPV6_DECLINE);
+		}
+	}
+
 }
 
 static void sighandler(int signal)
