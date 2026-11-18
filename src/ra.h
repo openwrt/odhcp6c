@@ -73,4 +73,10 @@ bool ra_process(void);
 
 /* Returns true once if a DAD failure was detected; copies the conflicted addr */
 bool ra_take_dad_trigger(struct in6_addr *addr_out);
+
+/* Scan /proc/net/if_inet6 for addresses already marked DADFAILED on our
+ * interface and re-enqueue them so odhcp6c_dad_handle() can process them.
+ * Call this after entering BOUND state to catch events that were consumed
+ * before STATE_IA_NA was populated. */
+void ra_scan_dadfailed(void);
 #endif /* _RA_H_ */

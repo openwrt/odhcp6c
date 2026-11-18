@@ -16,6 +16,7 @@
 #ifndef _ODHCP6C_H_
 #define _ODHCP6C_H_
 
+#include <net/if.h>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -560,6 +561,18 @@ struct odhcp6c_opt_cfg {
 	int strict_rfc7550;
 };
 
+struct if_inet6_entry {
+	struct in6_addr addr;
+	unsigned int ifindex;
+	unsigned int prefixlen;
+	unsigned int scope;
+	unsigned int flags;
+	char ifname[IF_NAMESIZE];
+};
+typedef bool (*if_inet6_cb)(const struct if_inet6_entry *entry, void *priv);
+bool odhcp6c_for_each_if_inet6(if_inet6_cb cb, void *priv);
+
+
 int init_dhcpv6(const char *ifname);
 int dhcpv6_get_ia_mode(void);
 int dhcpv6_promote_server_cand(void);
@@ -575,7 +588,7 @@ int dhcpv6_get_state_timeout(void);
 void dhcpv6_set_state_timeout(int timeout);
 void dhcpv6_reset_state_timeout(void);
 const char *dhcpv6_state_to_str(enum dhcpv6_state state);
-void dhcpv6_set_decline_target(const struct in6_addr *addr);
+bool dhcpv6_set_decline_target(const struct in6_addr *addr);
 bool dhcpv6_has_conflicts(void);
 void dhcpv6_reinit_decline_target(void);
 

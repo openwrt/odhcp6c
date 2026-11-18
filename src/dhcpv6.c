@@ -92,14 +92,27 @@ static struct decline_ctx g_decline = {
 	.has_conflict = false,
 	.conflict_count = 0
 };
-void dhcpv6_set_decline_target(const struct in6_addr *addr)
+bool dhcpv6_set_decline_target(const struct in6_addr *addr)
 {
-	if (addr) {
-		if (g_decline.conflict_count < DHCPV6_MAX_CONFLICTS) {
-			g_decline.conflicted_addrs[g_decline.conflict_count++] = *addr;
-			g_decline.has_conflict = true;
-		}
+	if (!addr) {
+		error("dhcpv6_set_decline_target: NULL address pointer");
+		return false;
 	}
+
+	for (size_t i = 0; i < g_decline.conflict_count; i++) {
+		if (!memcmp(&g_decline.conflicted_addrs[i], addr, sizeof(*addr)))
+			return true;
+	}
+
+	if (g_decline.conflict_count >= DHCPV6_MAX_CONFLICTS) {
+		warn("Too many DAD conflicts, cannot add address to DECLINE");
+		return false;
+	}
+
+	g_decline.conflicted_addrs[g_decline.conflict_count++] = *addr;
+	g_decline.has_conflict = true;
+
+	return true;
 }
 bool dhcpv6_has_conflicts(void)
 {
@@ -802,8 +815,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 	size_t ia_pd_entry_cnt = 0, ia_pd_len = 0;
 	uint8_t *ia_pd;
 
-	if ((req_msg_type == DHCPV6_MSG_SOLICIT || req_msg_type == DHCPV6_MSG_REQUEST) && dhcpv6_has_conflicts()) {
-		// After DECLINE state  → exclude IA_PD from SOLICIT and REQUEST
+	if (req_msg_type == DHCPV6_MSG_DECLINE && dhcpv6_has_conflicts()) {
 		ia_pd = NULL;
 		ia_pd_len = 0;
 		debug("Skipping IA_PD in %s after DECLINE state (IA_NA only)", dhcpv6_retx[req_msg_type].name);
@@ -960,21 +972,38 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 				warn("DECLINE requested but none of the conflicted addresses were found in IA_NA");
 			}
 		} else {
-			/* Default: include all IA_NA addresses */
-			pa_cnt = ia_na_entry_cnt;
-			pa = alloca(pa_cnt * sizeof(*pa));
-			for (size_t i = 0; i < pa_cnt; ++i) {
-				pa[i].type = htons(DHCPV6_OPT_IA_ADDR);
-				pa[i].len = htons(sizeof(*pa) - DHCPV6_OPT_HDR_SIZE_U);
-				pa[i].addr = ia_entries[i].target;
-				if (req_msg_type == DHCPV6_MSG_REQUEST) {
-					pa[i].preferred = htonl(ia_entries[i].preferred);
-					pa[i].valid = htonl(ia_entries[i].valid);
-				} else {
-					pa[i].preferred = 0;
-					pa[i].valid = 0;
+			/* Default: include all IA_NA addresses.
+			 * For RELEASE while a Decline is in flight, skip conflicted
+			 * addresses (RFC 8415 §18.3.8: releasing them would undo the Decline). */
+			pa = alloca(ia_na_entry_cnt * sizeof(*pa));
+			size_t idx = 0;
+			for (size_t i = 0; i < ia_na_entry_cnt; ++i) {
+				if (req_msg_type == DHCPV6_MSG_RELEASE && dhcpv6_has_conflicts()) {
+					bool conflicted = false;
+					for (size_t c = 0; c < g_decline.conflict_count; c++) {
+						if (!memcmp(&ia_entries[i].target,
+								&g_decline.conflicted_addrs[c],
+								sizeof(struct in6_addr))) {
+							conflicted = true;
+							break;
+						}
+					}
+					if (conflicted)
+						continue;
 				}
+				pa[idx].type = htons(DHCPV6_OPT_IA_ADDR);
+				pa[idx].len = htons(sizeof(*pa) - DHCPV6_OPT_HDR_SIZE_U);
+				pa[idx].addr = ia_entries[i].target;
+				if (req_msg_type == DHCPV6_MSG_REQUEST) {
+					pa[idx].preferred = htonl(ia_entries[i].preferred);
+					pa[idx].valid = htonl(ia_entries[i].valid);
+				} else {
+					pa[idx].preferred = 0;
+					pa[idx].valid = 0;
+				}
+				idx++;
 			}
+			pa_cnt = idx;
 		}
 	}
 
@@ -1022,7 +1051,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 	oro_len *= sizeof(*oro);
 
 	// Prepare Headers
-	// Common header (no ORO) — used for DECLINE to avoid sending ORO at all
+	// Common header (no ORO), used for DECLINE to avoid sending ORO at all
 	struct dhcpv6_hdr_common {
 		uint8_t  type;
 		uint8_t  trid[3];
@@ -1035,7 +1064,7 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 		htons((ecs > 0xffff) ? 0xffff : ecs),
 	};
 
-	// Header with ORO — used for all messages except DECLINE
+	// Header with ORO, used for all messages except DECLINE
 	struct dhcpv6_hdr_with_oro {
 		uint8_t  type;
 		uint8_t  trid[3];
@@ -1170,19 +1199,6 @@ static void dhcpv6_send(enum dhcpv6_msg req_msg_type, uint8_t trid[3], uint32_t 
 				in6_str, sizeof(in6_str)), strerror(errno));
 		dhcpv6_stats.transmit_failures++;
 	} else {
-		/*
-		 * Post-Decline handling:
-		 * If the REQUEST sent after a DECLINE does not receive a Reply
-		 * and retransmissions reach max_rc, RFC 8415 requires restarting
-		 * with a new Solicit. Before restarting, we clear the decline
-		 * context so that IA_PD will be included in the next Solicit cycle.
-		 */
-		if (req_msg_type == DHCPV6_MSG_REQUEST &&
-				dhcpv6_has_conflicts() &&
-				(dhcpv6_retx[DHCPV6_MSG_REQUEST].rc + 1) >= dhcpv6_retx[DHCPV6_MSG_REQUEST].max_rc) {
-			notice("REQUEST retries exhausted, clearing decline context");
-			dhcpv6_reinit_decline_target();
-		}
 		dhcpv6_inc_counter(req_msg_type);
 	}
 }
@@ -1882,11 +1898,11 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 	return ret;
 }
 
-static int dhcpv6_handle_decline_reply(enum dhcpv6_msg orig, const int rc,
-		const void *opt, const void *end, const struct sockaddr_in6 *from)
+static int dhcpv6_handle_decline_reply(enum dhcpv6_msg orig, _o_unused const int rc,
+		const void *opt, const void *end, _o_unused const struct sockaddr_in6 *from)
 {
 	/* Most servers don't reply to DECLINE (RFC 8415).
-	 * If a Reply appears, honor Status Code / Unicast / ServerID.
+	 * If a Reply appears, honor Status Code and ServerID.
 	 */
 	uint16_t otype, olen;
 	uint8_t *odata;
@@ -1901,9 +1917,6 @@ static int dhcpv6_handle_decline_reply(enum dhcpv6_msg orig, const int rc,
 			uint16_t mlen = (olen > 2) ? olen - 2 : 0;
 			uint16_t code = (((int)odata[0]) << 8) | ((int)odata[1]);
 			dhcpv6_handle_status_code(orig, code, mdata, mlen, &ret);
-		} else if (otype == DHCPV6_OPT_UNICAST && olen == sizeof(server_addr)) {
-			if (!(client_options & DHCPV6_IGNORE_OPT_UNICAST))
-				server_addr = *(const struct in6_addr *)odata;
 		} else if (otype == DHCPV6_OPT_SERVERID) {
 			uint16_t hdr[2] = { htons(DHCPV6_OPT_SERVERID), htons(olen) };
 			odhcp6c_clear_state(STATE_SERVER_ID);
@@ -1919,7 +1932,8 @@ static int dhcpv6_finish_decline(void)
 	// If no Reply received yet, request retransmission
 	if (dhcpv6_has_conflicts() &&
 		dhcpv6_retx[DHCPV6_MSG_DECLINE].reply_ret < 0 &&
-		dhcpv6_retx[DHCPV6_MSG_DECLINE].rc < dhcpv6_retx[DHCPV6_MSG_DECLINE].max_rc) {
+		(!dhcpv6_retx[DHCPV6_MSG_DECLINE].max_rc ||
+		 dhcpv6_retx[DHCPV6_MSG_DECLINE].rc < dhcpv6_retx[DHCPV6_MSG_DECLINE].max_rc)) {
 
 		notice("No Reply to Decline, will retry (rc=%d)",
 				dhcpv6_retx[DHCPV6_MSG_DECLINE].rc);
@@ -1933,7 +1947,6 @@ static int dhcpv6_finish_decline(void)
 				g_decline.conflict_count);
 	}
 
-	server_addr = in6addr_any;
 	return 0;
 }
 
@@ -1943,19 +1956,30 @@ static void dhcpv6_remove_conflicted_addrs(void)
 
 	for (size_t i = 0; i < g_decline.conflict_count; i++) {
 		struct in6_addr *addr = &g_decline.conflicted_addrs[i];
-		size_t len;
-		uint8_t *start = odhcp6c_get_state(STATE_IA_NA, &len);
-		for (struct odhcp6c_entry *c = (struct odhcp6c_entry *)start;
-				(uint8_t *)c < &start[len];
-				c = odhcp6c_next_entry(c)) {
-			if (!memcmp(&c->target, addr, sizeof(*addr))) {
-				notice("Expiring conflicted address %s",
-						inet_ntop(AF_INET6, addr, buf, sizeof(buf)));
-				odhcp6c_remove_state(STATE_IA_NA,
-						(uint8_t *)c - start,
-						odhcp6c_entry_size(c));
+		bool found;
+		/* Re-scan after each removal: odhcp6c_remove_state() memmoves the
+		 * entries after the removed one down, invalidating start/len. */
+		do {
+			found = false;
+			size_t len;
+			uint8_t *start = odhcp6c_get_state(STATE_IA_NA, &len);
+			if (!start || !len)
+				break;
+			for (struct odhcp6c_entry *c = (struct odhcp6c_entry *)start;
+					(uint8_t *)c < &start[len] &&
+					(uint8_t *)odhcp6c_next_entry(c) <= &start[len];
+					c = odhcp6c_next_entry(c)) {
+				if (!memcmp(&c->target, addr, sizeof(*addr))) {
+					notice("Expiring conflicted address %s",
+							inet_ntop(AF_INET6, addr, buf, sizeof(buf)));
+					odhcp6c_remove_state(STATE_IA_NA,
+							(uint8_t *)c - start,
+							odhcp6c_entry_size(c));
+					found = true;
+					break; /* restart: the entries after the removed one move down and len is stale*/
+				}
 			}
-		}
+		} while (found);
 	}
 }
 
@@ -2249,10 +2273,8 @@ static void dhcpv6_handle_status_code(const enum dhcpv6_msg orig,
 		break;
 
 	case DHCPV6_NoBinding:
-		if (orig == DHCPV6_MSG_DECLINE) {
-			// RFC 8415: client should not treat NoBinding in Decline as error
-			*ret = 0;
-		}
+		/* For DECLINE the handler already starts with ret=0; any valid Reply
+		 * completes the Decline (RFC 8415 18.2.10.2). No special action. */
 		break;
 
 	case DHCPV6_UseMulticast:
@@ -2260,10 +2282,16 @@ static void dhcpv6_handle_status_code(const enum dhcpv6_msg orig,
 		case DHCPV6_MSG_REQUEST:
 		case DHCPV6_MSG_RENEW:
 		case DHCPV6_MSG_RELEASE:
-		case DHCPV6_MSG_DECLINE:
 			// Message needs to be retransmitted according to RFC3315 chapter 18.1.8
 			server_addr = in6addr_any;
 			*ret = 0;
+			break;
+		case DHCPV6_MSG_DECLINE:
+			/* RFC 8415 18.2.10.1: client must retransmit over multicast.
+			 * Return -1 so dhcpv6_finish_decline() keeps retrying;
+			 * server_addr is cleared so the next send uses multicast. */
+			server_addr = in6addr_any;
+			*ret = -1;
 			break;
 		default:
 			break;
@@ -2452,6 +2480,9 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 {
 	struct dhcpv6_retx *retx = &dhcpv6_retx[req_msg_type];
 	uint64_t current_milli_time = 0;
+
+	if (req_msg_type == DHCPV6_MSG_SOLICIT)
+		server_addr = in6addr_any;
 
 	if (!retx->is_retransmit) {
 		// Initial delay handling
