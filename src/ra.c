@@ -302,9 +302,10 @@ bool ra_link_up(void)
 		if (nread <= 0)
 			break;
 
+		int rem = (int)nread;
 		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf;
-				NLMSG_OK(nh, (size_t)nread);
-				nh = NLMSG_NEXT(nh, nread)) {
+				NLMSG_OK(nh, rem);
+				nh = NLMSG_NEXT(nh, rem)) {
 			if (nh->nlmsg_type == RTM_NEWLINK) {
 				struct ifinfomsg *ifi = NLMSG_DATA(nh);
 				if (ifi->ifi_index != if_index)
