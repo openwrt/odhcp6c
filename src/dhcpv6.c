@@ -2261,8 +2261,11 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 		else if (req_msg_type == DHCPV6_MSG_REBIND)
 			retx->timeout = (t3 > t2) ? t3 - t2 : ((t2 == UINT32_MAX) ? UINT32_MAX : 0);
 
-		if (retx->timeout == 0)
+		if (retx->timeout == 0) {
+			retx->start = retx->round_start = retx->round_end = odhcp6c_get_milli_time();
+			dhcpv6_next_state();
 			return -1;
+		}
 
 		notice("Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
 			retx->name, retx->timeout, retx->max_rc);
