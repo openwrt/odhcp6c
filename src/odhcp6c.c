@@ -761,6 +761,8 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_INFO_REPLY:
+			if (res > 0 && bound)
+				notify_state_change("updated", 0, false);
 			dhcpv6_set_state(res < 0 ? DHCPV6_RESET : DHCPV6_BOUND);
 			break;
 
