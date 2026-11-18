@@ -1270,13 +1270,13 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 		}
 	}
 
+	if (msg != DHCPV6_MSG_UNKNOWN)
+		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
+
 	if (msg == DHCPV6_MSG_REBIND && t2 != UINT32_MAX)
 		t2 = 0;
 	if ((msg == DHCPV6_MSG_REBIND || msg == DHCPV6_MSG_RENEW) && t1 != UINT32_MAX)
 		t1 = 0;
-
-	if (msg != DHCPV6_MSG_UNKNOWN)
-		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
 
 	return (msg == DHCPV6_MSG_UNKNOWN? -1: (int)msg);
 }
@@ -1439,31 +1439,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 
 	odhcp6c_expire(true);
 
-	if (orig == DHCPV6_MSG_UNKNOWN) {
-		static time_t last_update = 0;
-		time_t now = odhcp6c_get_milli_time() / 1000;
-
-		uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
-		last_update = now;
-
-		if (t1 != UINT32_MAX)
-			t1 -= elapsed;
-
-		if (t2 != UINT32_MAX)
-			t2 -= elapsed;
-
-		if (t3 != UINT32_MAX)
-			t3 -= elapsed;
-
-		if (t1 < 0)
-			t1 = 0;
-
-		if (t2 < 0)
-			t2 = 0;
-
-		if (t3 < 0)
-			t3 = 0;
-	}
+	if (orig == DHCPV6_MSG_UNKNOWN)
+		dhcpv6_calc_refresh_timers();
 
 	if (orig == DHCPV6_MSG_REQUEST && !odhcp6c_is_bound()) {
 		// Delete NA and PD we have in the state from the Advert
