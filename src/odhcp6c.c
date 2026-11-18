@@ -56,6 +56,9 @@ static void odhcp6c_cleanup(void);
 
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
+static bool odhcp6c_server_advertised(void);
+static bool ra_refresh_pending;
+static uint64_t ra_refresh_after;
 
 static volatile bool signal_io = false;
 static volatile bool signal_usr1 = false;
@@ -596,10 +599,11 @@ int main(_o_unused int argc, char* const argv[])
 
 	while (!terminate) { // Main logic
 		int poll_res;
-		bool signalled = odhcp6c_signal_process();
+		bool signalled = odhcp6c_signal_process(mode);
 
 		switch (dhcpv6_get_state()) {
 		case DHCPV6_INIT:
+			ra_refresh_pending = false;
 			odhcp6c_clear_state(STATE_SERVER_ID);
 			odhcp6c_clear_state(STATE_SERVER_ADDR);
 			odhcp6c_clear_state(STATE_IA_NA);
@@ -675,6 +679,8 @@ int main(_o_unused int argc, char* const argv[])
 
 		case DHCPV6_BOUND:
 			if (!bound) {
+				// Acquisition already refreshed the configuration.
+				ra_refresh_pending = false;
 				bound = true;
 				if (mode == DHCPV6_STATELESS) {
 					notice("entering stateless-mode on %s", ifname);
@@ -789,6 +795,7 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_EXIT:
+			ra_refresh_pending = false;
 			odhcp6c_expire(false);
 
 			size_t ia_pd_len, ia_na_len, server_id_len;
@@ -817,6 +824,7 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 
 		case DHCPV6_RESET:
+			ra_refresh_pending = false;
 			if (!client_id_param)
 				odhcp6c_clear_state(STATE_CLIENT_ID);
 
@@ -840,8 +848,31 @@ int main(_o_unused int argc, char* const argv[])
 			break;
 		}
 
+		// Consume replies before starting an RA-triggered exchange.
+		if (ra_refresh_pending && bound &&
+				(dhcpv6_get_state() == DHCPV6_BOUND ||
+				 dhcpv6_get_state() == DHCPV6_BOUND_PROCESSING)) {
+			uint64_t now = odhcp6c_get_milli_time();
+			if (now >= ra_refresh_after) {
+				ra_refresh_pending = false;
+				ra_refresh_after = now + 30000;
+				// Reconsider configured IAs when a server becomes available.
+				if (mode == DHCPV6_STATELESS && odhcp6c_server_advertised() &&
+						(config_dhcp->ia_na_mode != IA_MODE_NONE ||
+						 config_dhcp->ia_pd_mode != IA_MODE_NONE))
+					dhcpv6_set_state(DHCPV6_RESET);
+				else
+					dhcpv6_refresh(mode);
+			}
+		}
+
 		if (signal_usr2 || signal_term)
 			dhcpv6_set_state(DHCPV6_EXIT);
+
+		if (ra_refresh_pending && bound && dhcpv6_get_state() == DHCPV6_BOUND_PROCESSING) {
+			uint64_t now = odhcp6c_get_milli_time();
+			dhcpv6_set_state_timeout(ra_refresh_after > now ? ra_refresh_after - now : 1);
+		}
 
 		poll_res = poll(fds, nfds, dhcpv6_get_state_timeout());
 		dhcpv6_reset_state_timeout();
@@ -940,7 +971,7 @@ static uint8_t* odhcp6c_resize_state(enum odhcp6c_state state, ssize_t len)
 	return n;
 }
 
-static bool odhcp6c_server_advertised()
+static bool odhcp6c_server_advertised(void)
 {
 	size_t len;
 	uint8_t *start = odhcp6c_get_state(STATE_RA_ROUTE, &len);
@@ -960,23 +991,24 @@ static bool odhcp6c_server_advertised()
 	return false;
 }
 
-bool odhcp6c_signal_process(void)
+bool odhcp6c_signal_process(int mode)
 {
 	while (signal_io) {
 		signal_io = false;
 
 		size_t old_ra_prefix_size = state_len[STATE_RA_PREFIX];
-		bool ra_updated = ra_process();
+		bool server_was_advertised = odhcp6c_server_advertised();
+		bool prefix_changed = false;
+		bool ra_updated = ra_process(&prefix_changed);
 
 		if (ra_link_up()) {
 			signal_usr2 = true;
 			ra = false;
-		} else if (old_ra_prefix_size != state_len[STATE_RA_PREFIX] &&
-				odhcp6c_server_advertised()) {
-			// Restart DHCPv6 transaction when router advertisement flags
-			// show presence of a DHCPv6 server and new prefixes were
-			// added to STATE_RA_PREFIX state
-			signal_usr2 = true;
+			ra_refresh_pending = false;
+		} else if (prefix_changed || (mode == DHCPV6_STATELESS &&
+				odhcp6c_server_advertised() &&
+				(!server_was_advertised || old_ra_prefix_size != state_len[STATE_RA_PREFIX]))) {
+			ra_refresh_pending = true;
 		}
 
 		if (ra_updated && (bound || config_dhcp->allow_slaac_only)) {
@@ -1093,6 +1125,7 @@ bool odhcp6c_update_entry(enum odhcp6c_state state, struct odhcp6c_entry *new,
 		x->t1 = new->t1;
 		x->t2 = new->t2;
 		x->iaid = new->iaid;
+		x->ra_preferred = new->ra_preferred;
 	} else if (odhcp6c_add_state(state, new, odhcp6c_entry_size(new))) {
 		return false;
 	}
@@ -1146,6 +1179,7 @@ void odhcp6c_expire(bool expire_ia_pd)
 	last_update = now;
 
 	odhcp6c_expire_list(STATE_RA_PREFIX, elapsed, true);
+	odhcp6c_expire_list(STATE_RA_ONLINK, elapsed, true);
 	odhcp6c_expire_list(STATE_RA_ROUTE, elapsed, true);
 	odhcp6c_expire_list(STATE_RA_DNS, elapsed, true);
 	odhcp6c_expire_list(STATE_RA_SEARCH, elapsed, true);
