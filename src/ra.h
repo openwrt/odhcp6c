@@ -69,6 +69,6 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 	    ra_ifid_mode_t ifid_mode, unsigned int options,
 	    unsigned int holdoff_interval);
 bool ra_link_up(void);
-bool ra_process(void);
+bool ra_process(bool *prefix_changed);
 
 #endif /* _RA_H_ */

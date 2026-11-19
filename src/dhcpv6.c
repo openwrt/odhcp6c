@@ -1270,13 +1270,13 @@ static int dhcpv6_handle_reconfigure(enum dhcpv6_msg orig, const int rc,
 		}
 	}
 
+	if (msg != DHCPV6_MSG_UNKNOWN)
+		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
+
 	if (msg == DHCPV6_MSG_REBIND && t2 != UINT32_MAX)
 		t2 = 0;
 	if ((msg == DHCPV6_MSG_REBIND || msg == DHCPV6_MSG_RENEW) && t1 != UINT32_MAX)
 		t1 = 0;
-
-	if (msg != DHCPV6_MSG_UNKNOWN)
-		dhcpv6_handle_reply(orig, rc, NULL, NULL, NULL);
 
 	return (msg == DHCPV6_MSG_UNKNOWN? -1: (int)msg);
 }
@@ -1439,31 +1439,8 @@ static int dhcpv6_handle_reply(enum dhcpv6_msg orig, _o_unused const int rc,
 
 	odhcp6c_expire(true);
 
-	if (orig == DHCPV6_MSG_UNKNOWN) {
-		static time_t last_update = 0;
-		time_t now = odhcp6c_get_milli_time() / 1000;
-
-		uint32_t elapsed = (last_update > 0) ? now - last_update : 0;
-		last_update = now;
-
-		if (t1 != UINT32_MAX)
-			t1 -= elapsed;
-
-		if (t2 != UINT32_MAX)
-			t2 -= elapsed;
-
-		if (t3 != UINT32_MAX)
-			t3 -= elapsed;
-
-		if (t1 < 0)
-			t1 = 0;
-
-		if (t2 < 0)
-			t2 = 0;
-
-		if (t3 < 0)
-			t3 = 0;
-	}
+	if (orig == DHCPV6_MSG_UNKNOWN)
+		dhcpv6_calc_refresh_timers();
 
 	if (orig == DHCPV6_MSG_REQUEST && !odhcp6c_is_bound()) {
 		// Delete NA and PD we have in the state from the Advert
@@ -2245,6 +2222,44 @@ int dhcpv6_promote_server_cand(void)
 	return ret;
 }
 
+/* RFC9915 §18.2.12: Significant on-link prefix changes trigger Renew
+ * for valid delegated prefixes, Confirm for addresses only, or
+ * Information-request for information-only configuration.
+ *
+ * Use Renew for address-only bindings as well to request new addresses,
+ * replacements for deprecated addresses and updated lifetimes before T1.
+ * See https://github.com/openwrt/odhcp6c/pull/119.
+ */
+void dhcpv6_refresh(int mode)
+{
+	enum dhcpv6_state next = mode == DHCPV6_STATEFUL ? DHCPV6_RESET : DHCPV6_INFO;
+	size_t len;
+	struct odhcp6c_entry *entries;
+
+	odhcp6c_expire(false);
+	dhcpv6_calc_refresh_timers();
+	entries = odhcp6c_get_state(STATE_IA_PD, &len);
+	for (size_t i = 0; i < len / sizeof(*entries); i++)
+		if (entries[i].valid) {
+			next = DHCPV6_RENEW;
+			// Keep omitted IAs due for renewal across timer recalculation.
+			entries[i].t1 = 0;
+		}
+
+	entries = odhcp6c_get_state(STATE_IA_NA, &len);
+	for (size_t i = 0; i < len / sizeof(*entries); i++)
+		if (entries[i].valid) {
+			next = DHCPV6_RENEW;
+			entries[i].t1 = 0;
+		}
+
+	// An early Renew runs until the remaining T2, as if T1 had expired.
+	if (next == DHCPV6_RENEW)
+		t1 = 0;
+	dhcpv6_retx[DHCPV6_MSG_UNKNOWN].is_retransmit = false;
+	dhcpv6_set_state(next);
+}
+
 int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 {
 	struct dhcpv6_retx *retx = &dhcpv6_retx[req_msg_type];
@@ -2284,8 +2299,11 @@ int dhcpv6_send_request(enum dhcpv6_msg req_msg_type)
 		else if (req_msg_type == DHCPV6_MSG_REBIND)
 			retx->timeout = (t3 > t2) ? t3 - t2 : ((t2 == UINT32_MAX) ? UINT32_MAX : 0);
 
-		if (retx->timeout == 0)
+		if (retx->timeout == 0) {
+			retx->start = retx->round_start = retx->round_end = odhcp6c_get_milli_time();
+			dhcpv6_next_state();
 			return -1;
+		}
 
 		notice("Starting %s transaction (timeout %"PRIu64"s, max rc %d)",
 			retx->name, retx->timeout, retx->max_rc);

@@ -445,6 +445,7 @@ enum odhcp6c_state {
 	STATE_SIP_FQDN,
 	STATE_RA_ROUTE,
 	STATE_RA_PREFIX,
+	STATE_RA_ONLINK,
 	STATE_RA_DNS,
 	STATE_RA_SEARCH,
 	STATE_AFTR_NAME,
@@ -510,6 +511,7 @@ struct odhcp6c_entry {
 	uint8_t exclusion_length;
 	struct in6_addr target;
 	int16_t priority;
+	bool ra_preferred;
 	uint32_t valid;
 	uint32_t preferred;
 	uint32_t t1;
@@ -561,6 +563,7 @@ struct odhcp6c_opt_cfg {
 int init_dhcpv6(const char *ifname);
 int dhcpv6_get_ia_mode(void);
 int dhcpv6_promote_server_cand(void);
+void dhcpv6_refresh(int mode);
 int dhcpv6_send_request(enum dhcpv6_msg type);
 int dhcpv6_receive_response(enum dhcpv6_msg type);
 enum dhcpv6_state dhcpv6_get_state(void);
@@ -590,7 +593,7 @@ ssize_t script_unhexlify(uint8_t *dst, size_t len, const char *src);
 void script_hexlify(char *dst, const uint8_t *src, size_t len);
 void script_call(const char *status, int delay, bool resume);
 
-bool odhcp6c_signal_process(void);
+bool odhcp6c_signal_process(int mode);
 uint64_t odhcp6c_get_milli_time(void);
 int odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);

@@ -50,6 +50,7 @@
 
 static bool nocarrier = false;
 static bool ptp_link = false;
+static bool ra_onlink_initialized = false;
 
 static int sock = -1, rtnl = -1;
 static int if_index = 0;
@@ -282,6 +283,8 @@ bool ra_link_up(void)
 	if (ret) {
 		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
 
+		odhcp6c_clear_state(STATE_RA_ONLINK);
+		ra_onlink_initialized = false;
 		rs_attempt = 0;
 		ra_send_rs(SIGALRM);
 	}
@@ -499,7 +502,32 @@ int ra_get_retransmit(void)
 	return ra_retransmit;
 }
 
-bool ra_process(void)
+static bool ra_update_onlink(struct odhcp6c_entry *entry)
+{
+	struct odhcp6c_entry prefix = *entry;
+	bool significant = false;
+	size_t len;
+	struct odhcp6c_entry *old = odhcp6c_get_state(STATE_RA_ONLINK, &len);
+
+	// Ignore host bits in a PIO's prefix identity.
+	for (unsigned int bit = prefix.length; bit < 128; bit++)
+		prefix.target.s6_addr[bit / 8] &= ~(0x80 >> (bit % 8));
+
+	for (size_t i = 0; i < len / sizeof(*old); i++) {
+		if (old[i].length != prefix.length ||
+				memcmp(&old[i].target, &prefix.target, sizeof(prefix.target)))
+			continue;
+		significant = old[i].ra_preferred && !prefix.preferred;
+		goto update;
+	}
+	significant = prefix.valid > 0;
+update:
+	// Remember advertised preference independently of lifetime aging.
+	prefix.ra_preferred = !!prefix.preferred;
+	return odhcp6c_update_entry(STATE_RA_ONLINK, &prefix, 0) && significant;
+}
+
+bool ra_process(bool *prefix_changed)
 {
 	bool found = false;
 	bool changed = false;
@@ -531,6 +559,7 @@ bool ra_process(void)
 		};
 		struct icmpv6_opt *opt;
 		uint32_t router_valid;
+		bool onlink_changed = false;
 		int hlim = 0;
 
 		ssize_t len = recvmsg(sock, &msg, MSG_DONTWAIT);
@@ -659,6 +688,9 @@ bool ra_process(void)
 						|| entry->valid < entry->preferred)
 					continue;
 
+				if (pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK)
+					onlink_changed |= ra_update_onlink(entry);
+
 				if ((pinfo->nd_opt_pi_flags_reserved & ND_OPT_PI_FLAG_ONLINK) && !ptp_link)
 					changed |= odhcp6c_update_entry(STATE_RA_ROUTE, entry,
 									ra_holdoff_interval);
@@ -751,6 +783,10 @@ bool ra_process(void)
 				break;
 			}
 		}
+
+		// The first valid RA establishes the baseline for all its PIOs.
+		*prefix_changed |= ra_onlink_initialized && onlink_changed;
+		ra_onlink_initialized = true;
 
 		if (ra_options & RA_RDNSS_DEFAULT_LIFETIME) {
 			int states[2] = {STATE_RA_DNS, STATE_RA_SEARCH};
