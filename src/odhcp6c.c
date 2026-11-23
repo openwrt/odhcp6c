@@ -54,6 +54,11 @@ static void sighandler(int signal);
 static int usage(void);
 static void odhcp6c_cleanup(void);
 
+struct addr_scope_ctx {
+	const struct in6_addr *addr;
+	bool found;
+};
+
 static uint8_t *state_data[_STATE_MAX] = {NULL};
 static size_t state_len[_STATE_MAX] = {0};
 
@@ -676,6 +681,12 @@ int main(_o_unused int argc, char* const argv[])
 		case DHCPV6_BOUND:
 			if (!bound) {
 				bound = true;
+				/* A new binding was established. Clear any stored DECLINE context
+				 * from a previous DAD failure cycle before continuing with normal
+				 * DHCPv6 operation.
+				 */
+				if (dhcpv6_has_conflicts())
+					dhcpv6_reinit_decline_target();
 				if (mode == DHCPV6_STATELESS) {
 					notice("entering stateless-mode on %s", ifname);
 					signal_usr1 = false;
@@ -685,6 +696,17 @@ int main(_o_unused int argc, char* const argv[])
 					notice("entering stateful-mode on %s", ifname);
 				}
 			}
+
+			/* Re-scan for DADFAILED addresses on every BOUND entry.  The DAD
+			 * failure event may have been received before the IA_NA lease was
+			 * available (covered by the initial bind path above), or we may be
+			 * re-entering BOUND after a post-decline re-SOLICIT where bound=true
+			 * but a new DAD failure may already be queued.
+			 */
+			ra_scan_dadfailed();
+			odhcp6c_dad_handle();
+			if (dhcpv6_get_state() != DHCPV6_BOUND)
+				break;
 
 			req_msg_type = DHCPV6_MSG_UNKNOWN;
 			dhcpv6_send_request(req_msg_type);
@@ -831,7 +853,54 @@ int main(_o_unused int argc, char* const argv[])
 			close(dhcpv6_get_socket());
 			fds[DHCPV6_FD_INDEX].fd = -1;
 
+			if(dhcpv6_has_conflicts()) {
+				dhcpv6_reinit_decline_target();
+			}
+
 			dhcpv6_set_state(DHCPV6_INIT);
+			break;
+
+		case DHCPV6_DECLINE:
+			dhcpv6_send_request(DHCPV6_MSG_DECLINE);
+			break;
+
+		case DHCPV6_DECLINE_PROCESSING:
+			res = dhcpv6_state_processing(DHCPV6_MSG_DECLINE);
+			if (res >= 0) {
+				size_t ia_na_len = 0, ia_pd_len = 0;
+
+				// Check if we still have valid leases after the Decline
+				odhcp6c_get_state(STATE_IA_NA, &ia_na_len);
+				odhcp6c_get_state(STATE_IA_PD, &ia_pd_len);
+
+				if (ia_na_len > 0) {
+					/* Conflicted address removed; remaining IA_NA still valid.
+					 * Notify once here, BOUND won't re-notify since bound=true. */
+					notice("Valid IA_NA remains after Decline, returning to BOUND");
+					notify_state_change("updated", 0, false);
+					dhcpv6_reinit_decline_target();
+					dhcpv6_set_state(DHCPV6_BOUND);
+					break;
+				} else if (ia_pd_len > 0) {
+					notice("Only IA_PD remains, restarting with SOLICIT for new IA_NA");
+					notify_state_change("declined", 0, false);
+
+					dhcpv6_reinit_decline_target();
+
+					// RFC 8415 : Solicit MUST NOT include Server Identifier or unicast target
+					odhcp6c_clear_state(STATE_SERVER_ID);
+					odhcp6c_clear_state(STATE_SERVER_ADDR);
+
+					dhcpv6_set_state(DHCPV6_SOLICIT);
+					break;
+				} else {
+					notice("No valid bindings left, resetting client state");
+					notify_state_change("declined", 0, false);
+					dhcpv6_reinit_decline_target();
+					dhcpv6_set_state(DHCPV6_RESET);
+					break;
+				}
+			}
 			break;
 
 		default:
@@ -977,7 +1046,10 @@ bool odhcp6c_signal_process(void)
 			signal_usr2 = true;
 		}
 
-		if (ra_updated && (bound || config_dhcp->allow_slaac_only)) {
+		/* If kernel flagged DAD failure, schedule a DECLINE */
+		(void)odhcp6c_dad_handle();
+
+		if (ra_updated && (bound || config_dhcp->allow_slaac_only >= 0)) {
 			notify_state_change("ra-updated", (!ra && !bound) ?
 					script_sync_delay : script_accu_delay, false);
 			ra = true;
@@ -1166,67 +1238,150 @@ bool odhcp6c_is_bound(void)
 	return bound;
 }
 
-bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
+bool odhcp6c_for_each_if_inet6(if_inet6_cb cb, void *priv)
 {
-	FILE *fd = fopen("/proc/net/if_inet6", "r");
-	int len;
-	bool ret = false;
+	FILE *fd;
 	char buf[256];
+	bool ret = true;
 
-	if (fd == NULL)
+	fd = fopen("/proc/net/if_inet6", "r");
+	if (!fd)
 		return false;
 
 	while (fgets(buf, sizeof(buf), fd)) {
-		struct in6_addr inet6_addr;
-		uint32_t flags, dummy;
+		struct if_inet6_entry entry;
+		char addr_buf[33];
 		unsigned int i;
-		char name[IF_NAMESIZE], addr_buf[33];
+		int len;
 
 		len = strlen(buf);
-
-		if ((len <= 0) || buf[len - 1] != '\n')
-			break;
+		if (len <= 0 || buf[len - 1] != '\n')
+			continue;
 
 		buf[--len] = '\0';
 
-		if (sscanf(buf, "%s %x %x %x %x %s",
-				addr_buf, &dummy, &dummy, &dummy, &flags, name) != 6)
-			break;
-
-		if (strcmp(name, ifname) ||
-			(flags & (IFA_F_DADFAILED | IFA_F_TENTATIVE | IFA_F_DEPRECATED)))
+		if (sscanf(buf, "%32s %x %x %x %x %15s",
+			   addr_buf, &entry.ifindex, &entry.prefixlen,
+			   &entry.scope, &entry.flags, entry.ifname) != 6)
 			continue;
 
-		size_t addr_len = strlen(addr_buf);
-		bool valid = (addr_len == 2 * sizeof(inet6_addr.s6_addr));
-
-		for (i = 0; valid && i < addr_len; i++) {
-			if (!isxdigit((unsigned char)addr_buf[i]) ||
-			    isupper((unsigned char)addr_buf[i]))
-				valid = false;
-		}
-
-		if (!valid)
+		if (strlen(addr_buf) != 32)
 			continue;
 
-		memset(&inet6_addr, 0, sizeof(inet6_addr));
-		for (i = 0; i < (addr_len / 2); i++) {
-			unsigned char byte;
-			static const char hex[] = "0123456789abcdef";
-			byte = ((index(hex, addr_buf[i * 2]) - hex) << 4) |
-				(index(hex, addr_buf[i * 2 + 1]) - hex);
-			inet6_addr.s6_addr[i] = byte;
+		for (i = 0; i < 32; i++) {
+			if (!((addr_buf[i] >= '0' && addr_buf[i] <= '9') ||
+			      (addr_buf[i] >= 'a' && addr_buf[i] <= 'f')))
+				break;
 		}
 
-		if ((IN6_IS_ADDR_LINKLOCAL(&inet6_addr) == IN6_IS_ADDR_LINKLOCAL(addr)) &&
-			(IN6_IS_ADDR_UNIQUELOCAL(&inet6_addr) == IN6_IS_ADDR_UNIQUELOCAL(addr))) {
-			ret = true;
+		if (i != 32)
+			continue;
+
+		for (i = 0; i < 16; i++) {
+			unsigned int hi, lo;
+			char c;
+
+			c = addr_buf[i * 2];
+			hi = (c <= '9') ? c - '0' : c - 'a' + 10;
+
+			c = addr_buf[i * 2 + 1];
+			lo = (c <= '9') ? c - '0' : c - 'a' + 10;
+
+			entry.addr.s6_addr[i] = (hi << 4) | lo;
+		}
+
+		if (!cb(&entry, priv)) {
+			ret = false;
 			break;
 		}
 	}
 
 	fclose(fd);
 	return ret;
+}
+
+static bool addr_in_scope_cb(const struct if_inet6_entry *entry, void *priv)
+{
+	struct addr_scope_ctx *ctx = priv;
+
+	if (strcmp(entry->ifname, ifname) ||
+	    (entry->flags & (IFA_F_DADFAILED |
+			     IFA_F_TENTATIVE |
+			     IFA_F_DEPRECATED)))
+		return true;
+
+	if ((IN6_IS_ADDR_LINKLOCAL(&entry->addr) ==
+	     IN6_IS_ADDR_LINKLOCAL(ctx->addr)) &&
+	    (IN6_IS_ADDR_UNIQUELOCAL(&entry->addr) ==
+	     IN6_IS_ADDR_UNIQUELOCAL(ctx->addr))) {
+		ctx->found = true;
+		return false; /* stop iteration early */
+	}
+
+	return true;
+}
+
+bool odhcp6c_addr_in_scope(const struct in6_addr *addr)
+{
+	struct addr_scope_ctx ctx = {
+		.addr = addr,
+		.found = false
+	};
+
+	/* Ignore return value: false means either file error (ctx.found stays
+	 * false) or early exit after match (ctx.found is true). Both cases are
+	 * captured by ctx.found. */
+	odhcp6c_for_each_if_inet6(addr_in_scope_cb, &ctx);
+
+	return ctx.found;
+}
+
+void odhcp6c_dad_handle(void) {
+	enum dhcpv6_state cur = dhcpv6_get_state();
+
+	/* Only act when BOUND or BOUND_PROCESSING, not during Request/Decline/etc.
+	 * Triggers stay queued in the DAD queue; the BOUND entry rescan picks them up.
+	 * When in DECLINE state, the BOUND re-entry rescan will catch new failures. */
+	if (cur != DHCPV6_BOUND && cur != DHCPV6_BOUND_PROCESSING)
+		return;
+
+	struct in6_addr bad;
+	/* Drain all queued DAD failures, ra_link_up() may have enqueued more
+	 * than one in a single netlink recv() pass. */
+	while (ra_take_dad_trigger(&bad)) {
+		size_t na_len = 0;
+		bool in_lease = false;
+		struct odhcp6c_entry *na = odhcp6c_get_state(STATE_IA_NA, &na_len);
+
+		if (!na || na_len == 0)
+			continue;
+
+		/* Check if this specific address is in the active IA_NA lease,
+		 * not just whether any IA_NA exists.  A SLAAC address or a stale
+		 * address left by a previous odhcp6c session must not trigger a
+		 * DECLINE for the current binding. */
+		for (struct odhcp6c_entry *e = na;
+				(uint8_t *)e < (uint8_t *)na + na_len;
+				e = odhcp6c_next_entry(e)) {
+			if (!memcmp(&e->target, &bad, sizeof(bad))) {
+				in_lease = true;
+				break;
+			}
+		}
+
+		if (in_lease) {
+			if (dhcpv6_set_decline_target(&bad)) {
+				notice("Triggering DHCPv6 DECLINE due to kernel DAD failure (addr=%s)",
+						inet_ntop(AF_INET6, &bad, (char[INET6_ADDRSTRLEN]){0}, INET6_ADDRSTRLEN));
+				dhcpv6_set_state(DHCPV6_DECLINE);
+			} else {
+				error("Cannot register DAD-failed address for DHCPv6 DECLINE");
+			}
+		} else {
+			debug("Kernel DAD failure for %s but address not in IA_NA lease, ignoring",
+					inet_ntop(AF_INET6, &bad, (char[INET6_ADDRSTRLEN]){0}, INET6_ADDRSTRLEN));
+		}
+	}
 }
 
 static void sighandler(int signal)

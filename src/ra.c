@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/rtnetlink.h>
+#include <linux/if_addr.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
@@ -48,6 +49,9 @@
 #define IFF_LOWER_UP 0x10000
 #endif
 
+#include "odhcp6c.h"
+#include "ra.h"
+
 static bool nocarrier = false;
 static bool ptp_link = false;
 
@@ -63,6 +67,13 @@ static int ra_hoplimit = 0;
 static int ra_mtu = 0;
 static int ra_reachable = 0;
 static int ra_retransmit = 0;
+/* Circular queue for pending DAD failures.  Multiple RTM_NEWADDR messages
+ * with IFA_F_DADFAILED can arrive in a single netlink recv() call; a plain
+ * bool + single address would silently drop all but the last one. */
+#define DADFAIL_QUEUE_SIZE 8
+static struct in6_addr dadfail_queue[DADFAIL_QUEUE_SIZE];
+static size_t dadfail_head = 0; /* index of next entry to consume */
+static size_t dadfail_tail = 0; /* index of next slot to write    */
 
 struct {
 	struct icmp6_hdr hdr;
@@ -114,6 +125,11 @@ int ra_init(const char *ifname, const struct in6_addr *ifid,
 		goto failure;
 
 	int val = RTNLGRP_LINK;
+	if (setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val)) < 0)
+		goto failure;
+
+	/* Subscribe to IPv6 ifaddr updates to catch events like DADFAILED */
+	val = RTNLGRP_IPV6_IFADDR;
 	if (setsockopt(rtnl, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &val, sizeof(val)) < 0)
 		goto failure;
 
@@ -244,40 +260,104 @@ static int16_t pref_to_priority(uint8_t flags)
 			(flags == 0x3) ? 640 : -1;
 }
 
+static bool dadfail_queue_contains(const struct in6_addr *addr)
+{
+	for (size_t i = dadfail_head; i < dadfail_tail; i++) {
+		if (!memcmp(&dadfail_queue[i % DADFAIL_QUEUE_SIZE], addr, sizeof(*addr)))
+			return true;
+	}
+	return false;
+}
+
+/* Returns true if addr is currently listed in the active IA_NA lease.
+ * Used to suppress queuing of DADFAILED addresses that belong to a previous
+ * Decline cycle (kernel keeps permanent addresses with IFA_F_DADFAILED
+ * indefinitely, so they would re-trigger on every BOUND re-entry otherwise). */
+static bool addr_in_ia_na_lease(const struct in6_addr *addr)
+{
+	size_t na_len = 0;
+	struct odhcp6c_entry *na = odhcp6c_get_state(STATE_IA_NA, &na_len);
+
+	if (!na || na_len == 0)
+		return false;
+
+	for (struct odhcp6c_entry *e = na;
+	     (uint8_t *)e < (uint8_t *)na + na_len;
+	     e = odhcp6c_next_entry(e)) {
+		if (!memcmp(&e->target, addr, sizeof(*addr)))
+			return true;
+	}
+	return false;
+}
+
 bool ra_link_up(void)
 {
 	static bool firstcall = true;
-	struct {
-		struct nlmsghdr hdr;
-		struct ifinfomsg msg;
-		uint8_t pad[4000];
-	} resp;
+	uint8_t buf[8192];
 	bool ret = false;
-	ssize_t read;
+	ssize_t nread;
 
 	do {
-		read = recv(rtnl, &resp, sizeof(resp), MSG_DONTWAIT);
+		nread = recv(rtnl, buf, sizeof(buf), MSG_DONTWAIT);
+		if (nread <= 0)
+			break;
 
-		if (read < 0 || !NLMSG_OK(&resp.hdr, (size_t)read) ||
-				resp.hdr.nlmsg_type != RTM_NEWLINK ||
-				resp.msg.ifi_index != if_index)
-			continue;
+		int rem = (int)nread;
+		for (struct nlmsghdr *nh = (struct nlmsghdr*)buf;
+				NLMSG_OK(nh, rem);
+				nh = NLMSG_NEXT(nh, rem)) {
+			if (nh->nlmsg_type == RTM_NEWLINK) {
+				struct ifinfomsg *ifi = NLMSG_DATA(nh);
+				if (ifi->ifi_index != if_index)
+					continue;
 
-		ssize_t alen = NLMSG_PAYLOAD(&resp.hdr, sizeof(resp.msg));
-		for (struct rtattr *rta = (struct rtattr*)(resp.pad);
-				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
-			if (rta->rta_type == IFLA_ADDRESS &&
-					RTA_PAYLOAD(rta) >= sizeof(rs.lladdr.data))
-				memcpy(rs.lladdr.data, RTA_DATA(rta), sizeof(rs.lladdr.data));
+				ssize_t alen = NLMSG_PAYLOAD(nh, sizeof(*ifi));
+				uint8_t *ap = (uint8_t*)NLMSG_DATA(nh) + sizeof(*ifi);
+				for (struct rtattr *rta = (struct rtattr*)ap;
+						RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
+					if (rta->rta_type == IFLA_ADDRESS &&
+							RTA_PAYLOAD(rta) >= sizeof(rs.lladdr.data))
+						memcpy(rs.lladdr.data, RTA_DATA(rta), sizeof(rs.lladdr.data));
+				}
+
+				bool hascarrier = ifi->ifi_flags & IFF_LOWER_UP;
+				if (!firstcall && nocarrier != !hascarrier)
+					ret = true;
+				nocarrier = !hascarrier;
+				firstcall = false;
+			} else if (nh->nlmsg_type == RTM_NEWADDR || nh->nlmsg_type == RTM_DELADDR) {
+				/* Detect kernel DAD failure and remember the address */
+				struct ifaddrmsg *ifa = NLMSG_DATA(nh);
+				if ((unsigned int)ifa->ifa_index != (unsigned int)if_index)
+					continue;
+				if (!(ifa->ifa_flags & IFA_F_DADFAILED))
+					continue;
+
+				struct in6_addr *addr = NULL;
+				int rta_len = IFA_PAYLOAD(nh);
+				for (struct rtattr *rta = IFA_RTA(ifa);
+						RTA_OK(rta, rta_len); rta = RTA_NEXT(rta, rta_len)) {
+					if (rta->rta_type == IFA_ADDRESS &&
+							RTA_PAYLOAD(rta) >= sizeof(struct in6_addr)) {
+						addr = (struct in6_addr*)RTA_DATA(rta);
+						break;
+					}
+				}
+
+				if (addr && addr_in_ia_na_lease(addr) && !dadfail_queue_contains(addr)) {
+					char abuf[INET6_ADDRSTRLEN];
+					inet_ntop(AF_INET6, addr, abuf, sizeof(abuf));
+					if ((dadfail_tail - dadfail_head) < DADFAIL_QUEUE_SIZE) {
+						dadfail_queue[dadfail_tail % DADFAIL_QUEUE_SIZE] = *addr;
+						dadfail_tail++;
+						notice("Kernel DADFAILED queued for %s", abuf);
+					} else {
+						warn("DAD failure queue full, cannot queue address %s", abuf);
+					}
+				}
+			}
 		}
-
-		bool hascarrier = resp.msg.ifi_flags & IFF_LOWER_UP;
-		if (!firstcall && nocarrier != !hascarrier)
-			ret = true;
-
-		nocarrier = !hascarrier;
-		firstcall = false;
-	} while (read > 0);
+	} while (nread > 0);
 
 	if (ret) {
 		notice("carrier => %i event on %s", (int)!nocarrier, if_name);
@@ -593,11 +673,11 @@ bool ra_process(void)
 		// Evaluate options
 		icmpv6_for_each_option(opt, &adv[1], &buf[len]) {
 			switch(opt->type) {
-			case ND_OPT_MTU:
+			case ND_OPT_MTU: {
 				uint32_t *mtu = (uint32_t*)&opt->data[2];
 				changed |= ra_set_mtu(ntohl(*mtu));
 				break;
-
+			}
 			case ND_OPT_ROUTE_INFORMATION:
 				if (opt->len > 3)
 					continue;
@@ -775,4 +855,59 @@ bool ra_process(void)
 		odhcp6c_expire(false);
 
 	return found && changed;
+}
+
+bool ra_take_dad_trigger(struct in6_addr *addr_out)
+{
+	if (dadfail_head == dadfail_tail)
+		return false;
+	if (addr_out)
+		*addr_out = dadfail_queue[dadfail_head % DADFAIL_QUEUE_SIZE];
+	dadfail_head++;
+	return true;
+}
+
+static bool ra_dadfailed_cb(const struct if_inet6_entry *entry, void *priv)
+{
+	(void)priv;
+
+	if (entry->ifindex != (unsigned int)if_index)
+		return true;
+
+	if (!(entry->flags & IFA_F_DADFAILED))
+		return true;
+
+	/* Skip addresses not in the current IA_NA lease.  Permanent DADFAILED
+	 * addresses (e.g. from a previous Decline cycle) stay in the kernel's
+	 * address table forever; without this guard they would re-trigger a
+	 * Decline on every BOUND re-entry. */
+	if (!addr_in_ia_na_lease(&entry->addr))
+		return true;
+
+	if (dadfail_queue_contains(&entry->addr))
+		return true;
+
+	if ((dadfail_tail - dadfail_head) >= DADFAIL_QUEUE_SIZE) {
+		char abuf[INET6_ADDRSTRLEN];
+		inet_ntop(AF_INET6, &entry->addr, abuf, sizeof(abuf));
+		warn("DAD failure queue full, cannot re-queue address %s", abuf);
+		return true;
+	}
+
+	dadfail_queue[dadfail_tail % DADFAIL_QUEUE_SIZE] = entry->addr;
+	dadfail_tail++;
+
+	{
+		char abuf[INET6_ADDRSTRLEN];
+		inet_ntop(AF_INET6, &entry->addr, abuf, sizeof(abuf));
+		notice("Found pre-existing DADFAILED address %s on %s",
+		       abuf, entry->ifname);
+	}
+
+	return true;
+}
+
+void ra_scan_dadfailed(void)
+{
+	odhcp6c_for_each_if_inet6(ra_dadfailed_cb, NULL);
 }

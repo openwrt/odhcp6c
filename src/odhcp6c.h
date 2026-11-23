@@ -16,6 +16,7 @@
 #ifndef _ODHCP6C_H_
 #define _ODHCP6C_H_
 
+#include <net/if.h>
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -256,7 +257,9 @@ enum dhcpv6_state {
 	DHCPV6_INFO_PROCESSING,
 	DHCPV6_INFO_REPLY,
 	DHCPV6_EXIT,
-	DHCPV6_RESET
+	DHCPV6_RESET,
+	DHCPV6_DECLINE,
+	DHCPV6_DECLINE_PROCESSING,
 };
 
 enum dhcpv6_status {
@@ -528,7 +531,7 @@ struct odhcp6c_entry {
 
 struct odhcp6c_request_prefix {
 	uint32_t iaid;
-	uint8_t length;
+	uint16_t length;
 	struct in6_addr addr;
 };
 
@@ -558,6 +561,18 @@ struct odhcp6c_opt_cfg {
 	int strict_rfc7550;
 };
 
+struct if_inet6_entry {
+	struct in6_addr addr;
+	unsigned int ifindex;
+	unsigned int prefixlen;
+	unsigned int scope;
+	unsigned int flags;
+	char ifname[IF_NAMESIZE];
+};
+typedef bool (*if_inet6_cb)(const struct if_inet6_entry *entry, void *priv);
+bool odhcp6c_for_each_if_inet6(if_inet6_cb cb, void *priv);
+
+
 int init_dhcpv6(const char *ifname);
 int dhcpv6_get_ia_mode(void);
 int dhcpv6_promote_server_cand(void);
@@ -573,6 +588,9 @@ int dhcpv6_get_state_timeout(void);
 void dhcpv6_set_state_timeout(int timeout);
 void dhcpv6_reset_state_timeout(void);
 const char *dhcpv6_state_to_str(enum dhcpv6_state state);
+bool dhcpv6_set_decline_target(const struct in6_addr *addr);
+bool dhcpv6_has_conflicts(void);
+void dhcpv6_reinit_decline_target(void);
 
 int init_rtnetlink(void);
 int set_rtnetlink_addr(int ifindex, const struct in6_addr *addr,
@@ -595,6 +613,7 @@ uint64_t odhcp6c_get_milli_time(void);
 int odhcp6c_random(void *buf, size_t len);
 bool odhcp6c_is_bound(void);
 bool odhcp6c_addr_in_scope(const struct in6_addr *addr);
+void odhcp6c_dad_handle(void);
 
 // State manipulation
 void odhcp6c_clear_state(enum odhcp6c_state state);
