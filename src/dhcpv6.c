@@ -2225,17 +2225,17 @@ int dhcpv6_promote_server_cand(void)
 
 	if (cand->ia_na_len) {
 		odhcp6c_add_state(STATE_IA_NA, cand->ia_na, cand->ia_na_len);
-		free(cand->ia_na);
 		if (na_mode != IA_MODE_NONE)
 			ret = DHCPV6_STATEFUL;
 	}
+	free(cand->ia_na);
 
 	if (cand->ia_pd_len) {
 		odhcp6c_add_state(STATE_IA_PD, cand->ia_pd, cand->ia_pd_len);
-		free(cand->ia_pd);
 		if (pd_mode != IA_MODE_NONE)
 			ret = DHCPV6_STATEFUL;
 	}
+	free(cand->ia_pd);
 
 	dhcpv6_retx[DHCPV6_MSG_SOLICIT].max_timeo = cand->sol_max_rt;
 	dhcpv6_retx[DHCPV6_MSG_INFO_REQ].max_timeo = cand->inf_max_rt;
